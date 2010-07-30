@@ -54,7 +54,7 @@
 
 #endif /* _ANSI */
 
-#if defined(__GNUC__) && !defined(__STRICT_ANSI__) || __STDC_VERSION__ >= 199901
+#if defined(__GNUC__) || __STDC_VERSION__-0 >= 199901
 #define __LONG_LONG_SUPPORTED 1
 #endif
 
