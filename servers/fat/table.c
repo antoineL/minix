@@ -4,18 +4,28 @@
  * Updated:
  */
 
-#define _TABLE
+#define _POSIX_SOURCE 1
+#define _MINIX 1
+
+#include <sys/types.h>
 
 #include <minix/config.h>
 #include <minix/const.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
 
+#include <limits.h>	/* for NGROUPS_MAX, work around fishy headers */
 #include <minix/vfsif.h>
 
 #include "const.h"
 #include "type.h"
 #include "proto.h"
+#define _TABLE
 #include "glo.h"
 
+/* Dispatch table for requests. This is for the protocol as revised
+ * in December 2009 (SVN rev. 5780)
+ */
 PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	no_sys,		/*  0			*/
 	no_sys,		/*  1 (was getnode)	*/
@@ -49,7 +59,9 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	no_sys,		/* 29 newnode (unsupported) */
 /*CHK*/	no_sys,		/* 30 rdlink		*/
 	do_getdents,	/* 31 getdents		*/
+#ifdef REQ_STATVFS
 	do_statvfs,	/* 32 statvfs		*/
+#endif
 };
 
 /* This should not fail with "array size is negative": */

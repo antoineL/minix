@@ -13,16 +13,21 @@
 
 #define _POSIX_SOURCE 1
 #define _MINIX 1
-#define _SYSTEM 1		/* for negative error values */
 
-#include <assert.h>
+#define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+
+#include <sys/types.h>
 #include <sys/stat.h>
 
 #include <minix/config.h>
 #include <minix/const.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
 
 #include <minix/vfsif.h>
+#include <minix/safecopies.h>
+#include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
 #include "const.h"
 #include "type.h"
@@ -110,7 +115,7 @@ PUBLIC int do_stat()
 	if (HAS_CHILDREN(ino)) stat.st_nlink++;
   }
 
-  return sys_safecopyto(m.m_source, m.REQ_GRANT, 0,
+  return sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0,
 	(vir_bytes) &stat, sizeof(stat), D);
 }
 

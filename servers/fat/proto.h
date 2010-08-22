@@ -10,6 +10,22 @@
 #include <ansi.h>
 #endif
 
+#ifndef _IPC_H
+#error need to #include <minix/ipc.h>		/* message */
+#endif
+
+#ifndef FAT_TYPE_H_
+#error need to #include "type.h"
+#endif
+
+/* driver.c */
+_PROTOTYPE( int do_new_driver, (void)					);
+_PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
+			   int flags)					);
+_PROTOTYPE( void dev_close, (endpoint_t driver_e, dev_t dev)		);
+_PROTOTYPE( int block_dev_io, (int op, dev_t dev, int proc, void *buf,
+			       u64_t pos, int bytes, int flags)		);
+
 /* inode.c */
 _PROTOTYPE( struct inode *init_inode, (void)				);
 _PROTOTYPE( struct inode *find_inode, (ino_t ino_nr)			);
@@ -30,14 +46,15 @@ _PROTOTYPE( int do_new_driver, (void)					);
 _PROTOTYPE( int do_nothing, (void)					);
 _PROTOTYPE( int readonly, (void)					);
 _PROTOTYPE( int no_sys, (void)						);
+_PROTOTYPE( void reply, (int, message *)				);
 
 /* mount.c */
 _PROTOTYPE( int do_readsuper, (void)					);
 _PROTOTYPE( int do_unmount, (void)					);
 
 /* read.c */
-int do_read(), do_blockrw();
-int do_getdents();
+int do_read(void), do_blockrw(void);
+int do_getdents(void);
 
 /* stat.c */
 _PROTOTYPE( mode_t get_mode, (struct inode *ino, int mode)		);

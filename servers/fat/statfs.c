@@ -11,13 +11,25 @@
 /*#include "inc.h"*/
 #define _POSIX_SOURCE 1
 #define _MINIX 1
-#define _SYSTEM 1		/* for negative error values */
 
-#include <assert.h>
+#define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
 
+#include <sys/types.h>
+
+#include <minix/config.h>
+#include <minix/const.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
+
+#include <minix/vfsif.h>	/* REQ_STATVFS, REQ_GRANT */
+#include <minix/safecopies.h>
+#include <minix/syslib.h>	/* sys_safecopies{from,to} */
+
 #include <sys/statfs.h>
+#ifdef REQ_STATVFS
 #include <sys/statvfs.h>
+#endif
 
 #if 0
 #include <string.h>
@@ -32,13 +44,7 @@
 #include <sys/stat.h>
 #include "inode.h"
 #include "super.h"
-#endif
 
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/vfsif.h>	/* REQ_GRANT */
-
-#if 0
 #include <minix/type.h>
 #include <minix/com.h>
 #include <minix/ipc.h>
@@ -47,7 +53,6 @@
 #endif
 
 /*
-#include <minix/safecopies.h>
 #include <minix/syslib.h>
 #include <minix/sysutil.h>
 */
@@ -83,13 +88,13 @@ PUBLIC int do_fstatfs(void)
   st.f_bsize = /*rip->i_sp->s_block_size;*/ 512;
   
   /* Copy the struct to user space. */
-  r = sys_safecopyto(m.m_source, (cp_grant_id_t) m.REQ_GRANT,
+  r = sys_safecopyto(m_in.m_source, (cp_grant_id_t) m_in.REQ_GRANT,
   		     (vir_bytes) 0, (vir_bytes) &st, (size_t) sizeof(st), D);
   
   return(r);
 }
 
-
+#ifdef REQ_STATVFS
 /*===========================================================================*
  *				do_statvfs				     *
  *===========================================================================*/
@@ -129,8 +134,9 @@ PUBLIC int do_statvfs(void)
   st.f_flag |= ST_NOSUID;	/* FAT does not handle set-uid bits */
 
   /* Copy the struct to user space. */
-  r = sys_safecopyto(m.m_source, m.REQ_GRANT, 0, (vir_bytes) &st,
+  r = sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0, (vir_bytes) &st,
 		     (phys_bytes) sizeof(st), D);
   
   return(r);
 }
+#endif

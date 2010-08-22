@@ -12,17 +12,22 @@
 
 #define _POSIX_SOURCE 1
 #define _MINIX 1
-#define _SYSTEM 1		/* for negative error values */
 
-#include <assert.h>
+#define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+
+#include <sys/types.h>
 
 #include <minix/config.h>
 #include <minix/const.h>
 #include <minix/u64.h>
 
+#include <minix/type.h>
+#include <minix/ipc.h>
 #include <minix/com.h>		/* VFS_BASE */
 #include <minix/vfsif.h>
+#include <minix/safecopies.h>
+#include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
 #include "const.h"
 #include "type.h"
@@ -117,16 +122,16 @@ PUBLIC int do_blockrw(void)
   r = OK;
   
   /* Get the values from the request message */ 
-  rw_flag = (m.m_type == REQ_BREAD ? READING : WRITING);
-  gid = (cp_grant_id_t) m.REQ_GRANT;
-  position = make64((unsigned long) m.REQ_SEEK_POS_LO,
-  		    (unsigned long) m.REQ_SEEK_POS_HI);
-  nrbytes = (size_t) m.REQ_NBYTES;
+  rw_flag = (m_in.m_type == REQ_BREAD ? READING : WRITING);
+  gid = (cp_grant_id_t) m_in.REQ_GRANT;
+  position = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
+  		    (unsigned long) m_in.REQ_SEEK_POS_HI);
+  nrbytes = (size_t) m_in.REQ_NBYTES;
   
 /*
-  block_size = get_block_size( (dev_t) m.REQ_DEV2);
+  block_size = get_block_size( (dev_t) m_in.REQ_DEV2);
 
-  rip.i_zone[0] = (zone_t) m.REQ_DEV2;
+  rip.i_zone[0] = (zone_t) m_in.REQ_DEV2;
   rip.i_mode = I_BLOCK_SPECIAL;
 */
   rip.i_size = 0;
@@ -162,15 +167,15 @@ PUBLIC int do_blockrw(void)
 	  position = add64ul(position, chunk);	/* position within the file */
   }
   
-  m.RES_SEEK_POS_LO = ex64lo(position); 
-  m.RES_SEEK_POS_HI = ex64hi(position); 
+  m_out.RES_SEEK_POS_LO = ex64lo(position); 
+  m_out.RES_SEEK_POS_HI = ex64hi(position); 
 
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
   if (rdwt_err == END_OF_FILE) r = OK;
 #endif
 
-  m.RES_NBYTES = cum_io;
+  m_out.RES_NBYTES = cum_io;
   
   return(r);
 }
@@ -178,7 +183,7 @@ PUBLIC int do_blockrw(void)
 /*===========================================================================*
  *				do_getdents				     *
  *===========================================================================*/
-PUBLIC int do_getdents()
+PUBLIC int do_getdents(void)
 {
 /* Retrieve directory entries.
  */

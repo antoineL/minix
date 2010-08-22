@@ -20,12 +20,12 @@
  * Everything on-disk is stored in little-endian form.
  */ 
 
-/* Format of a superblock. This is the first sector on a FAT
- * file system.
+/* Format of a superblock, also known as boot sector.
+ * This is the first sector on a FAT file system.
  * DOS 1.x FAT floppies did not use this format (the parameters
  * were rather hardcoded in the system, indexed from FAT[0].)
  */
-struct fat_superblock {
+struct fat_bootsector {
   uint8_t bsJump[3];		/* jump inst; E9xxxx or EBxx90 */
   char bsOemName[8];		/* OEM name and version */
 
@@ -48,7 +48,7 @@ struct fat_superblock {
   uint8_t bpbSecPerTrack[2];	/* sectors per track */
   uint8_t bpbHeads[2];		/* number of heads */
 
-/* Here ended the uncontroversive. Now begins the fun...
+/* Here ended the uncontroversial. Now begins the fun...
  *
  * DOS 3 considers only a 16-bit quantity for the following member;
  * later version turned it into a 32-bit quantity; unfortunately
@@ -59,7 +59,7 @@ struct fat_superblock {
  * indicating indirectly where it ends; neither way is foolproof
  * (which is why MS engineers added the "extended part" later.)
  */
-  uint8_t bpbHiddenSecs[4];	/* number of hidden sectors */
+  uint8_t bpbHiddenSecs[4];	/* number of sectors before on the disk */
 
 /* DOS 3.31 added the possibility to have more than 64K sectors... */
   uint8_t bpbHugeSectors[4];	/* (large) nr of sect. if(bpbSectors==0) */
@@ -67,25 +67,29 @@ struct fat_superblock {
 /* Here lies the "extended BPB" structures for FAT12/16 files sytems
  * created after 1990 (DOS 4).
  * However FAT32 file systems need more informationss and have
- * overwritten that extended BPB: as a result it can be placed
- * at two different positions...
+ * overwritten that extended BPB: as a result the extension
+ * can be placed at two different positions...
  */
 #define offsetEXTBPB16	offsetof(struct fat_superblock, bpbBigFATsecs)
 
   uint8_t bpbBigFATsecs[4];	/* number of sectors per FAT32 */
   uint8_t bpbExtFlags[2];	/* some FAT32 flags: */
 #define	FATONEACTIVE	0x80		/* only 1 FAT is active */
-#define	FATNUM		0x0f		/* number of active FAT */
+#define	FATNUM		0x0f		/* mask for number of active FAT */
   uint8_t bpbFSVers[2];		/* filesystem version: */
-#define	FSVERS		0		/* only version 0 exists */
+#define	FSVERS		0		/* only version 0 we known about */
   uint8_t bpbRootClust[4];	/* start cluster for root directory */
   uint8_t bpbFSInfo[2];		/* filesystem info FSInfo sectors */
-  uint8_t bpbBackup[2];		/* backup boot sector (shall be 6) */
+  uint8_t bpbBackup[2];		/* backup boot sectors (shall be 6) */
   uint8_t bpbReserved[12];	/* reserved for future expansion (?) */
+/* End of BPB as defined for FAT32. Here begins exFAT
+ * datas (not documented here). Also here would stands
+ * the extended BPB in case of a FAT32 file system.
+ */
 #define offsetEXTBPB32	offsetof(struct fat_superblock, bsExtBPB32)
   uint8_t bsExtBPB32[26];	/* BPB extension (assuming FAT32) */
 
-  uint8_t bsBootCode[420];	/* pad so structure is 512b */
+  uint8_t bsBootCode[420];	/* pad so structure is 512 bytes long */
 
 /* Near the end of the first sector, there is also a 16-bit magic
  * number. The position does not depend on the size of a sector.
@@ -101,24 +105,28 @@ struct fat_superblock {
  * which can be placed at two different positions depending
  * on the FAT kind.
  */
-struct extbpb {
+struct fat_extbpb {
   uint8_t exDriveNumber;	/* BIOS drive number (fd0=0x00, hd0=0x80) */
-  uint8_t exReserved1;		/* reserved: */
-#define EXTBPB_NEEDFSCK	0x01		/* as used by WinNT (MS KB140418) */
-#define EXTBPB_NEEDBBCK	0x02		/* "need badblock check" */
-  uint8_t exBootSignature;	/* ext. boot signature (0x29) */
+  uint8_t exNeedCheck;		/* check fs on mount; used by NT, KB140418 */
+#define EXTBPB_NEEDFSCK	0x01		/* need file system check (chkdsk) */
+#define EXTBPB_NEEDBBCK	0x02		/* need badblock check */
+  uint8_t exBootSignature;	/* extended boot signature (0x29) */
 #define	EXBOOTSIG	0x29
 #define	EXBOOTSIG_ALT	0x28		/* said to be also used? */
   uint8_t exVolumeID[4];	/* volume ID number */
   char exVolumeLabel[11];	/* volume label */
-  char exFileSysType[8];	/* fs type (FAT, FAT12, FAT16, FAT32) */
+  char exFileSysType[8];	/* fs type: */
+#define FAT_FSTYPE	"FAT     "	/* FAT, but without size indication */
+#define FAT12_FSTYPE	"FAT12   "	/* asserts this is FAT12 */
+#define FAT16_FSTYPE	"FAT16   "	/* asserts this is FAT16 */
+#define FAT32_FSTYPE	"FAT32   "	/* asserts this is FAT32 */
 };
 
 /* FAT32 FSInfo block. It currently holds a few indicative
  * counters, which helps performance-wise because of the
  * potential big size of FAT32 structures.
  */
-struct fsinfo {
+struct fat_fsinfo {
   char fsiSig1[4];
 #define FSI_SIG1	"RRaA"
   uint8_t fsiFill1[480];
@@ -143,7 +151,7 @@ struct fsinfo {
  * clusters will be found via the FAT itself, which is a
  * linked list of "next cluster numbers".
  */
-struct direntry {
+struct fat_direntry {
   unsigned char deName[8];	/* filename, space filled */
 #define	SLOT_EMPTY	0x00		/* slot has never been used */
 #define	SLOT_DELETED	0xe5		/* file in this slot deleted */
@@ -180,9 +188,9 @@ struct direntry {
  * and are stored in reverse order, ie the tail of the filename
  * (indicated by the LFN_LAST bit set) occurs first; the
  * checksum (which is function of the "short" filename)
- * assures that the link has not been severed.
+ * warrants that the link has not been severed.
  */
-struct lfnentry {
+struct fat_lfnentry {
   uint8_t lfnOrd;		/* ordinal number of LFN entry */
 #define	LFN_DELETED	0x80
 #define	LFN_LAST	0x40
@@ -202,6 +210,7 @@ struct lfnentry {
 /* Some useful cluster numbers.
  */
 #define	CLUST_FREE	0	/* cluster 0 means a free cluster */
+#define	CLUST_NONE	0	/* cluster 0 also means no data allocated */
 #define	CLUST_ROOT	0	/* cluster 0 also means the root dir */
 	#define	PCFSFREE	CLUST_FREE
 
@@ -225,8 +234,8 @@ struct lfnentry {
  *  maximum cluster number in a filesystem is greater
  *  than 4086 then we've got a 16 bit fat filesystem.
  */
-#define	FAT12(pmp)	(pmp->pm_maxcluster <= CLUST_MAXFAT12)
-#define	FAT16(pmp)	( (unsigned)(pmp->pm_maxcluster-CLUST_MAXFAT12-1) \
+#define	xFAT12(pmp)	(pmp->pm_maxcluster <= CLUST_MAXFAT12)
+#define	xFAT16(pmp)	( (unsigned)(pmp->pm_maxcluster-CLUST_MAXFAT12-1) \
 				<= (CLUST_MAXFAT16-CLUST_MAXFAT12-1) )
 
 #define	pcfsFAT12(pmp)	(pmp->pm_maxcluster <= 4086)
@@ -245,9 +254,9 @@ struct lfnentry {
  * and store the result in the pm_fatentrysize. Note that this kind of
  * detection gets flakey when mounting a vnd-device.
  */
-#define	FAT12(pmp)	(pmp->pm_fatmask == FAT12_MASK)
-#define	FAT16(pmp)	(pmp->pm_fatmask == FAT16_MASK)
-#define	FAT32(pmp)	(pmp->pm_fatmask == FAT32_MASK)
+#define	FAT12(pmp)	(fatmask == FAT12_MASK)
+#define	FAT16(pmp)	(fatmask == FAT16_MASK)
+#define	FAT32(pmp)	(fatmask == FAT32_MASK)
 
 /* REVISEME */
 #define	PCFSEOF(cn)	(((cn) & 0xfff8) == 0xfff8)

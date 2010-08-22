@@ -1,7 +1,7 @@
 /* This file provides path-to-inode lookup functionality.
  *
  * The entry points into this file are:
- *   do_lookup		perform the LOOKUP file system call
+ *   do_lookup		perform the LOOKUP file system request
  *
  * Auteur: Antoine Leca, aout 2010.
  * Slavishly copied from ../hgfs/stat.c (D.C. van Moolenbroek)
@@ -10,13 +10,16 @@
 
 #define _POSIX_SOURCE 1
 #define _MINIX 1
-#define _SYSTEM 1		/* for negative error values */
 
-#include <assert.h>
+#define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+
+#include <sys/types.h>
 
 #include <minix/config.h>
 #include <minix/const.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
 
 #include <minix/vfsif.h>
 
@@ -351,7 +354,7 @@ PUBLIC int do_lookup()
   m_out.RES_UID = opt.uid;
   m_out.RES_GID = opt.gid;
 #endif
-  m.RES_DEV = NO_DEV;
+  m_out.RES_DEV = NO_DEV;
 
   return OK;
 }

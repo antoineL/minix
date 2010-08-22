@@ -19,13 +19,16 @@
 
 #define _POSIX_SOURCE 1
 #define _MINIX 1
-#define _SYSTEM 1		/* for negative error values */
 
-#include <assert.h>
+#define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+
+#include <sys/types.h>
 
 #include <minix/config.h>
 #include <minix/const.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
 
 #include <minix/vfsif.h>
 

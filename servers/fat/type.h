@@ -11,7 +11,7 @@
  *  field in the direntry structure.
  */
 struct DOStime {
-	unsigned short
+	unsigned /*short*/
 			dt_2seconds:5,	/* seconds divided by 2		*/
 			dt_minutes:6,	/* minutes			*/
 			dt_hours:5;	/* hours			*/
@@ -22,7 +22,7 @@ struct DOStime {
  *  field in the direntry structure.
  */
 struct DOSdate {
-	unsigned short
+	unsigned /*short*/
 			dd_day:5,	/* day of month			*/
 			dd_month:4,	/* month			*/
 			dd_year:7;	/* years since 1980		*/

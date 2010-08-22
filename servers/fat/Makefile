@@ -4,7 +4,7 @@
 #CPPFLAGS+= -DNR_BUFS=${NR_BUFS}
 
 PROG=	fat
-SRCS=	main.c table.c inode.c lookup.c \
+SRCS=	main.c table.c driver.c inode.c lookup.c \
 	mount.c read.c stat.c statfs.c # utility.c cache.c
 
 DPADD+=	${LIBSYS}
