@@ -59,7 +59,7 @@ PUBLIC int do_readsuper()
  * process' partition is mounted on.
  */
   int r;
-  endpoint_t driver_e;
+  endpoint_t xdriver_e;
   struct inode *root_ip;
   cp_grant_id_t label_gid;
   size_t label_len;
@@ -97,9 +97,9 @@ PUBLIC int do_readsuper()
 	return(EINVAL);
 
 #ifndef DS_DRIVER_UP
-  r = ds_retrieve_label_num(fs_dev_label, (unsigned long*)&driver_ep);
+  r = ds_retrieve_label_num(fs_dev_label, (unsigned long*)&driver_e);
 #else
-  r = ds_retrieve_label_endpt(fs_dev_label, &driver_ep);
+  r = ds_retrieve_label_endpt(fs_dev_label, &driver_e);
 #endif
   if (r != OK) {
 	printf("FATfs %s:%d ds_retrieve_label_endpt failed for '%s': %d\n",
@@ -108,7 +108,7 @@ PUBLIC int do_readsuper()
   }
 
   /* Open the device the file system lives on. */
-  if (dev_open(driver_ep, dev, driver_ep,
+  if (dev_open(driver_e, dev, driver_e,
   	       read_only ? R_BIT : (R_BIT|W_BIT) ) != OK) {
         return(EINVAL);
   }
@@ -132,8 +132,7 @@ PUBLIC int do_readsuper()
   if (dev == NO_DEV)
   	panic("request for super_block of NO_DEV");
   
-  r = block_dev_io(MFS_DEV_READ, dev, SELF_E, sbbuf, cvu64(SUPER_BLOCK_BYTES),
-  		   _MIN_BLOCK_SIZE);
+  r = seqblock_dev_io(DEV_READ, sbbuf, cvu64(SUPER_BLOCK_BYTES), _MIN_BLOCK_SIZE);
   if (r != _MIN_BLOCK_SIZE) 
   	return(EINVAL);
   
@@ -359,11 +358,11 @@ PUBLIC int do_unmount()
   put_inode(root_ip);
 
   /* force any cached blocks out of memory */
-  (void) fs_sync();
+  (void) do_sync();
 #endif
 
   /* Close the device the file system lives on. */
-  dev_close(driver_ep, dev);
+  dev_close(driver_e, dev);
 
   /* Finish off the unmount. */
   dev = NO_DEV;

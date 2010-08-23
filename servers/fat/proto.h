@@ -18,13 +18,29 @@
 #error need to #include "type.h"
 #endif
 
+struct buf;
+struct inode;
+
+/* cache.c */
+_PROTOTYPE( int do_flush, (void)					);
+_PROTOTYPE( int do_sync, (void)						);
+_PROTOTYPE( void init_cache, (int bufs)					);
+_PROTOTYPE( struct buf *get_block, (dev_t dev, block_t block,int only_search));
+_PROTOTYPE( void put_block, (struct buf *bp, int block_type)		);
+_PROTOTYPE( void rw_scattered, (dev_t dev,
+			struct buf **bufq, int bufqsize, int rw_flag)	);
+_PROTOTYPE( void zero_block, (struct buf *bp)				);
+
+/* cluster.c */
+_PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
+
 /* driver.c */
-_PROTOTYPE( int do_new_driver, (void)					);
 _PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
 			   int flags)					);
 _PROTOTYPE( void dev_close, (endpoint_t driver_e, dev_t dev)		);
-_PROTOTYPE( int block_dev_io, (int op, dev_t dev, int proc, void *buf,
-			       u64_t pos, int bytes, int flags)		);
+_PROTOTYPE( int do_new_driver, (void)					);
+_PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
+_PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* inode.c */
 _PROTOTYPE( struct inode *init_inode, (void)				);
@@ -52,9 +68,10 @@ _PROTOTYPE( void reply, (int, message *)				);
 _PROTOTYPE( int do_readsuper, (void)					);
 _PROTOTYPE( int do_unmount, (void)					);
 
-/* read.c */
-int do_read(void), do_blockrw(void);
-int do_getdents(void);
+/* readwrite.c */
+_PROTOTYPE( int do_readwrite, (void)					);
+_PROTOTYPE( int do_blockrw, (void)					);
+_PROTOTYPE( int do_getdents, (void)					);
 
 /* stat.c */
 _PROTOTYPE( mode_t get_mode, (struct inode *ino, int mode)		);
@@ -65,5 +82,4 @@ _PROTOTYPE( int do_utime, (void)					);
 /* statfs.c */
 _PROTOTYPE( int do_fstatfs, (void)					);
 _PROTOTYPE( int do_statvfs, (void)					);
-
 #endif

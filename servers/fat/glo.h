@@ -24,17 +24,32 @@
 #error need to #include <minix/ipc.h>		/* message */
 #endif
 
+/* Service internals */
 EXTERN enum { NAKED, MOUNTED, UNMOUNTED } state;
-
-EXTERN _PROTOTYPE (int (*vfs_req_vec[]), (void) ); /* VFS requests table */
-
+EXTERN endpoint_t SELF_E;
 EXTERN message m_in, m_out;
 
+/* Communication with VFS */
+EXTERN _PROTOTYPE (int (*vfs_req_vec[]), (void) ); /* VFS requests table */
+
+/* Communication with driver */
+EXTERN endpoint_t driver_e;	/* driver to use for the device */
 EXTERN dev_t dev;		/* device the file system is mounted on */
 EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 				 * by this FS proc.
 				 */
-EXTERN endpoint_t driver_ep;	/* driver to use for the device */
+
+/* Buffer cache. */
+EXTERN struct buf *buf;
+EXTERN struct buf **buf_hash;   /* the buffer hash table */
+EXTERN unsigned int nr_bufs;
+EXTERN int may_use_vmcache;
+
+EXTERN struct buf *front;	/* points to least recently used free block */
+EXTERN struct buf *rear;	/* points to most recently used free block */
+EXTERN unsigned int bufs_in_use;/* # bufs currently in use (not on free list)*/
+
+/* User-settable options */
 EXTERN int read_only;		/* is the file system mounted read-only? */
 
 EXTERN uid_t use_uid;		/* use this uid */
@@ -43,35 +58,9 @@ EXTERN mode_t use_umask;	/* show modes with this usermask */
 
 EXTERN enum { LFN_IGNORE, LFN_LOOK, LFN_USE } lfn_state;
 
-EXTERN block_t resBlk, resSiz,	/* reserved zone: block nr (=0) and size */
-	fatBlk, fatsSiz,	/* FATs: starting block nr and total size */
-	rootBlk, rootSiz,	/* root: starting block nr and total size */
-	clustBlk, clustSiz,	/* data: starting block nr and total size */
-		totalSiz;	/* file system: total size in blocks */
+/* our block size. */
+EXTERN unsigned int mfs_block_size;
 
-EXTERN unsigned bpblock;	/* bytes per block (sector) */
-EXTERN int bnshift;		/* shift off_t (file offset) right this
-				 *  amount to get a block number */
-EXTERN off_t brelmask;		/* and a file offset with this mask
-				 *  to get block rel offset */
-EXTERN unsigned blkpcluster;	/* blocks per cluster */
-EXTERN unsigned bpcluster;	/* bytes per cluster */
-EXTERN int cnshift;		/* shift off_t (file offset) right this
-				 *  amount to get a cluster number */
-EXTERN off_t crelmask;		/* and a file offset with this mask
-				 *  to get cluster rel offset */
-
-EXTERN int nFATs;		/* number of FATs */
-EXTERN int blkpfat;		/* blocks per FAT */
-EXTERN unsigned fatmask;	/* FATxx_MASK; gives the kind of FAT */
-
-EXTERN int rootEntries;		/* number of entries in root dir */
-
-EXTERN zone_t maxClust;		/* number of last allocatable cluster */
-EXTERN int freeClustValid;	/* indicates that next 2 values are valid: */
-EXTERN zone_t freeClust;	/* total number of free clusters */
-EXTERN zone_t nextClust;	/* number of next free cluster */
-
-EXTERN int depclust;		/* directory entries per cluster */
+EXTERN struct superblock superblock; /* file system fundamental values */
 
 #endif

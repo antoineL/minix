@@ -4,8 +4,8 @@
 #CPPFLAGS+= -DNR_BUFS=${NR_BUFS}
 
 PROG=	fat
-SRCS=	main.c table.c driver.c inode.c lookup.c \
-	mount.c read.c stat.c statfs.c # utility.c cache.c
+SRCS=	main.c table.c driver.c cache.c inode.c \
+	mount.c lookup.c readwrite.c stat.c statfs.c # utility.c
 
 DPADD+=	${LIBSYS}
 # ${LIBTIMERS}

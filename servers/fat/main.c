@@ -16,6 +16,7 @@
 
 /*#include "inc.h"*/
 #define _POSIX_SOURCE 1
+#define _POSIX_C_SOURCE 200112L	/* setenv */
 #define _MINIX 1
 
 #define _SYSTEM 1		/* for negative error values */
@@ -43,7 +44,7 @@
 #include <minix/type.h>
 #include <minix/com.h>
 #include <minix/ipc.h>
-#include <minix/sysutil.h>	/* env_setargs, panic */
+#include <minix/sysutil.h>	/* env_setargs, panic, ASSERT */
 #include <minix/callnr.h>	/* FS_READY */
 #include <minix/sef.h>
 #include <minix/vfsif.h>
@@ -180,11 +181,15 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
    /* Init driver mapping */
    for (i = 0; i < NR_DEVICES; ++i) 
        driver_endpoints[i].driver_e = NONE;
-   /* SELF_E will contain the id of this process */
-   SELF_E = getprocnr();
 #endif
+  /* SELF_E will contain the id of this process */
+  SELF_E = getprocnr();
+
 /*    hash_init(); */			/* Init the table with the ids */
    setenv("TZ","",1);		/* Used to calculate the time */
+
+/*    init_inodes(); */
+  init_cache(NR_BUFS);
 
    m_out.m_type = FS_READY;
 #ifdef ASSERT /* hide the evolution of panic() prototype */

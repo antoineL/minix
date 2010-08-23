@@ -19,6 +19,9 @@
 
 #include "const.h"
 #include "type.h"
+#include "cache.h"
+#include "super.h"
+#include "inode.h"
 #include "proto.h"
 #define _TABLE
 #include "glo.h"
@@ -31,28 +34,28 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	no_sys,		/*  1 (was getnode)	*/
 	do_putnode,	/*  2 putnode		*/
 /*WRK*/	readonly,	/*  3 slink		*/
- /**/	readonly,	/*  4 ftrunc		*/
+ /**/	/*do_ftrunc*/readonly,	/*  4 ftrunc		*/
  /**/	readonly,	/*  5 chown		*/
- /**/	readonly,	/*  6 chmod		*/
+ /**/	/*do_chmod*/readonly,	/*  6 chmod		*/
  /**/	do_nothing,	/*  7 inhibread		*/
 	do_stat,	/*  8 stat		*/
- /**/	readonly,	/*  9 utime		*/
+ /**/	/*do_utime*/readonly,	/*  9 utime		*/
 	do_fstatfs,	/* 10 fstatfs		*/
 	do_blockrw,	/* 11 bread		*/
 	do_blockrw,	/* 12 bwrite		*/
- /**/	readonly,	/* 13 unlink		*/
- /**/	readonly,	/* 14 rmdir		*/
+ /**/	/*do_unlink*/readonly,	/* 13 unlink		*/
+ /**/	/*do_rmdir*/readonly,	/* 14 rmdir		*/
 	do_unmount,	/* 15 unmount		*/
- /**/	do_nothing,	/* 16 sync		*/
+	do_sync,	/* 16 sync		*/
 	do_new_driver,	/* 17 new_driver	*/
- /**/	do_nothing,	/* 18 flush		*/
-	do_read,	/* 19 read		*/
- /**/	readonly,	/* 20 write		*/
+	do_flush,	/* 18 flush		*/
+	do_readwrite,	/* 19 read		*/
+	do_readwrite,	/* 20 write		*/
  /**/	readonly,	/* 21 mknod		*/
- /**/	readonly,	/* 22 mkdir		*/
- /**/	readonly,	/* 23 create		*/
+ /**/	/*do_mkdir*/readonly,	/* 22 mkdir		*/
+ /**/	/*do_create*/readonly,	/* 23 create		*/
  /**/	readonly,	/* 24 link		*/
- /**/	readonly,	/* 25 rename		*/
+ /**/	/*do_rename*/readonly,	/* 25 rename		*/
 	do_lookup,	/* 26 lookup		*/
 /*CHK*/	no_sys,		/* 27 mountpoint	*/
 	do_readsuper,	/* 28 readsuper		*/

@@ -22,6 +22,7 @@
 
 #define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+#include <assert.h>
 
 #include <sys/types.h>
 
@@ -34,12 +35,26 @@
 
 #include "const.h"
 #include "type.h"
+#include "inode.h"
 #include "proto.h"
 #include "glo.h"
 
 #if 0
-
 #include "inc.h"
+#endif
+
+#if DEBUG
+#define DBGprintf(x) printf x
+#else
+#define DBGprintf(x)
+#endif
+
+/* Number of inodes. */
+/* The following number must not exceed 16. The i_num field is only a short. */
+#define NUM_INODE_BITS   8
+
+/* Number of entries in the name hashtable. */
+#define NUM_HASH_SLOTS   1023
 
 PRIVATE struct inode inodes[NUM_INODES];
 
@@ -57,7 +72,7 @@ PUBLIC struct inode *init_inode()
 
   TAILQ_INIT(&free_list);
 
-  dprintf(("HGFS: %d inodes, %u bytes each, equals %u bytes\n",
+  DBGprintf(("FATfs: %d inodes, %u bytes each, equals %u bytes\n",
 	NUM_INODES, sizeof(struct inode), sizeof(inodes)));
 
   /* Mark all inodes except the root inode as free. */
@@ -76,7 +91,9 @@ PUBLIC struct inode *init_inode()
   ino = &inodes[0];
   ino->i_parent = ino;		/* root inode is its own parent */
   LIST_INIT(&ino->i_child);
+/*
   ino->i_num = ROOT_INODE_NR;
+ */
   ino->i_gen = 0;		/* unused by root node */
   ino->i_ref = 1;		/* root inode is hereby in use */
   ino->i_flags = I_DIR;		/* root inode is a directory */
@@ -99,7 +116,7 @@ ino_t ino_nr;
   /* Inode 0 (= index -1) is not a valid inode number. */
   index = INODE_INDEX(ino_nr);
   if (index < 0) {
-	printf("HGFS: VFS passed invalid inode number!\n");
+	printf("FATfs: VFS passed invalid inode number!\n");
 
 	return NULL;
   }
@@ -110,14 +127,14 @@ ino_t ino_nr;
 
   /* Make sure the generation number matches. */
   if (INODE_GEN(ino_nr) != ino->i_gen) {
-	printf("HGFS: VFS passed outdated inode number!\n");
+	printf("FATfs: VFS passed outdated inode number!\n");
 
 	return NULL;
   }
 
   /* The VFS/FS protocol only uses referenced inodes. */
   if (ino->i_ref == 0)
-	printf("HGFS: VFS passed unused inode!\n");
+	printf("FATfs: VFS passed unused inode!\n");
 
   return ino;
 }
@@ -132,7 +149,7 @@ struct inode *ino;
  * count were zero before, remove the inode from the free list.
  */
 
-  dprintf(("HGFS: get_inode(%p) ['%s']\n", ino, ino->i_name));
+  DBGprintf(("FATfs: get_inode(%p) ['%s']\n", ino, ino->i_name));
 
   /* (INUSE, CACHED) -> INUSE */
 
@@ -157,7 +174,7 @@ struct inode *ino;
  * reached zero, mark the inode as cached or free.
  */
 
-  dprintf(("HGFS: put_inode(%p) ['%s']\n", ino, ino->i_name));
+  DBGprintf(("FATfs: put_inode(%p) ['%s']\n", ino, ino->i_name));
 
   assert(ino != NULL);
   assert(ino->i_ref > 0);
@@ -169,7 +186,9 @@ struct inode *ino;
 	return;
 
   /* Close any file handle associated with this inode. */
+/*
   put_handle(ino);
+ */
 
   /* Only add the inode to the free list if there are also no links to it. */
   if (HAS_CHILDREN(ino))
@@ -246,7 +265,7 @@ PUBLIC struct inode *get_free_inode()
 
   /* If there are no inodes on the free list, we cannot satisfy the request. */
   if (TAILQ_EMPTY(&free_list)) {
-	printf("HGFS: out of inodes!\n");
+	printf("FATfs: out of inodes!\n");
 
 	return NULL;
   }
@@ -257,9 +276,11 @@ PUBLIC struct inode *get_free_inode()
   assert(ino->i_ref == 0);
   assert(!HAS_CHILDREN(ino));
 
+#if 0
   /* If this was a cached inode, free it first. */
   if (ino->i_parent != NULL)
 	del_dentry(ino);
+#endif
 
   assert(ino->i_parent == NULL);
 
@@ -299,8 +320,6 @@ PUBLIC int have_used_inode()
   return FALSE;
 }
 
-#endif
-
 /*===========================================================================*
  *				do_putnode				     *
  *===========================================================================*/
@@ -308,7 +327,6 @@ PUBLIC int do_putnode(void)
 {
 /* Decrease an inode's reference count.
  */
-#if 0
   struct inode *ino;
   int count;
 
@@ -322,7 +340,6 @@ PUBLIC int do_putnode(void)
   ino->i_ref -= count - 1;
 
   put_inode(ino);
-#endif
 
   return OK;
 }

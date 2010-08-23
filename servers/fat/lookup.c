@@ -13,6 +13,7 @@
 
 #define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+#include <assert.h>
 
 #include <sys/types.h>
 

@@ -1,7 +1,13 @@
-/* Types used by the FAT file system.
- * Mostly a description of the ondisk structures.
+/* Various types used by the FAT file system.
+ * Some parts have their own, separated headers
+ * which hold the type descriptions:
+ *   fat.h	description of the ondisk structures
+ *   super.h	file system fundamental values
+ *   inode.h	inode structure (also hold dir.entry)
+ *   cache.h	block buffers and cache system
  *
  * Auteur: Antoine Leca, aout 2010.
+ * Updated:
  */
 
 #ifndef FAT_TYPE_H_
