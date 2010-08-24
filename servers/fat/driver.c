@@ -19,6 +19,7 @@
 
 #define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -32,7 +33,10 @@
 #include <minix/ipc.h>
 #include <minix/com.h>
 #include <minix/vfsif.h>
-#include <minix/sysutil.h>	/* panic, ASSERT */
+#ifdef	COMPAT316
+#include "compat.h"
+#endif
+#include <minix/sysutil.h>	/* panic */
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
@@ -60,7 +64,7 @@
 #endif
 
 #ifndef EDEADEPT
-#define EDEADEPT EDSTDIED
+#define EDEADEPT EDEADSRCDST
 #endif
 
 /*
@@ -129,7 +133,7 @@ PUBLIC int do_new_driver(void)
 {
  /* New driver endpoint for this device */
 
-  ASSERT(dev == (dev_t) m_in.REQ_DEV);
+  assert(dev == (dev_t) m_in.REQ_DEV);
   driver_e = (endpoint_t) m_in.REQ_DRIVER_E;
 
 /* need to odev_open it ??? */
@@ -214,7 +218,7 @@ PUBLIC int scattered_dev_io(
   static iovec_t grants_vec[NR_IOREQS];
   int vec_grants;
 
-  ASSERT(cnt<=NR_IOREQS);
+  assert(cnt<=NR_IOREQS);
 
   /* See if driver is roughly valid. */
   if (driver_e == NONE) return(EDEADEPT);

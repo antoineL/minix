@@ -39,4 +39,33 @@ struct superblock {
   int depclust;			/* directory entries per cluster */
 };
 
+/* content of a buffer */
+union fsdata_u {
+    char b__data[SBLOCK_SIZE];		     /* ordinary user data */
+#if 0
+/* directory block */
+    struct direct b__dir[NR_DIR_ENTRIES(_MAX_BLOCK_SIZE)];    
+/* V1 indirect block */
+    zone1_t b__v1_ind[V1_INDIRECTS];	     
+/* V2 indirect block */
+    zone_t  b__v2_ind[V2_INDIRECTS(_MAX_BLOCK_SIZE)];	     
+/* V1 inode block */
+    d1_inode b__v1_ino[V1_INODES_PER_BLOCK]; 
+/* V2 inode block */
+    d2_inode b__v2_ino[V2_INODES_PER_BLOCK(_MAX_BLOCK_SIZE)]; 
+/* bit map block */
+    bitchunk_t b__bitmap[FS_BITMAP_CHUNKS(_MAX_BLOCK_SIZE)];  
+#endif
+};
+
+/* These defs make it possible to use to bp->b_data instead of bp->b.b__data */
+#define b_data   bp->b__data
+#define b_dir    bp->b__dir
+#define b_v1_ind bp->b__v1_ind
+#define b_v2_ind bp->b__v2_ind
+#define b_v1_ino bp->b__v1_ino
+#define b_v2_ino bp->b__v2_ino
+#define b_bitmap bp->b__bitmap
+
+
 #endif

@@ -1,10 +1,11 @@
 # Makefile for FAT fs
 
+CPPFLAGS+= -DDEBUG
 #NR_BUFS= 100
 #CPPFLAGS+= -DNR_BUFS=${NR_BUFS}
 
 PROG=	fat
-SRCS=	main.c table.c driver.c cache.c inode.c \
+SRCS=	main.c table.c optset.c driver.c cache.c inode.c \
 	mount.c lookup.c readwrite.c stat.c statfs.c # utility.c
 
 DPADD+=	${LIBSYS}
@@ -12,7 +13,7 @@ DPADD+=	${LIBSYS}
 LDADD+=	-lsys
 # -ltimers
 
-MAN=
+MAN=	#fat.8
 
 BINDIR?= /sbin
 

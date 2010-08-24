@@ -1,0 +1,44 @@
+.TH FAT 8 "August 24th, 2010"
+.SH NAME
+fat \- FAT (File allocation table) File System server
+.SH SYNOPSIS
+\fBmount \-t fat \fR[\fB\-r\fR] [\fB\-o \fIoptions\fR] \fIspecial\fR \fImountpoint
+.SH DESCRIPTION
+The FAT (File allocation table) File System server allows one to mount
+the ubiquituous FAT (DOS, Windows, but also USB pen drives) volumes
+as a file system.
+.PP
+The above mount command will mount the fat file system onto the directory
+\fImountpoint\fR. The \fB\-r\fR mount option makes the file system read-only.
+The \fIoptions\fR field is a string consisting of comma-delimited
+\fIkey\fR or \fIkey\fB=\fIvalue\fR options. The following options are
+supported.
+.TP 4
+\fBuid=\fInumber\fR
+This sets the user ID used for all the files and directories in the file
+system, allowing a non-root user to be the owner. The value must be specified
+as a decimal number.
+The default is root (the number \fB0\fR).
+.TP
+\fBgid=\fInumber\fR
+Likewise, sets the group ID for all files and directories.
+The default is operator (the number \fB0\fR).
+.TP
+\fBfmask=\fInumber\fR
+This option sets the file permission mask of regular files. It is specified
+as an octal number. For example, a value of \fB600\fR makes all files
+readable and writable by the owning user (see the "\fBuid\fR" option).
+The default is \fB755\fR, unless overriden by option \fBnoexec\fR.
+.TP
+\fBdmask=\fInumber\fR
+Likewise, sets the file permission mask of directories.
+The default is also \fB755\fR, but \fBnoexec\fR does not affect it.
+.TP
+\fBnoexec\fR
+This option prevents the files on the FAT file system to be executed.
+.SH LIMITATIONS
+Work in progress.
+.SH "SEE ALSO"
+.BR mount (1), umask (2)
+.SH AUTHOR
+Antoine Leca

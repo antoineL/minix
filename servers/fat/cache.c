@@ -3,18 +3,6 @@
  * first made to see if the block is in the cache.  This file manages the
  * cache.
  *
- * Buffer (block) cache.  To acquire a block, a routine calls get_block(),
- * telling which block it wants.  The block is then regarded as "in use"
- * and has its 'b_count' field incremented.  All the blocks that are not
- * in use are chained together in an LRU list, with 'front' pointing
- * to the least recently used block, and 'rear' to the most recently used
- * block.  A reverse chain, using the field b_prev is also maintained.
- * Usage for LRU is measured by the time the put_block() is done.  The second
- * parameter to put_block() can violate the LRU order and put a block on the
- * front of the list, if it will probably not be needed soon.  If a block
- * is modified, the modifying routine must set b_dirt to DIRTY, so the block
- * will eventually be rewritten to the disk.
- *
  * The entry points into this file are:
 	_PROTOTYPE( void init_cache, (int bufs)					);
 	_PROTOTYPE( void set_blocksize, (unsigned int blocksize)		);
@@ -32,8 +20,7 @@
  *   rw_block:    read or write a block from the disk itself
  *   rm_lru:
  *
- * Auteur: Antoine Leca, aout 2010.
- * Copied from ../mfs/cache.c (A. Tanenbaum, original author)
+ * Auteur: Antoine Leca, aout 2010. From ../mfs/cache.c
  * Updated:
  */
 
@@ -45,6 +32,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <sys/types.h>
 
@@ -56,7 +44,11 @@
 #include <minix/vfsif.h>
 
 #include <minix/dmap.h>		/* MEMORY_MAJOR */
-#include <minix/sysutil.h>	/* panic, ASSERT */
+#ifdef	COMPAT316
+#include "compat.h"
+#endif
+#include <minix/sysutil.h>	/* panic */
+#include <minix/syslib.h>	/* alloc_contig, free_contig */
 #include <minix/vm.h>
 
 #include "const.h"
@@ -65,7 +57,6 @@
 #include "glo.h"
 
 #include "inode.h"
-#include "cache.h"
 
 #define END_OF_FILE   (-104)	/* eof detected */
 
@@ -81,7 +72,9 @@ FORWARD _PROTOTYPE( void flushall, (dev_t) );
 FORWARD _PROTOTYPE( void rw_block, (struct buf *, int) );
 FORWARD _PROTOTYPE( void rm_lru, (struct buf *bp) );
 
+#ifdef VM_BLOCKID_NONE
 PRIVATE int vmcache_avail = -1; /* 0 if not available, >0 if available. */
+#endif
 
 /*===========================================================================*
  *				init_cache                                   *
@@ -118,24 +111,36 @@ PUBLIC void init_cache(int new_nr_bufs)
   nr_bufs = new_nr_bufs;
 
   bufs_in_use = 0;
+/*
   front = &buf[0];
   rear = &buf[nr_bufs - 1];
+ */
+  TAILQ_INIT(&lru);
+  LIST_INIT(&buf_hash[0]);
 
-  for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++) {
+  for (bp = &buf[nr_bufs]; bp-- > &buf[0]; ) {
+        bp->b_bytes = 0;
         bp->b_blocknr = NO_BLOCK;
         bp->b_dev = NO_DEV;
+/*
         bp->b_next = bp + 1;
         bp->b_prev = bp - 1;
+ */
         bp->bp = NULL;
-        bp->b_bytes = 0;
+	TAILQ_INSERT_HEAD(&lru, bp, b_next);
+	LIST_INSERT_HEAD(&buf_hash[0], bp, b_hash);
   }
+/*
   front->b_prev = NULL;
   rear->b_next = NULL;
 
   for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++) bp->b_hash = bp->b_next;
   buf_hash[0] = front;
+*/
 
+#ifdef VM_BLOCKID_NONE
   vm_forgetblocks();
+#endif
 }
 
 /*===========================================================================*
@@ -148,7 +153,7 @@ PUBLIC void set_blocksize(unsigned int blocksize)
   struct buf *bp;
   struct inode *rip;
 
-  ASSERT(blocksize > 0);
+  assert(blocksize > 0);
 
   for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
 	if(bp->b_count != 0) panic("change blocksize with buffer in use");
@@ -179,16 +184,19 @@ PUBLIC int do_sync()
   assert(buf);
 
 #if 0
+/* CALL flush_inodes(); */
   /* Write all the dirty inodes to the disk. */
   for(rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
 	  if(rip->i_count > 0 && rip->i_dirt == DIRTY) rw_inode(rip, WRITING);
 #endif
 
-  /* Write all the dirty blocks to the disk, one drive at a time. */
+  /* Write the dirty blocks to the disk. */
+#if 0 /*obsolete*/
   for(bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
 	  if(bp->b_dev != NO_DEV && bp->b_dirt == DIRTY) 
 		  flushall(bp->b_dev);
-
+#endif
+  flushall(dev);
   return(OK);		/* sync() can't fail */
 }
 
@@ -202,8 +210,12 @@ PUBLIC int do_flush()
  * to disk.
  */
   dev_t req_dev = (dev_t) m_in.REQ_DEV;
+#if 1 /*BUG in MFS???*/
+  if(dev != req_dev) return(EBUSY);
+#else
   if(dev == req_dev) return(EBUSY);
- 
+#endif
+
   flushall(req_dev);
   invalidate(req_dev);
   
@@ -253,7 +265,9 @@ PRIVATE void invalidate(
   for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
 	if (bp->b_dev == device) bp->b_dev = NO_DEV;
 
+#ifdef VM_BLOCKID_NONE
   vm_forgetblocks();
+#endif
 }
 
 /*===========================================================================*
@@ -282,6 +296,7 @@ PUBLIC struct buf *get_block(
 
   int b;
   static struct buf *bp, *prev_ptr;
+#ifdef VM_BLOCKID_NONE
   u64_t yieldid = VM_BLOCKID_NONE, getid = make64(dev, block);
   int vmcache = 0;
 
@@ -303,65 +318,64 @@ PUBLIC struct buf *get_block(
    */
   if(vmcache_avail && may_use_vmcache && major(dev) != MEMORY_MAJOR)
 	vmcache = 1;
+#endif
 
 /* FIXME */
-  ASSERT(mfs_block_size > 0);
+  assert(mfs_block_size > 0);
 
-  /* Search the hash chain for (dev, block). Do_read() can use 
-   * get_block(NO_DEV ...) to get an unnamed block to fill with zeros when
-   * someone wants to read from a hole in a file, in which case this search
-   * is skipped
-   */
-  if (dev != NO_DEV) {
-	b = BUFHASH(block);
-	bp = buf_hash[b];
-	while (bp != NULL) {
-		if (bp->b_blocknr == block && bp->b_dev == dev) {
-			/* Block needed has been found. */
-			if (bp->b_count == 0) rm_lru(bp);
-			bp->b_count++;	/* record that block is in use */
-/* FIXME out */		ASSERT(bp->b_bytes == mfs_block_size);
-			ASSERT(bp->b_dev == dev);
-			ASSERT(bp->b_dev != NO_DEV);
-			ASSERT(bp->bp);
-			return(bp);
-		} else {
-			/* This block is not the one sought. */
-			bp = bp->b_hash; /* move to next block on hash chain */
-		}
+  /* Search the hash chain for (dev, block). */
+  assert(dev != NO_DEV);
+  b = BUFHASH(block);
+  LIST_FOREACH(bp, &buf_hash[b], b_hash) {
+	if (bp->b_blocknr == block && bp->b_dev == dev) {
+		/* Block needed has been found. */
+		if (bp->b_count == 0) rm_lru(bp);
+		bp->b_count++;	/* record that block is in use */
+/* FIXME out */		assert(bp->b_bytes == mfs_block_size);
+		assert(bp->b_dev == dev);
+		assert(bp->b_dev != NO_DEV);
+		assert(bp->bp);
+		return(bp);
 	}
   }
 
-  /* Desired block is not on available chain.  Take oldest block ('front'). */
-  if ((bp = front) == NULL) panic("all buffers in use: %d", nr_bufs);
+  /* Desired block is not on available chain.  Take oldest block. */
+  if ((bp = TAILQ_FIRST(&lru)) == NULL)
+	panic("all buffers in use: %d", nr_bufs);
 
-#if 0
-  if(bp->b_bytes < fs_block_size) {
-	ASSERT(!bp->bp);
-	ASSERT(bp->b_bytes == 0);
-	if(!(bp->bp = alloc_contig( (size_t) fs_block_size, 0, NULL))) {
+/* FIXME */
+  if(bp->b_bytes < mfs_block_size) {
+	assert(!bp->bp);
+	assert(bp->b_bytes == 0);
+/* FIXME (block_size) */
+	if(!(bp->bp = alloc_contig( (size_t) mfs_block_size, 0, NULL))) {
 		printf("MFS: couldn't allocate a new block.\n");
+#if 0
 		for(bp = front;
 			bp && bp->b_bytes < fs_block_size; bp = bp->b_next)
 			;
+#else
+		while(bp && bp->b_bytes < mfs_block_size)
+			bp = TAILQ_NEXT(bp, b_next);
+#endif
 		if(!bp) {
 			panic("no buffer available");
 		}
 	} else {
-  		bp->b_bytes = fs_block_size;
+/* FIXME */	bp->b_bytes = mfs_block_size;
 	}
   }
-#endif
 
-  ASSERT(bp);
-  ASSERT(bp->bp);
-/* FIXME out */ ASSERT(bp->b_bytes == mfs_block_size);
-  ASSERT(bp->b_count == 0);
+  assert(bp);
+  assert(bp->bp);
+/* FIXME out */ assert(bp->b_bytes == mfs_block_size);
+  assert(bp->b_count == 0);
 
   rm_lru(bp);
 
   /* Remove the block that was just taken from its hash chain. */
   b = BUFHASH(bp->b_blocknr);
+#if 0
   prev_ptr = buf_hash[b];
   if (prev_ptr == bp) {
 	buf_hash[b] = bp->b_hash;
@@ -375,6 +389,9 @@ PUBLIC struct buf *get_block(
 			prev_ptr = prev_ptr->b_hash;	/* keep looking */
 		}
   }
+#else
+  LIST_REMOVE(bp, b_hash);
+#endif
 
   /* If the block taken is dirty, make it clean by writing it to the disk.
    * Avoid hysteresis by flushing all other dirty blocks for the same device.
@@ -382,12 +399,14 @@ PUBLIC struct buf *get_block(
   if (bp->b_dev != NO_DEV) {
 	if (bp->b_dirt == DIRTY) flushall(bp->b_dev);
 
+#ifdef VM_BLOCKID_NONE
 	/* Are we throwing out a block that contained something?
 	 * Give it to VM for the second-layer cache.
 	 */
 	yieldid = make64(bp->b_dev, bp->b_blocknr);
 /* FIXME out */	assert(bp->b_bytes == mfs_block_size);
 	bp->b_dev = NO_DEV;
+#endif
   }
 
   /* Fill in block's parameters and add it to the hash chain where it goes. */
@@ -395,10 +414,14 @@ PUBLIC struct buf *get_block(
   bp->b_blocknr = block;	/* fill in block number */
   bp->b_count++;		/* record that block is being used */
   b = BUFHASH(bp->b_blocknr);
+#if 0
   bp->b_hash = buf_hash[b];
-
   buf_hash[b] = bp;		/* add to hash list */
+#else
+  LIST_INSERT_HEAD(&buf_hash[b], bp, b_hash);
+#endif
 
+#ifdef VM_BLOCKID_NONE
   if(dev == NO_DEV) {
 	if(vmcache && cmp64(yieldid, VM_BLOCKID_NONE) != 0) {
 		vm_yield_block_get_block(yieldid, VM_BLOCKID_NONE,
@@ -407,12 +430,14 @@ PUBLIC struct buf *get_block(
 	}
 	return(bp);	/* If the caller wanted a NO_DEV block, work is done. */
   }
+#endif
 
   /* Go get the requested block unless searching or prefetching. */
   if(only_search == PREFETCH || only_search == NORMAL) {
 	/* Block is not found in our cache, but we do want it
 	 * if it's in the vm cache.
 	 */
+#ifdef VM_BLOCKID_NONE
 	if(vmcache) {
 		/* If we can satisfy the PREFETCH or NORMAL request 
 		 * from the vm cache, work is done.
@@ -423,6 +448,7 @@ PUBLIC struct buf *get_block(
 			return bp;
 		}
 	}
+#endif
   }
 
   if(only_search == PREFETCH) {
@@ -431,6 +457,7 @@ PUBLIC struct buf *get_block(
   } else if (only_search == NORMAL) {
 	rw_block(bp, READING);
   } else if(only_search == NO_READ) {
+#ifdef VM_BLOCKID_NONE
 	/* we want this block, but its contents
 	 * will be overwritten. VM has to forget
 	 * about it.
@@ -438,9 +465,9 @@ PUBLIC struct buf *get_block(
 	if(vmcache) {
 		vm_forgetblock(getid);
 	}
+#endif
   } else
 	panic("unexpected only_search value: %d", only_search);
-
   assert(bp->bp);
 
   return(bp);			/* return the newly acquired block */
@@ -449,9 +476,13 @@ PUBLIC struct buf *get_block(
 /*===========================================================================*
  *				put_block				     *
  *===========================================================================*/
+#if 0
 PUBLIC void put_block(bp, block_type)
 register struct buf *bp;	/* pointer to the buffer to be released */
 int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
+#else
+PUBLIC void put_block(register struct buf *bp) /* buffer to be released */
+#endif
 {
 /* Return a block to the list of available blocks.   Depending on 'block_type'
  * it may be put on the front or rear of the LRU chain.  Blocks that are
@@ -473,6 +504,7 @@ int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
    * it on the front of the LRU chain where it will be the first one to be
    * taken when a free buffer is needed later.
    */
+#if 0 /*obsolete*/
   if (bp->b_dev == DEV_RAM || (block_type & ONE_SHOT)) {
 	/* Block probably won't be needed quickly. Put it on front of chain.
   	 * It will be the next block to be evicted from the cache.
@@ -486,9 +518,12 @@ int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
 	front = bp;
   } 
   else {
-	/* Block probably will be needed quickly.  Put it on rear of chain.
-  	 * It will not be evicted from the cache for a long time.
-  	 */
+#endif
+
+  /* Block probably will be needed quickly.  Put it on rear of chain.
+   * It will not be evicted from the cache for a long time.
+   */
+#if 0
 	bp->b_prev = rear;
 	bp->b_next = NULL;
 	if (rear == NULL)
@@ -496,6 +531,11 @@ int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
 	else
 		rear->b_next = bp;
 	rear = bp;
+#else
+  TAILQ_INSERT_TAIL(&lru, bp, b_next);
+#endif
+
+#if 0 /*obsolete*/
   }
 
   /* Some blocks are so important (e.g., inodes, indirect blocks) that they
@@ -505,6 +545,7 @@ int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
   if ((block_type & WRITE_IMMED) && bp->b_dirt==DIRTY && bp->b_dev != NO_DEV) {
 		rw_block(bp, WRITING);
   } 
+#endif
 }
 
 /*===========================================================================*
@@ -532,7 +573,7 @@ int rw_flag;			/* READING or WRITING */
 	pos = mul64u(bp->b_blocknr, mfs_block_size);
 /* WORK NEEDED */
 	op = (rw_flag == READING ? DEV_READ_S : DEV_WRITE_S);
-	r = seqblock_dev_io(op, bp->b_data, pos, mfs_block_size);
+	r = seqblock_dev_io(op, /*FIXME bp->b_data*/ bp->bp, pos, mfs_block_size);
 	if (r < 0) {
 		printf("FATfs I/O error on device %d/%d, block %lu\n",
 			major(dev), minor(dev), bp->b_blocknr);
@@ -601,7 +642,7 @@ PUBLIC void rw_scattered(
 	for (j = 0, iop = iovec; j < NR_IOREQS && j < bufqsize; j++, iop++) {
 		bp = bufq[j];
 		if (bp->b_blocknr != (block_t) bufq[0]->b_blocknr + j) break;
-		iop->iov_addr = (vir_bytes) bp->b_data;
+		iop->iov_addr = (vir_bytes) /*FIXME bp->b_data*/ bp->bp;
 /*FIXME*/	iop->iov_size = (vir_bytes) mfs_block_size;
 	}
 /* WORK NEEDED */
@@ -620,13 +661,15 @@ PUBLIC void rw_scattered(
 				"fs: I/O error on device %d/%d, block %lu\n",
 					major(dev), minor(dev), bp->b_blocknr);
 				bp->b_dev = NO_DEV;	/* invalidate block */
+#ifdef VM_BLOCKID_NONE
   				vm_forgetblocks();
+#endif
 			}
 			break;
 		}
 		if (rw_flag == READING) {
 			bp->b_dev = dev;	/* validate block */
-			put_block(bp, PARTIAL_DATA_BLOCK);
+			put_block(bp /*, PARTIAL_DATA_BLOCK */ );
 		} else {
 			bp->b_dirt = CLEAN;
 		}
@@ -638,7 +681,7 @@ PUBLIC void rw_scattered(
 		 * give at this time.  Don't forget to release those extras.
 		 */
 		while (bufqsize > 0) {
-			put_block(*bufq++, PARTIAL_DATA_BLOCK);
+			put_block(*bufq++ /*, PARTIAL_DATA_BLOCK */ );
 			bufqsize--;
 		}
 	}
@@ -663,6 +706,7 @@ struct buf *bp;
   struct buf *next_ptr, *prev_ptr;
 
   bufs_in_use++;
+#if 0
   next_ptr = bp->b_next;	/* successor on LRU chain */
   prev_ptr = bp->b_prev;	/* predecessor on LRU chain */
   if (prev_ptr != NULL)
@@ -674,6 +718,8 @@ struct buf *bp;
 	next_ptr->b_prev = prev_ptr;
   else
 	rear = prev_ptr;	/* this block was at rear of chain */
+#endif
+  TAILQ_REMOVE(&lru, bp, b_next);
 }
 
 /*===========================================================================*
@@ -683,8 +729,8 @@ PUBLIC void zero_block(bp)
 register struct buf *bp;	/* pointer to buffer to zero */
 {
 /* Zero a block. */
-  ASSERT(bp->b_bytes > 0);
-  ASSERT(bp->bp);
-  memset(bp->b_data, 0, (size_t) bp->b_bytes);
+  assert(bp->b_bytes > 0);
+  assert(bp->bp);
+  memset(/*FIXME bp->b_data*/ bp->bp, 0, (size_t) bp->b_bytes);
   bp->b_dirt = DIRTY;
 }

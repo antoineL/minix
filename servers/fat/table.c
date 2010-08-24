@@ -19,7 +19,6 @@
 
 #include "const.h"
 #include "type.h"
-#include "cache.h"
 #include "super.h"
 #include "inode.h"
 #include "proto.h"

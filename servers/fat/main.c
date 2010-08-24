@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <signal.h>		/* SIGTERM */
 #include <stdlib.h>		/* exit, setenv */
+#include <string.h>		/* strcmp */
 
 #if 0
 
@@ -44,7 +45,10 @@
 #include <minix/type.h>
 #include <minix/com.h>
 #include <minix/ipc.h>
-#include <minix/sysutil.h>	/* env_setargs, panic, ASSERT */
+#ifdef	COMPAT316
+#include "compat.h"
+#endif
+#include <minix/sysutil.h>	/* env_setargs, panic */
 #include <minix/callnr.h>	/* FS_READY */
 #include <minix/sef.h>
 #include <minix/vfsif.h>
@@ -59,12 +63,33 @@
 #include "proto.h"
 #include "glo.h"
 
-#if DEBUG
-#include <stdio.h>
-#define DBGprintf(x) printf x
+#include "optset.h"
+
+#if NDEBUG
+  #define DBGprintf(x)
 #else
-#define DBGprintf(x)
+#include <stdio.h>
+ #if DEBUG
+  #define DBGprintf(x) printf x
+ #else
+  #define DBGprintf(x) if(verbose)printf x
+ #endif 
 #endif
+
+PRIVATE struct optset optset_table[] = {
+  { "uid",      OPT_INT,    &use_uid,         10                 },
+  { "gid",      OPT_INT,    &use_gid,         10                 },
+  { "fmask",    OPT_INT,    &use_file_mask,   8                  },
+  { "dmask",    OPT_INT,    &use_dir_mask,    8                  },
+  { "atime",    OPT_BOOL,   &keep_atime,      TRUE               },
+  { "noatime",  OPT_BOOL,   &keep_atime,      FALSE              },
+/*
+  { "exec",     OPT_BOOL,   &prevent_exec,    TRUE               },
+  { "noexec",   OPT_BOOL,   &prevent_exec,    FALSE              },
+ */
+  { "debug",    OPT_BOOL,   &verbose,         TRUE               },
+  { NULL                                                         }
+};
 
 /* SEF functions and variables. */
 FORWARD _PROTOTYPE( void sef_local_startup, (void) );
@@ -82,10 +107,19 @@ FORWARD _PROTOTYPE( int proc_event, (void) );
  *===========================================================================*/
 PUBLIC int main(int argc, char *argv[])
 {
-  int r, req_nr, error;
+  int i, r, req_nr, error;
   endpoint_t who_e;
 
   env_setargs(argc, argv);
+
+  /* Defaults for options */
+  use_uid = use_gid = 0;
+  use_file_mask = use_dir_mask = 0755; /* we cannot use umask(2) */
+  keep_atime = FALSE;
+  /* If we have been given an options string, parse options from there. */
+  for (i = 1; i < argc - 1; i++)
+	if (!strcmp(argv[i], "-o"))
+		optset_parse(optset_table, argv[++i]);
 
   /* SEF local startup. */
   sef_local_startup();
@@ -93,12 +127,8 @@ PUBLIC int main(int argc, char *argv[])
   for (;;) {
 
 	/* Wait for request message. */
-#ifdef ASSERT /* hide the evolution of panic() prototype */
-	ASSERT(OK == sef_receive(ANY, &m_in));
-#else
 	if (OK != (r = sef_receive(ANY, &m_in)))
 		panic("FATfs: sef_receive failed: %d", r);
-#endif
 
 	error = OK;
 #if 0
@@ -140,6 +170,9 @@ PUBLIC int main(int argc, char *argv[])
 
 	m_out.m_type = error; 
 	reply(who_e, &m_out);	 	/* returns the response to VFS */
+
+  if (error == OK) 
+	read_ahead();		/* do block read ahead */
   }
 }
 
@@ -192,13 +225,9 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
   init_cache(NR_BUFS);
 
    m_out.m_type = FS_READY;
-#ifdef ASSERT /* hide the evolution of panic() prototype */
-	ASSERT(OK == send(VFS_PROC_NR, &m_out));
-#else
    if ((r = send(VFS_PROC_NR, &m_out)) != OK) {
        panic("FATfs: Error sending login to VFS: %d", r);
    }
-#endif
 
    return(OK);
 }

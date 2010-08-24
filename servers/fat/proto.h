@@ -26,7 +26,10 @@ _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
 _PROTOTYPE( void init_cache, (int bufs)					);
 _PROTOTYPE( struct buf *get_block, (dev_t dev, block_t block,int only_search));
+/*
 _PROTOTYPE( void put_block, (struct buf *bp, int block_type)		);
+ */
+_PROTOTYPE( void put_block, (struct buf *bp)				);
 _PROTOTYPE( void rw_scattered, (dev_t dev,
 			struct buf **bufq, int bufqsize, int rw_flag)	);
 _PROTOTYPE( void zero_block, (struct buf *bp)				);
@@ -43,6 +46,7 @@ _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* inode.c */
+_PROTOTYPE( int do_putnode, (void)					);
 _PROTOTYPE( struct inode *init_inode, (void)				);
 _PROTOTYPE( struct inode *find_inode, (ino_t ino_nr)			);
 _PROTOTYPE( void get_inode, (struct inode *ino)				);
@@ -52,7 +56,6 @@ _PROTOTYPE( void unlink_inode, (struct inode *ino)			);
 _PROTOTYPE( struct inode *get_free_inode, (void)			);
 _PROTOTYPE( int have_free_inode, (void)					);
 _PROTOTYPE( int have_used_inode, (void)					);
-_PROTOTYPE( int do_putnode, (void)					);
 
 /* lookup.c */
 _PROTOTYPE( int do_lookup, (void)					);
@@ -69,9 +72,10 @@ _PROTOTYPE( int do_readsuper, (void)					);
 _PROTOTYPE( int do_unmount, (void)					);
 
 /* readwrite.c */
-_PROTOTYPE( int do_readwrite, (void)					);
 _PROTOTYPE( int do_blockrw, (void)					);
 _PROTOTYPE( int do_getdents, (void)					);
+_PROTOTYPE( int do_readwrite, (void)					);
+_PROTOTYPE( void read_ahead, (void)					);
 
 /* stat.c */
 _PROTOTYPE( mode_t get_mode, (struct inode *ino, int mode)		);

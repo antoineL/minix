@@ -41,25 +41,33 @@ EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 
 /* Buffer cache. */
 EXTERN struct buf *buf;
+#if 0
 EXTERN struct buf **buf_hash;   /* the buffer hash table */
-EXTERN unsigned int nr_bufs;
-EXTERN int may_use_vmcache;
-
 EXTERN struct buf *front;	/* points to least recently used free block */
 EXTERN struct buf *rear;	/* points to most recently used free block */
-EXTERN unsigned int bufs_in_use;/* # bufs currently in use (not on free list)*/
+#endif
+TAILQ_HEAD(lruhead, buf) lru;
+LIST_HEAD(bufhashhead, buf) *buf_hash;   /* the buffer hash table */
+
+EXTERN int nr_bufs;
+EXTERN int bufs_in_use;		/* # bufs currently in use (not on free list)*/
+EXTERN int may_use_vmcache;
+
+/* our block size. */
+EXTERN unsigned int mfs_block_size;
 
 /* User-settable options */
 EXTERN int read_only;		/* is the file system mounted read-only? */
 
 EXTERN uid_t use_uid;		/* use this uid */
 EXTERN gid_t use_gid;		/* use this gid */
-EXTERN mode_t use_umask;	/* show modes with this usermask */
+EXTERN mode_t use_file_mask;	/* show files with this mode */
+EXTERN mode_t use_dir_mask;	/* show directories with this mode */
+EXTERN int keep_atime;		/* do not update atime and access bits */
+
+EXTERN int verbose;		/* emit comments on the console; debugging */
 
 EXTERN enum { LFN_IGNORE, LFN_LOOK, LFN_USE } lfn_state;
-
-/* our block size. */
-EXTERN unsigned int mfs_block_size;
 
 EXTERN struct superblock superblock; /* file system fundamental values */
 

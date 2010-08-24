@@ -23,6 +23,7 @@
 #define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
 #include <assert.h>
+#include <stdio.h>
 
 #include <sys/types.h>
 
@@ -30,8 +31,11 @@
 #include <minix/const.h>
 #include <minix/type.h>
 #include <minix/ipc.h>
-
 #include <minix/vfsif.h>
+#ifdef	COMPAT316
+#include "compat.h"
+#endif
+#include <minix/sysutil.h>	/* panic */
 
 #include "const.h"
 #include "type.h"

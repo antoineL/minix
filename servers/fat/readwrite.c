@@ -16,6 +16,7 @@
 #define _SYSTEM 1		/* for negative error values */
 #include <errno.h>
 #include <assert.h>
+#include <stdlib.h>
 
 #include <sys/types.h>
 #include <dirent.h>
@@ -30,12 +31,15 @@
 #include <minix/vfsif.h>
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
-#include <minix/sysutil.h>	/* panic, ASSERT */
+#ifdef	COMPAT316
+#include "compat.h"
+#endif
+#include <minix/sysutil.h>	/* panic */
 
 #include "const.h"
 #include "type.h"
 #include "inode.h"
-#include "cache.h"
+	#include "super.h"	/* POUR AVOIR format data block */
 #include "proto.h"
 #include "glo.h"
 
@@ -337,8 +341,10 @@ int *completed;			/* number of bytes copied */
 	bp->b_dirt = DIRTY;
   }
   
+/*
   n = (off + chunk == block_size ? FULL_DATA_BLOCK : PARTIAL_DATA_BLOCK);
-  put_block(bp, n);
+ */
+  put_block(bp /*, n */);
 
   return(r);
 }
@@ -389,11 +395,11 @@ off_t position;			/* position in file whose blk wanted */
 	if ( (z = rip->i_zone[dzones+1]) == NO_ZONE) return(NO_BLOCK);
 	excess -= nr_indirects;			/* single indir doesn't count*/
 	b = (block_t) z << scale;
-	ASSERT(rip->i_dev != NO_DEV);
+	assert(rip->i_dev != NO_DEV);
 	bp = get_block(rip->i_dev, b, NORMAL);	/* get double indirect block */
 	index = (int) (excess/nr_indirects);
-	ASSERT(bp->b_dev != NO_DEV);
-	ASSERT(bp->b_dev == rip->i_dev);
+	assert(bp->b_dev != NO_DEV);
+	assert(bp->b_dev == rip->i_dev);
 	z = rd_indir(bp, index);		/* z= zone for single*/
 	put_block(bp, INDIRECT_BLOCK);		/* release double ind block */
 	excess = excess % nr_indirects;		/* index into single ind blk */
@@ -451,7 +457,7 @@ int index;			/* index into *bp */
 /*===========================================================================*
  *				read_ahead				     *
  *===========================================================================*/
-PUBLIC void read_ahead()
+PUBLIC void read_ahead(void)
 {
 /* Read a block into the cache before it is needed. */
   unsigned int block_size;
@@ -471,7 +477,7 @@ PUBLIC void read_ahead()
   assert(rdahedpos > 0); /* So we can safely cast it to unsigned below */
 
   bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), block_size);
-  put_block(bp, PARTIAL_DATA_BLOCK);
+  put_block(bp /*, PARTIAL_DATA_BLOCK */);
 }
 
 
@@ -601,7 +607,7 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
 	bp = get_block(dev, block, PREFETCH);
 	if (bp->b_dev != NO_DEV) {
 		/* Oops, block already in the cache, get out. */
-		put_block(bp, FULL_DATA_BLOCK);
+		put_block(bp /*, FULL_DATA_BLOCK */);
 		break;
 	}
   }
@@ -721,7 +727,7 @@ PUBLIC int do_getdents(void)
 		  tmpbuf_off += reclen;
 	  }
 
-	  put_block(bp, DIRECTORY_BLOCK);
+	  put_block(bp /*, DIRECTORY_BLOCK*/ );
 	  if(done)
 		  break;
   }
