@@ -24,8 +24,13 @@ struct inode;
 /* cache.c */
 _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
+enum get_block_arg_e {
+	NORMAL,			/* forces get_block to do disk read */
+	NO_READ,		/* prevents get_block from doing disk read */
+	PREFETCH		/* tells get_block not to read or mark dev */
+};
+_PROTOTYPE( struct buf *get_block, (dev_t, block_t blocknr, enum get_block_arg_e)	);
 _PROTOTYPE( void init_cache, (int bufs)					);
-_PROTOTYPE( struct buf *get_block, (dev_t dev, block_t block,int only_search));
 /*
 _PROTOTYPE( void put_block, (struct buf *bp, int block_type)		);
  */
@@ -34,9 +39,6 @@ _PROTOTYPE( void rw_scattered, (dev_t dev,
 			struct buf **bufq, int bufqsize, int rw_flag)	);
 _PROTOTYPE( void zero_block, (struct buf *bp)				);
 
-/* cluster.c */
-_PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
-
 /* driver.c */
 _PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
 			   int flags)					);
@@ -44,6 +46,9 @@ _PROTOTYPE( void dev_close, (endpoint_t driver_e, dev_t dev)		);
 _PROTOTYPE( int do_new_driver, (void)					);
 _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
+
+/* fat.c */
+_PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
 /* inode.c */
 _PROTOTYPE( int do_putnode, (void)					);
@@ -61,7 +66,6 @@ _PROTOTYPE( int have_used_inode, (void)					);
 _PROTOTYPE( int do_lookup, (void)					);
 
 /* main.c */
-_PROTOTYPE( int do_new_driver, (void)					);
 _PROTOTYPE( int do_nothing, (void)					);
 _PROTOTYPE( int readonly, (void)					);
 _PROTOTYPE( int no_sys, (void)						);

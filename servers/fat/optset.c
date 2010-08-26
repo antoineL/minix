@@ -15,15 +15,18 @@
 #define _POSIX_SOURCE 1
 #define _MINIX 1
 
+#include <minix/config.h>	/* MUST be first */
+#include <ansi.h>		/* MUST be second */
 #include <stdlib.h>
 #include <string.h>
-#include <minix/config.h>
 #include <minix/const.h>
 
 #include "optset.h"
 
+/* Private functions: */
 FORWARD _PROTOTYPE( void optset_parse_entry, (struct optset *entry,
 						char *ptr, int len)	);
+			/* Parse and store the value of a single option */
 
 /*===========================================================================*
  *				optset_parse_entry			     *

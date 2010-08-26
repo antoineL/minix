@@ -10,41 +10,24 @@
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-#include <assert.h>
 #include <stdlib.h>
-
-#include <sys/types.h>
 #include <dirent.h>
 
-#include <minix/config.h>
-#include <minix/const.h>
+#ifdef	COMPAT316
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
+#endif
 #include <minix/u64.h>
-
-#include <minix/type.h>
-#include <minix/ipc.h>
 #include <minix/com.h>		/* VFS_BASE */
-#include <minix/vfsif.h>
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
-#ifdef	COMPAT316
-#include "compat.h"
-#endif
 #include <minix/sysutil.h>	/* panic */
 
-#include "const.h"
-#include "type.h"
 #include "inode.h"
 	#include "super.h"	/* POUR AVOIR format data block */
-#include "proto.h"
-#include "glo.h"
 
 /*
-#include "inc.h"
  */
 
 #define DWORD_ALIGN(len) (((len) + sizeof(long) - 1) & ~(sizeof(long) - 1))
@@ -469,7 +452,7 @@ PUBLIC void read_ahead(void)
 	return;
 
   rip = rdahed_inode;		/* pointer to inode to read ahead from */
-  block_size = /*get_block_size(rip->i_dev)*/ SBLOCK_SIZE;
+  block_size = /*get_block_size(rip->i_dev)*/ SECTOR_SIZE;
   rdahed_inode = NULL;	/* turn off read ahead */
 #if 0
   if ( (b = read_map(rip, rdahedpos)) == NO_BLOCK) return;	/* at EOF */
@@ -527,7 +510,7 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
   else 
 	dev = rip->i_dev;
  */  
-  block_size = /*get_block_size(dev)*/ SBLOCK_SIZE;
+  block_size = /*get_block_size(dev)*/ SECTOR_SIZE;
 
   block = baseblock;
   bp = get_block(dev, block, PREFETCH);
@@ -690,6 +673,7 @@ PUBLIC int do_getdents(void)
 			  reclen += sizeof(long) - o;
 
 		  /* Need the position of this entry in the directory */
+/* FIXME: should rather be (char *)bp->b_dir, methinks */
 		  ent_pos = block_pos + ((char *) dp - (bp->b_data));
 
 		  if(tmpbuf_off + reclen > GETDENTS_BUFSIZ) {

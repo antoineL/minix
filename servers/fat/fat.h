@@ -1,9 +1,8 @@
 /* Types describing the on-disk structures used by the FAT file system.
  *
- * The basis for this file is based on the PCFS package targetting
- * 386BSD 0.1, published in comp.unix.bsd on October 1992 by
- * Paul Popelka; his work is to be rewarded.
- *
+ * The basis for this file is the PCFS package targetting
+ * 386BSD 0.1, published in comp.unix.bsd on October 1992
+ * by Paul Popelka; his work is to be rewarded.
  * Auteur: Antoine Leca, aout 2010.
  */
 
@@ -19,6 +18,27 @@
  * force shorts and longs to align on incorrect boundaries.
  * Everything on-disk is stored in little-endian form.
  */ 
+
+/* This is the detail of the extended BPB structure,
+ * which can be placed at two different positions depending
+ * on the FAT kind. More explanations below.
+ */
+struct fat_extbpb {
+  uint8_t exDriveNumber;	/* BIOS drive number (fd0=0x00, hd0=0x80) */
+  uint8_t exNeedCheck;		/* check fs on mount; used by NT, KB140418 */
+#define EXTBPB_NEEDFSCK	0x01		/* need file system check (chkdsk) */
+#define EXTBPB_NEEDBBCK	0x02		/* need badblock check */
+  uint8_t exBootSignature;	/* extended boot signature (0x29) */
+#define	EXBOOTSIG	0x29
+#define	EXBOOTSIG_ALT	0x28		/* said to be also used? */
+  uint8_t exVolumeID[4];	/* volume ID number */
+  char exVolumeLabel[11];	/* volume label */
+  char exFileSysType[8];	/* fs type: */
+#define FAT_FSTYPE	"FAT     "	/* FAT, but without size indication */
+#define FAT12_FSTYPE	"FAT12   "	/* asserts this is FAT12 */
+#define FAT16_FSTYPE	"FAT16   "	/* asserts this is FAT16 */
+#define FAT32_FSTYPE	"FAT32   "	/* asserts this is FAT32 */
+};
 
 /* Format of a superblock, also known as boot sector.
  * This is the first sector on a FAT file system.
@@ -70,24 +90,32 @@ struct fat_bootsector {
  * overwritten that extended BPB: as a result the extension
  * can be placed at two different positions...
  */
+  union {
+   struct fat_extbpb ExtBPB;	/* BPB extension (assuming FAT12/16) */
 #define offsetEXTBPB16	offsetof(struct fat_superblock, bpbBigFATsecs)
-
-  uint8_t bpbBigFATsecs[4];	/* number of sectors per FAT32 */
-  uint8_t bpbExtFlags[2];	/* some FAT32 flags: */
+   struct {
+    uint8_t bpbBigFATsecs[4];	/* number of sectors per FAT32 */
+    uint8_t bpbExtFlags[2];	/* some FAT32 flags: */
 #define	FATONEACTIVE	0x80		/* only 1 FAT is active */
 #define	FATNUM		0x0f		/* mask for number of active FAT */
-  uint8_t bpbFSVers[2];		/* filesystem version: */
+    uint8_t bpbFSVers[2];	/* filesystem version: */
 #define	FSVERS		0		/* only version 0 we known about */
-  uint8_t bpbRootClust[4];	/* start cluster for root directory */
-  uint8_t bpbFSInfo[2];		/* filesystem info FSInfo sectors */
-  uint8_t bpbBackup[2];		/* backup boot sectors (shall be 6) */
-  uint8_t bpbReserved[12];	/* reserved for future expansion (?) */
-/* End of BPB as defined for FAT32. Here begins exFAT
+    uint8_t bpbRootClust[4];	/* start cluster for root directory */
+    uint8_t bpbFSInfo[2];	/* filesystem info FSInfo sectors */
+    uint8_t bpbBackup[2];	/* backup boot sectors (shall be 6) */
+    uint8_t bpbReserved[12];	/* reserved for future expansion (?) */
+/* End of BPB as defined for FAT32. Here 
+begins exFAT
  * datas (not documented here). Also here would stands
  * the extended BPB in case of a FAT32 file system.
  */
 #define offsetEXTBPB32	offsetof(struct fat_superblock, bsExtBPB32)
-  uint8_t bsExtBPB32[26];	/* BPB extension (assuming FAT32) */
+#if 0
+    uint8_t ExtBPB32[26];	/* BPB extension (assuming FAT32) */
+#endif
+    struct fat_extbpb ExtBPB32;	/* BPB extension (assuming FAT32) */
+   } f32bpb;
+  } u;
 
   uint8_t bsBootCode[420];	/* pad so structure is 512 bytes long */
 
@@ -101,47 +129,25 @@ struct fat_bootsector {
 #define	BOOTSIG		"\x55\xaa"
 };
 
-/* This is the detail of the extended BPB structure,
- * which can be placed at two different positions depending
- * on the FAT kind.
- */
-struct fat_extbpb {
-  uint8_t exDriveNumber;	/* BIOS drive number (fd0=0x00, hd0=0x80) */
-  uint8_t exNeedCheck;		/* check fs on mount; used by NT, KB140418 */
-#define EXTBPB_NEEDFSCK	0x01		/* need file system check (chkdsk) */
-#define EXTBPB_NEEDBBCK	0x02		/* need badblock check */
-  uint8_t exBootSignature;	/* extended boot signature (0x29) */
-#define	EXBOOTSIG	0x29
-#define	EXBOOTSIG_ALT	0x28		/* said to be also used? */
-  uint8_t exVolumeID[4];	/* volume ID number */
-  char exVolumeLabel[11];	/* volume label */
-  char exFileSysType[8];	/* fs type: */
-#define FAT_FSTYPE	"FAT     "	/* FAT, but without size indication */
-#define FAT12_FSTYPE	"FAT12   "	/* asserts this is FAT12 */
-#define FAT16_FSTYPE	"FAT16   "	/* asserts this is FAT16 */
-#define FAT32_FSTYPE	"FAT32   "	/* asserts this is FAT32 */
-};
-
 /* FAT32 FSInfo block. It currently holds a few indicative
  * counters, which helps performance-wise because of the
  * potential big size of FAT32 structures.
  */
 struct fat_fsinfo {
-  char fsiSig1[4];
+  char fsiSig1[4];		/* magic value at start of sector */
 #define FSI_SIG1	"RRaA"
-  uint8_t fsiFill1[480];
-  char fsiSig2[4];
+  uint8_t fsiFill1[480];	/* usually zeroes */
+  char fsiSig2[4];		/* second magic just before the datas */
 #define FSI_SIG2	"rrAa"
   uint8_t fsinFree[4];		/* count of free clusters */
   uint8_t fsinNextFree[4];	/* index for next free cluster */
   uint8_t fsiFill2[14];
-  char fsiSig3[2];
+  char fsiSig3[2];		/* another magic just before 512 */ 
 #define FSI_SIG3	BOOTSIG
-  uint8_t fsiFill3[510];
-  char fsiSig4[2];
+  uint8_t fsiCodeExt[510];	/* booting code for DOS/Windows9x */
+  char fsiSig4[2];		/* and another magic just before 1024 */
 #define FSI_SIG4	BOOTSIG
-}; 
-
+};
 
 /* Format of a FAT directory entry. This also plays the role
  * of the inode. Missing are the members for permissions,
@@ -156,15 +162,19 @@ struct fat_direntry {
 #define	SLOT_EMPTY	0x00		/* slot has never been used */
 #define	SLOT_DELETED	0xe5		/* file in this slot deleted */
 #define	SLOT_E5		0x05		/* the real value is '\xe5' */
+#define	SLOT_DOT	0x2E		/* '.' and '..' at start of subdir */
+#define	NAME_DOT	".          "	/* '.' entry at start of subdir */
+#define	NAME_DOT_DOT	"..         "	/* '..' entry, 2nd in subdir */
   unsigned char deExtension[3];	/* extension, space filled */
+#define	EXT_NONE	"   "		/* no extension, thus kill the '.' */
   uint8_t deAttributes;		/* file attributes */
-#define	ATTR_NORMAL	0x00		/* normal file			*/
-#define	ATTR_READONLY	0x01		/* file is readonly		*/
-#define	ATTR_HIDDEN	0x02		/* file is hidden		*/
-#define	ATTR_SYSTEM	0x04		/* file is a system file	*/
-#define	ATTR_VOLUME	0x08		/* entry is a volume label	*/
-#define	ATTR_DIRECTORY	0x10		/* entry is a directory name	*/
-#define	ATTR_ARCHIVE	0x20		/* file is new or modified	*/
+#define	ATTR_NORMAL	0x00		/* normal file */
+#define	ATTR_READONLY	0x01		/* file is readonly */
+#define	ATTR_HIDDEN	0x02		/* file is hidden */
+#define	ATTR_SYSTEM	0x04		/* file is a system file */
+#define	ATTR_VOLUME	0x08		/* entry is a volume label */
+#define	ATTR_DIRECTORY	0x10		/* entry is a directory name */
+#define	ATTR_ARCHIVE	0x20		/* file is new or modified */
   uint8_t deLCase;		/* tolower case changer (WinNT) */
 #define	LCASE_NAME	0x08		/* name is really lowercase */
 #define	LCASE_EXTENSION	0x10		/* extension is really lowercase */
@@ -215,8 +225,8 @@ struct fat_lfnentry {
 	#define	PCFSFREE	CLUST_FREE
 
 #define	CLUST_FIRST	2	/* first legal cluster number */
-	#define	CLUST_RSRVS	0xfff0	/* start of reserved cluster range	*/
-	#define	CLUST_RSRVE	0xfff6	/* end of reserved cluster range	*/
+	#define	CLUST_RSRVS	0xfff0	/* start of reserved cluster range	*OBS*	*/
+	#define	CLUST_RSRVE	0xfff6	/* end of reserved cluster range	*OBS*	*/
 #define	CLUST_MAXFAT12	0x00000ff6	/* max cluster number for FAT12 */
 #define	CLUST_MAXFAT16	0x0000fff6	/* max cluster number for FAT16 */
 
@@ -224,51 +234,38 @@ struct fat_lfnentry {
 #define	CLUST_EOFS	0xfffffff8	/* start of eof cluster range */
 #define	CLUST_EOFE	0xffffffff	/* end of eof cluster range */
 
-#define	FAT12_MASK	0x00000fff	/* mask for 12 bit cluster numbers */
+#define	FAT12_MASK	0x00000fff	/* mask for 12-bit cluster numbers */
 #define	FAT16_MASK	0x0000ffff	/* mask for 16 bit cluster numbers */
 #define	FAT32_MASK	0x0fffffff	/* mask for 32 bit cluster numbers */
 
-/*
- *  Return true if filesystem uses 12 bit fats.
- *  Microsoft Programmer's Reference says if the
- *  maximum cluster number in a filesystem is greater
- *  than 4086 then we've got a 16 bit fat filesystem.
+/* Determine the kind of FATs used by a given file system.
+ * Strictly a function of the maximum cluster number in the filesystem:
+ *   if less or equal to CLUST_MAXFAT12 (4086), it is FAT12
+ *   else, if less or equal to CLUST_MAXFAT16 (65526), it is FAT16
+ *   else [if strictly higher than CLUST_MAXFAT16], it is FAT32
+ *
+ * Note that since clusters 0 and 1 do not exist, the
+ * "total number of clusters" is one less than "maxcluster".
  */
-#define	xFAT12(pmp)	(pmp->pm_maxcluster <= CLUST_MAXFAT12)
-#define	xFAT16(pmp)	( (unsigned)(pmp->pm_maxcluster-CLUST_MAXFAT12-1) \
-				<= (CLUST_MAXFAT16-CLUST_MAXFAT12-1) )
+#define	FS_IS_FAT12(maxClust)	(maxClust <= CLUST_MAXFAT12)
+#define	FS_IS_FAT16(maxClust)  ( (unsigned long)(maxClust-CLUST_MAXFAT12-1) \
+					<=(CLUST_MAXFAT16-CLUST_MAXFAT12-1) )
+#define	FS_IS_FAT32(maxClust)	(maxClust > CLUST_MAXFAT16)
 
-#define	pcfsFAT12(pmp)	(pmp->pm_maxcluster <= 4086)
-#define	pcfsFAT16(pmp)	(pmp->pm_maxcluster >  4086)
-
-/*
- * MSDOSFS:
- * Return true if filesystem uses 12 bit fats. Microsoft Programmer's
- * Reference says if the maximum cluster number in a filesystem is greater
- * than 4078 ((CLUST_RSRVS - CLUST_FIRST) & FAT12_MASK) then we've got a
- * 16 bit fat filesystem. While mounting, the result of this test is stored
- * in pm_fatentrysize.
- * GEMDOS-flavour (atari):
- * If the filesystem is on floppy we've got a 12 bit fat filesystem, otherwise
- * 16 bit. We check the d_type field in the disklabel struct while mounting
- * and store the result in the pm_fatentrysize. Note that this kind of
- * detection gets flakey when mounting a vnd-device.
+/* In the (endless?) list of quirks, it was decided that EOF mark would be
+ * anything between CLUST_EOFS and CLUST_EOFE (0xFF8 and 0xFFF initially).
+ *
+ * And some OSes (like Linux) took this to the letter, and used various
+ * values... just to find later that some mainstream OS were not paying
+ * the due attention (!), so they reverted to CLUST_EOFE, which is the
+ * correct value to write.
+ * However while reading, we should deal with that too...
  */
-#define	FAT12(pmp)	(fatmask == FAT12_MASK)
-#define	FAT16(pmp)	(fatmask == FAT16_MASK)
-#define	FAT32(pmp)	(fatmask == FAT32_MASK)
+#define	CLUSTMASK_EOF12	(CLUST_EOFS&FAT12_MASK)	/* mask for 12-bit eof mark*/
+#define	CLUSTMASK_EOF16	(CLUST_EOFS&FAT16_MASK)	/* mask for 16-bit eof mark*/
+#define	CLUSTMASK_EOF32	(CLUST_EOFS&FAT32_MASK)	/* mask for 32-bit eof mark*/
 
-/* REVISEME */
-#define	PCFSEOF(cn)	(((cn) & 0xfff8) == 0xfff8)
-
-/*
- * M$ in it's unlimited wisdom desided that EOF mark is anything
- * between 0xfffffff8 and 0xffffffff (masked by appropriate fatmask,
- * of course).
- * Note that cn is supposed to be already adjusted accordingly to FAT type.
- */
-#define	MSDOSFSEOF(cn, fatmask)	\
-	(((cn) & CLUST_EOFS) == (CLUST_EOFS & (fatmask)))
+#define	ATEOF(cn, eofmask)	(((cn) & eofmask) == eofmask)
 
 /* As seen above, cluster numbers begins at 2; so the
  * first two entries of any FAT are not used; they

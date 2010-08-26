@@ -8,73 +8,83 @@
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
+#include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/ipc.h>
-
-#include <minix/vfsif.h>
+#include <minix/u64.h>
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
 #include <minix/ds.h>
 
+#include "inode.h"
 #include "fat.h"
+/* warning: the following lines are not failsafe macros */
+#define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
+#define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
 
-#include "const.h"
-#include "type.h"
-#include "proto.h"
-#include "glo.h"
-
-#if DEBUG
-#define DBGprintf(x) printf x
-#else
-#define DBGprintf(x)
-#endif
-
-/*
-#include "inc.h"
+/*===========================================================================*
+ *				recognize_extbpb			     *
+ *===========================================================================*/
+PRIVATE int recognize_extbpb(
+  struct fat_extbpb *ep,	/* is this structure an extended BPB */
+  char fstype[])		/* of this proposed type ?*/
+{
+/* This function tries to recognizes a Extended BPB.
+ * It is based on the ideas of Jonathan de Boyne Pollard,
+ * http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/determining-fat-widths.html
  */
+
+  if ( ep->exBootSignature!=EXBOOTSIG
+    && ep->exBootSignature!=EXBOOTSIG_ALT )
+	return FALSE;	/* signature does not match */
+  return ! memcmp(ep->exFileSysType, fstype, sizeof ep->exFileSysType);
+}
 
 /*===========================================================================*
  *				do_readsuper				     *
  *===========================================================================*/
-PUBLIC int do_readsuper()
+PUBLIC int do_readsuper(void)
 {
-/* This function reads the superblock of the partition, gets the root inode
- * and sends back the details of them. Note, that the FS process does not
- * know the index of the vmnt object which refers to it, whenever the pathname 
- * lookup leaves a partition an ELEAVEMOUNT error is transferred back 
- * so that the VFS knows that it has to find the vnode on which this FS 
- * process' partition is mounted on.
+/* This function reads the superblock of the partition, builds the root inode
+ * and sends back the details of them.
+ *
+ * CHECKME if the following is still relevant?
+ * Note, that the FS process does not know the index of the vmnt object which
+ * refers to it, whenever the pathname lookup leaves a partition an
+ * ELEAVEMOUNT error is transferred back so that the VFS knows that it has
+ * to find the vnode on which this FS process' partition is mounted on.
  */
-  int r;
+  int i, r;
   endpoint_t xdriver_e;
   struct inode *root_ip;
   cp_grant_id_t label_gid;
   size_t label_len;
+  static struct fat_bootsector *bs;  
+  struct fat_extbpb *extbpbp;
+  unsigned long fatmask;
+  unsigned long bit;
+  sector_t systemarea;
+  off_t rootDirSize;
+
+  STATICINIT(bs, SECTOR_SIZE);	/* allocated once, made contiguous */
 
   DBGprintf(("FATfs: readsuper (dev %x, flags %x)\n",
 	(dev_t) m_in.REQ_DEV, m_in.REQ_FLAGS));
 
   if (m_in.REQ_FLAGS & REQ_ISROOT) {
 	printf("FATfs: attempt to mount as root device\n");
-
 	return EINVAL;
   }
 
   read_only = !!(m_in.REQ_FLAGS & REQ_RDONLY);
   dev = m_in.REQ_DEV;
+  if (dev == NO_DEV)
+	panic("request for mounting FAT fs on NO_DEV");
 
   label_gid = (cp_grant_id_t) m_in.REQ_GRANT;
   label_len = (size_t) m_in.REQ_PATH_LEN;
@@ -86,7 +96,7 @@ PUBLIC int do_readsuper()
   r = sys_safecopyfrom(m_in.m_source, label_gid, (vir_bytes) 0,
 		       (vir_bytes) fs_dev_label, label_len, D);
   if (r != OK) {
-	printf("FATfs %s:%d safecopyfrom failed: %d\n", __FILE__, __LINE__, r);
+	printf("FAT`%s:%d safecopyfrom failed: %d\n", __FILE__, __LINE__, r);
 	return(EINVAL);
   }
   if (strlen(fs_dev_label) > sizeof(fs_dev_label)-1)
@@ -109,150 +119,231 @@ PUBLIC int do_readsuper()
 
   /* Open the device the file system lives on. */
   if (dev_open(driver_e, dev, driver_e,
-  	       read_only ? R_BIT : (R_BIT|W_BIT) ) != OK) {
-        return(EINVAL);
-  }
-
-#if 0
-  /* Fill in the super block. */
-  superblock.s_dev = fs_dev;	/* read_super() needs to know which dev */
-  r = read_super(&superblock);
-
-{
-/* Read a superblock. */
-  dev_t dev;
-  unsigned int magic;
-  int version, native, r;
-  static char *sbbuf;
-  block_t offset;
-
-  STATICINIT(sbbuf, _MIN_BLOCK_SIZE);
-
-  dev = sp->s_dev;		/* save device (will be overwritten by copy) */
-  if (dev == NO_DEV)
-  	panic("request for super_block of NO_DEV");
-  
-  r = seqblock_dev_io(DEV_READ, sbbuf, cvu64(SUPER_BLOCK_BYTES), _MIN_BLOCK_SIZE);
-  if (r != _MIN_BLOCK_SIZE) 
-  	return(EINVAL);
-  
-  memcpy(sp, sbbuf, sizeof(*sp));
-  sp->s_dev = NO_DEV;		/* restore later */
-  magic = sp->s_magic;		/* determines file system type */
-
-  /* Get file system version and type. */
-  if (magic == SUPER_MAGIC || magic == conv2(BYTE_SWAP, SUPER_MAGIC)) {
-	version = V1;
-	native  = (magic == SUPER_MAGIC);
-  } else if (magic == SUPER_V2 || magic == conv2(BYTE_SWAP, SUPER_V2)) {
-	version = V2;
-	native  = (magic == SUPER_V2);
-  } else if (magic == SUPER_V3) {
-	version = V3;
-  	native = 1;
-  } else {
+	       read_only ? R_BIT : (R_BIT|W_BIT) ) != OK) {
 	return(EINVAL);
   }
 
-  /* If the super block has the wrong byte order, swap the fields; the magic
-   * number doesn't need conversion. */
-  sp->s_ninodes =           (ino_t) conv4(native, (int) sp->s_ninodes);
-  sp->s_nzones =          (zone1_t) conv2(native, (int) sp->s_nzones);
-  sp->s_imap_blocks =       (short) conv2(native, (int) sp->s_imap_blocks);
-  sp->s_zmap_blocks =       (short) conv2(native, (int) sp->s_zmap_blocks);
-  sp->s_firstdatazone_old =(zone1_t)conv2(native,(int)sp->s_firstdatazone_old);
-  sp->s_log_zone_size =     (short) conv2(native, (int) sp->s_log_zone_size);
-  sp->s_max_size =          (off_t) conv4(native, sp->s_max_size);
-  sp->s_zones =             (zone_t)conv4(native, sp->s_zones);
+  /* Fill in the boot sector. */
+  assert(sizeof bs == SECTOR_SIZE);	/* paranoia */
+  r = seqblock_dev_io(DEV_READ_S, &bs, cvu64(0), SECTOR_SIZE);
+  if (r != SECTOR_SIZE) 
+	return(EINVAL);
+  
+  if (memcmp(bs->bsBootSectSig, BOOTSIG, sizeof bs->bsBootSectSig)) {
+/* <FUTURE_IMPROVEMENT>
+ * if "veryold" (or "dos1") option is set, try to read 2nd sector,
+ * and then interpret the content of the first 3 bytes
+ * as being a Fx media descriptor followed by FF FF
+ * if OK, subsitute the bootsector with the adequate template
+ * for that media. </FUTURE_IMPROVEMENT>
+ */
+	DBGprintf(("mounting failed: bad magic at bytes 510-511\n"));
+	return(EINVAL);
+  }
+  if ( (bs->bsJump[0]!=0xEB || bs->bsJump[0]!=0x90)
+    && (bs->bsJump[0]!=0xE9) ) {
+	DBGprintf(("mounting failed: missing jmp instruction at start\n"));
+	return(EINVAL);
+  }
 
-  /* In V1, the device size was kept in a short, s_nzones, which limited
-   * devices to 32K zones.  For V2, it was decided to keep the size as a
-   * long.  However, just changing s_nzones to a long would not work, since
-   * then the position of s_magic in the super block would not be the same
-   * in V1 and V2 file systems, and there would be no way to tell whether
-   * a newly mounted file system was V1 or V2.  The solution was to introduce
-   * a new variable, s_zones, and copy the size there.
-   *
-   * Calculate some other numbers that depend on the version here too, to
-   * hide some of the differences.
-   */
-  if (version == V1) {
-  	sp->s_block_size = _STATIC_BLOCK_SIZE;
-	sp->s_zones = (zone_t) sp->s_nzones;	/* only V1 needs this copy */
-	sp->s_inodes_per_block = V1_INODES_PER_BLOCK;
-	sp->s_ndzones = V1_NR_DZONES;
-	sp->s_nindirs = V1_INDIRECTS;
+  sb.fatmask = 0;
+  extbpbp = NULL;
+  /* Try to recognize an extended BPB; first tries FAT32 ones */
+  if (recognize_extbpb(&(bs->u.f32bpb.ExtBPB32), FAT32_FSTYPE)) {
+	extbpbp = &bs->u.f32bpb.ExtBPB32;
+	sb.fatmask = FAT32_MASK;
+  } else if (recognize_extbpb(&bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
+	extbpbp = &bs->u.f32bpb.ExtBPB32;
+  }
+  /* it didn't work; then try FAT12/FAT16, at a different place */
+  else   if (recognize_extbpb(&bs->u.ExtBPB, FAT16_FSTYPE)) {
+	extbpbp = &bs->u.ExtBPB;
+	sb.fatmask = FAT16_MASK;
+  } else if (recognize_extbpb(&bs->u.ExtBPB, FAT12_FSTYPE)) {
+	extbpbp = &bs->u.ExtBPB;
+	sb.fatmask = FAT12_MASK;
+  } else if (recognize_extbpb(&bs->u.ExtBPB, FAT_FSTYPE)) {
+	extbpbp = &bs->u.ExtBPB;
+  } else if (bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG
+          || bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG_ALT ) {
+	/* we found a signature for an extended BPB at the
+	 * right place for a FAT32 file system, but the file
+	 * system identifier is unknown...
+	 * more robust handling would be to check isprint(exFileSysType[])
+	 */
+	DBGprintf(("mounting failed: found FAT32-like extended BPB, "
+		"but with unkown FStype: <%.8s>\n",
+		bs->u.f32bpb.ExtBPB32.exFileSysType));
+	return(EINVAL);
+  } else if (bs->u.ExtBPB.exBootSignature==EXBOOTSIG
+          || bs->u.ExtBPB.exBootSignature==EXBOOTSIG_ALT ) {
+	DBGprintf(("mounting failed: found extended BPB, "
+		"but with unkown FStype: <%.8s>\n",
+		bs->u.ExtBPB.exFileSysType));
+	return(EINVAL);
   } else {
-  	if (version == V2)
-  		sp->s_block_size = _STATIC_BLOCK_SIZE;
-  	if (sp->s_block_size < _MIN_BLOCK_SIZE) {
-  		return EINVAL;
+	/* we did not found the signature for an extended BPB...
+	 * keep away from now.
+    FIXME! let's them in!!!
+	 */
+	DBGprintf(("mounting failed: missing extended BPB\n"));
+	return(EINVAL);
+  }
+
+  /* Sanity checks... */
+  if (bs->bpbBytesPerSec[0]!=0 || bs->bpbBytesPerSec[1]!=2) {
+	DBGprintf(("mounting failed: not using 512-byte sectors\n"));
+	return(EINVAL);
+  }
+  if (bs->bpbSecPerClust & (bs->bpbSecPerClust - 1) ) {
+	DBGprintf(("mounting failed: clust/sec should be a power of 2\n"));
+	return(EINVAL);
+  }
+  if (bs->bpbResSectors[0]==0 && bs->bpbResSectors[1]==0) {
+	DBGprintf(("mounting failed: needs at least 1 reserved sector\n"));
+	return(EINVAL);
+  }
+  if (bs->bpbFATs==0) {
+	DBGprintf(("mounting failed: needs at least 1 FAT\n"));
+	return(EINVAL);
+  }
+  if (bs->bpbFATs>15) {
+	DBGprintf(("mounting failed: too much FATs (%d)\n", bs->bpbFATs));
+	return(EINVAL);
+  }
+
+  /* Fill the superblock */
+  sb.bpblock = sb.bpsector = get_le16(bs->bpbBytesPerSec);
+  bit = 1;
+  for (i=0; i<16; bit<<=1,++i) {
+	if (bit & sb.bpsector) {
+		if (bit ^ sb.bpsector) {
+			DBGprintf(("mounting failed: "
+				"sector size must be power of 2\n"));
+			return(EINVAL);
+		}
+		sb.bnshift = sb.snshift = i;
+		break;
+	}
+  }
+  sb.brelmask = sb.srelmask = sb.bpsector-1;
+  sb.blkpcluster = sb.secpcluster = bs->bpbSecPerClust;
+  bit = 1;
+  for (i=0; i<8; bit<<=1,++i) {
+	if (bit & sb.secpcluster) {
+		assert(! (bit ^ sb.secpcluster));
+		sb.cnshift = sb.snshift + i;
+		break;
+	}
+  }
+  if (sb.cnshift>15) {
+	DBGprintf(("mounting failed: clusters too big (%d KiB)\n",
+		1<<(sb.cnshift-10)));
+	return(EINVAL);
+  }
+  sb.bpcluster = sb.secpcluster * sb.bpsector;
+  assert(sb.bpcluster == (1<<sb.cnshift)); /* paranoia */
+  sb.crelmask = sb.bpcluster-1;
+  assert(sizeof(struct fat_direntry) == 32); /* paranoia */
+  assert(sizeof(struct fat_lfnentry) == 32);
+  sb.depsec = sb.depblk = sb.bpsector / sizeof(struct fat_direntry);
+  sb.depclust = sb.depsec << sb.secpcluster;
+
+  sb.nFATs = bs->bpbFATs;
+
+  sb.resCnt   = sb.resSiz   = get_le16(bs->bpbResSectors);
+  if ( (sb.secpfat = get_le16(bs->bpbFATsecs)) == 0) {
+	if (extbpbp != &bs->u.f32bpb.ExtBPB32)
+		DBGprintf(("warning: mounting FAT32 without extended BPB\n"));
+	sb.secpfat = get_le32(bs->u.f32bpb.bpbBigFATsecs);
+  }
+  sb.blkpfat = sb.secpfat;
+  if (INT_MAX<65535 && get_le16(bs->bpbRootDirEnts) > (unsigned)INT_MAX) {
+	DBGprintf(("mounting failed: too much root dir entries (%u)\n",
+		get_le16(bs->bpbRootDirEnts)));
+	return(EINVAL);
+  }
+  sb.rootEntries = get_le16(bs->bpbRootDirEnts);
+  sb.rootCnt = sb.rootSiz = (sb.rootEntries+sb.depsec-1) / sb.depsec;
+#if 0
+  if (extbpbp == &bs->u.f32bpb.ExtBPB32) {
+	DBGprintf(("warning: FAT32 with fixed root directory!?\n"));
+	/* return(EINVAL); */
+  }
+#endif
+  if ( (sb.totalSecs = get_le16(bs->bpbSectors)) == 0) {
+	sb.totalSecs = get_le32(bs->bpbHugeSectors);
+  }
+  sb.totalSiz = sb.totalSecs;
+  sb.fatsCnt  = sb.fatsSiz  = sb.nFATs * sb.secpfat;
+  systemarea = sb.resCnt + sb.fatsCnt + sb.rootCnt;
+  if ( (systemarea + sb.secpcluster) >= sb.totalSecs) {
+	DBGprintf(("mounting failed: incoherent sizes, "
+		"sysarea=%lu total=%lu\n",
+		(unsigned long)systemarea, (unsigned long)sb.totalSecs));
+	return(EINVAL);
+  }
+  sb.clustCnt = sb.clustSiz = (sb.totalSecs-systemarea) & (sb.secpcluster-1);
+  sb.maxFilesize = (LONG_MAX>>sb.snshift) < sb.clustCnt
+	? LONG_MAX : sb.clustCnt<<sb.snshift;
+
+  sb.resSec   = sb.resBlk   = 0;
+  sb.fatSec   = sb.fatBlk   = sb.resCnt;
+  sb.rootSec  = sb.rootBlk  = sb.fatSec + sb.fatsCnt;
+  sb.clustSec = sb.clustBlk = sb.rootSec + sb.rootCnt;
+  assert( (sb.clustSec + sb.clustCnt) <= sb.totalSecs);
+
+  /* Final check about FAT sizes */
+  sb.maxClust = (sb.clustCnt>>sb.secpcluster) + 1;
+  if (sb.fatmask == FAT12_MASK && ! FS_IS_FAT12(sb.maxClust)
+   || sb.fatmask == FAT16_MASK && ! FS_IS_FAT16(sb.maxClust)
+   || sb.fatmask == FAT32_MASK && ! FS_IS_FAT32(sb.maxClust)) {
+	DBGprintf(("mounting failed: extended BPB says "
+		"FStype=<%.8s> but maxClust=%lu\n",
+		extbpbp->exFileSysType, (unsigned long)sb.maxClust));
+	return(EINVAL);
+  }
+  if      (FS_IS_FAT12(sb.maxClust)) {
+	sb.fatmask = FAT12_MASK;	sb.eofmask = CLUSTMASK_EOF12;
+	assert(!FS_IS_FAT16(sb.maxClust));	/* paranoia */
+	assert(!FS_IS_FAT32(sb.maxClust));
+/* PLUS virtual methods... +++ */
+  }
+  else if (FS_IS_FAT16(sb.maxClust)) {
+	sb.fatmask = FAT16_MASK;	sb.eofmask = CLUSTMASK_EOF16;
+	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
+	assert(!FS_IS_FAT32(sb.maxClust));
+  }
+  else if (FS_IS_FAT12(sb.maxClust)) {
+	sb.fatmask = FAT32_MASK;	sb.eofmask = CLUSTMASK_EOF32;
+	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
+	assert(!FS_IS_FAT16(sb.maxClust));
+  }
+  assert(fatmask != 0);
+
+/*FIXME sb.rootCluster et le reste des checks FAT32 (vers0 etc) */
+
+  sb.freeClustValid = sb.freeClust = sb.nextClust = 0;
+
+#if 0
+	if (version == V2)
+		sp->s_block_size = _STATIC_BLOCK_SIZE;
+	if (sp->s_block_size < _MIN_BLOCK_SIZE) {
+		return EINVAL;
 	}
 	sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
 	sp->s_ndzones = V2_NR_DZONES;
 	sp->s_nindirs = V2_INDIRECTS(sp->s_block_size);
-  }
-
-  /* For even larger disks, a similar problem occurs with s_firstdatazone.
-   * If the on-disk field contains zero, we assume that the value was too
-   * large to fit, and compute it on the fly.
-   */
-  if (sp->s_firstdatazone_old == 0) {
-	offset = START_BLOCK + sp->s_imap_blocks + sp->s_zmap_blocks;
-	offset += (sp->s_ninodes + sp->s_inodes_per_block - 1) /
-		sp->s_inodes_per_block;
-
-	sp->s_firstdatazone = (offset + (1 << sp->s_log_zone_size) - 1) >>
-		sp->s_log_zone_size;
-  } else {
-	sp->s_firstdatazone = (zone_t) sp->s_firstdatazone_old;
-  }
 
   if (sp->s_block_size < _MIN_BLOCK_SIZE) 
-  	return(EINVAL);
+	return(EINVAL);
   
   if ((sp->s_block_size % 512) != 0) 
-  	return(EINVAL);
-  
-  if (SUPER_SIZE > sp->s_block_size) 
-  	return(EINVAL);
-  
-  if ((sp->s_block_size % V2_INODE_SIZE) != 0 ||
-     (sp->s_block_size % V1_INODE_SIZE) != 0) {
-  	return(EINVAL);
-  }
-
-  /* Limit s_max_size to LONG_MAX */
-  if ((unsigned long)sp->s_max_size > LONG_MAX) 
-	sp->s_max_size = LONG_MAX;
-
+	return(EINVAL);
   sp->s_isearch = 0;		/* inode searches initially start at 0 */
   sp->s_zsearch = 0;		/* zone searches initially start at 0 */
   sp->s_version = version;
   sp->s_native  = native;
-
-  /* Make a few basic checks to see if super block looks reasonable. */
-  if (sp->s_imap_blocks < 1 || sp->s_zmap_blocks < 1
-				|| sp->s_ninodes < 1 || sp->s_zones < 1
-				|| sp->s_firstdatazone <= 4
-				|| sp->s_firstdatazone >= sp->s_zones
-				|| (unsigned) sp->s_log_zone_size > 4) {
-  	printf("not enough imap or zone map blocks, \n");
-  	printf("or not enough inodes, or not enough zones, \n"
-  		"or invalid first data zone, or zone size too large\n");
-	return(EINVAL);
-  }
-  sp->s_dev = dev;		/* restore device number */
-  return(OK);
-}
-
-
-  /* Is it recognized as a Minix filesystem? */
-  if (r != OK) {
-	superblock.s_dev = NO_DEV;
-  	dev_close(driver_e, fs_dev);
-	return(r);
-  }
 
   set_blocksize(superblock.s_block_size);
   
@@ -277,39 +368,19 @@ PUBLIC int do_readsuper()
   
 *** now the HGFS view ***
 
-
-/* Mount the file system.
- */
-/*
-  char path[PATH_MAX];
-  struct inode *ino;
-  struct hgfs_attr attr; */
-
   init_dentry();
   ino = init_inode();
 
-  attr.a_mask = HGFS_ATTR_MODE | HGFS_ATTR_SIZE;
-
-  /* We cannot continue if we fail to get the properties of the root inode at
-   * all, because we cannot guess the details of the root node to return to
-   * VFS. Print a (hopefully) helpful error message, and abort the mount.
-   */
-  if ((r = verify_inode(ino, path, &attr)) != OK) {
-	if (r == EAGAIN)
-		printf("FATfs: shared folders disabled\n");
-	else if (opt.prefix[0] && (r == ENOENT || r == EACCES))
-		printf("FATfs: unable to access the given prefix directory\n");
-	else
-		printf("FATfs: unable to access shared folders\n");
-
-	return r;
-  }
-
   m_out.RES_INODE_NR = INODE_NR(ino);
   m_out.RES_MODE = get_mode(ino, attr.a_mode);
-  m_out.RES_FILE_SIZE_HI = ex64hi(attr.a_size);
-  m_out.RES_FILE_SIZE_LO = ex64lo(attr.a_size);
 #endif
+
+/* FIXME if FAT32... */
+  rootDirSize = (long)sb.rootEntries * sizeof(struct fat_direntry);
+
+  assert(rootDirSize <= 0xffffffff);
+  m_out.RES_FILE_SIZE_HI = 0;
+  m_out.RES_FILE_SIZE_LO = rootDirSize;
   m_out.RES_UID = use_uid;
   m_out.RES_GID = use_gid;
   m_out.RES_DEV = dev;
@@ -326,21 +397,26 @@ PUBLIC int do_unmount()
 {
 /* Unmount the file system.
  */
-  struct inode *ino;
+  struct inode *root_ip;
 
   DBGprintf(("FATfs: do_unmount\n"));
 
-#if 0
+#if 1
   /* Decrease the reference count of the root inode. */
-  if ((ino = find_inode(ROOT_INODE_NR)) == NULL)
+  if ((root_ip = find_inode(ROOT_INODE_NR)) == NULL) {
+	panic("couldn't find root inode while unmounting\n");
 	return EINVAL;
+  }
 
-  put_inode(ino);
+  put_inode(root_ip);
 
   /* There should not be any referenced inodes anymore now. */
   if (have_used_inode())
-	printf("FATfs: in-use inodes left at unmount time!\n");
+	printf("in-use inodes left at unmount time!\n");
+ 	/* this is NOT clean unmounting! */
+#endif
 
+#if 0
 /* now the MFS view */
 
   /* See if the mounted device is busy.  Only 1 inode using it should be
@@ -350,16 +426,24 @@ PUBLIC int do_unmount()
 	  if (rip->i_count > 0 && rip->i_dev == fs_dev) count += rip->i_count;
 
   if ((root_ip = find_inode(fs_dev, ROOT_INODE)) == NULL) {
-  	panic("MFS: couldn't find root inode\n");
-  	return(EINVAL);
+	panic("MFS: couldn't find root inode\n");
+	return(EINVAL);
   }
    
   if (count > 1) return(EBUSY);	/* can't umount a busy file system */
   put_inode(root_ip);
+#endif
+
+/* FAT specifics:
+ * we should update the FSInfo sector
+ * we should mark FAT[1] as "umounted clean" (after flush)
+ */
 
   /* force any cached blocks out of memory */
-  (void) do_sync();
-#endif
+/* CHECKME: perhaps better to call explicitely
+	flush_inodes()+flushall() +? invalidate()
+ */
+  do_sync();
 
   /* Close the device the file system lives on. */
   dev_close(driver_e, dev);

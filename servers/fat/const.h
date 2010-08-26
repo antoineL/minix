@@ -7,10 +7,10 @@
 #define FAT_CONST_H_
 
 /* The FAT file system is built over a "sector" size
- * which is officially between 128 and ?
+ * which is officially between 128 and 8192
  * but we only consider 512, the by far commonest value
  */
-#define SBLOCK_SIZE	512
+#define SECTOR_SIZE	512
 
 #ifndef	NR_BUFS
 #define	NR_BUFS		100 

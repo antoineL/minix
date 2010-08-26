@@ -7,68 +7,30 @@
  *   seqblock_dev_io	do I/O operations with the device
  *   scattered_dev_io	do I/O operations, targetting several buffers
  *
- * Private functions:
- *   update_dev_status	update the driver status based on its answer 
- *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/u64.h>
-
-#include <minix/type.h>
-#include <minix/ipc.h>
-#include <minix/com.h>
-#include <minix/vfsif.h>
 #ifdef	COMPAT316
-#include "compat.h"
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
+#include <minix/u64.h>
+#include <minix/com.h>
 #include <minix/sysutil.h>	/* panic */
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
-
-#include "const.h"
-#include "type.h"
-#include "proto.h"
-#include "glo.h"
-
-#if DEBUG
-#define DBGprintf(x) printf x
-#else
-#define DBGprintf(x)
-#endif
-
-#ifndef ME
- #ifdef MINIX3less60xx
- #define ME "FATfs`"__FILE__, 
- #define NIL ,0
- #else
- #define ME
- #define NIL
- #endif
-#else
- #define NIL ,0
-#endif
 
 #ifndef EDEADEPT
 #define EDEADEPT EDEADSRCDST
 #endif
 
-/*
-#include "inc.h"
+/* Private functions:
+ *   update_dev_status	update the driver status based on its answer 
  */
 
 FORWARD _PROTOTYPE( int update_dev_status, (int task_status,
@@ -166,7 +128,7 @@ PUBLIC int seqblock_dev_io(
 
   if((gid=cpf_grant_direct(driver_e, (vir_bytes) buf, 
 		bytes, op == DEV_READ_S ? CPF_WRITE : CPF_READ)) < 0) {
-	panic(ME "cpf_grant_direct for seq_io failed" NIL);
+	panic("cpf_grant_direct for seq_io failed");
   }
 
   /* Set up rest of the message. */
@@ -226,7 +188,7 @@ PUBLIC int scattered_dev_io(
   /* Grant access to my new "i/o vector". */
   if((gid=cpf_grant_direct(driver_e, (vir_bytes) grants_vec, 
 		cnt * sizeof(iovec_t), CPF_READ | CPF_WRITE)) < 0) {
-	panic(ME "cpf_grant_direct of vector failed" NIL);
+	panic("cpf_grant_direct of vector failed");
   }
 
   /* Grant access to i/o buffers, and pack into the "I/O vector" */
@@ -235,7 +197,7 @@ PUBLIC int scattered_dev_io(
 		cpf_grant_direct(driver_e, (vir_bytes) v->iov_addr,
 		v->iov_size, op == DEV_GATHER_S ? CPF_WRITE : CPF_READ);
 	if(!GRANT_VALID(gids[j])) {
-		panic(ME "mfs: grant to iovec buf failed" NIL);
+		panic("grant to iovec buf failed");
 	}
 	grants_vec[j].iov_size = v->iov_size;
   }
@@ -295,7 +257,7 @@ PRIVATE int update_dev_status(
 		return(r);
 	}
 	else
-		panic(ME "FATfs: can't send/receive: %d", r);
+		panic("can't send/receive: %d", r);
   }
 
   /* Did the process we did the sendrec() for get a result? */
@@ -311,7 +273,7 @@ PRIVATE int update_dev_status(
 
   /* Task has completed.  See if call completed. */
   if (mess_ptr->REP_STATUS == SUSPEND) {
-	panic(ME "FATfs driver returned SUSPEND" NIL);
+	panic("driver returned SUSPEND");
   }
 
   return(mess_ptr->REP_STATUS);

@@ -8,21 +8,8 @@
  * Updated:
  */
 
-/*#include "inc.h"*/
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/ipc.h>
-
-#include <minix/vfsif.h>	/* REQ_STATVFS, REQ_GRANT */
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
@@ -51,25 +38,6 @@
 #include <minix/callnr.h>	/* FS_READY */
 #include <minix/sef.h>
 #endif
-
-/*
-#include <minix/syslib.h>
-#include <minix/sysutil.h>
-*/
-
-#include "const.h"
-#include "type.h"
-#include "proto.h"
-#include "glo.h"
-
-#if DEBUG
-#include <stdio.h>
-#define DBGprintf(x) printf x
-#else
-#define DBGprintf(x)
-#endif
-
-
 
 /*===========================================================================*
  *				do_fstatfs				     *

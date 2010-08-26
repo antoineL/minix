@@ -24,39 +24,27 @@
  * Updated:
  */
 
+#include "inc.h"
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
-
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/u64.h>
-#include <minix/ipc.h>
-#include <minix/vfsif.h>
-
-#include <minix/dmap.h>		/* MEMORY_MAJOR */
 #ifdef	COMPAT316
-#include "compat.h"
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
+#include <minix/u64.h>
+#include <minix/dmap.h>		/* MEMORY_MAJOR */
 #include <minix/sysutil.h>	/* panic */
 #include <minix/syslib.h>	/* alloc_contig, free_contig */
+
+#ifdef	USE_VMCACHE
 #include <minix/vm.h>
+# ifndef VM_BLOCKID_NONE
+#  undef USE_VMCACHE	/* disable USE_VMCACHE if not supported */
+# endif /*ndef VM_BLOCKID_NONE*/
+#endif
 
-#include "const.h"
-#include "type.h"
-#include "proto.h"
-#include "glo.h"
-
-#include "inode.h"
+	#include "inode.h"
 
 #define END_OF_FILE   (-104)	/* eof detected */
 
@@ -72,7 +60,16 @@ FORWARD _PROTOTYPE( void flushall, (dev_t) );
 FORWARD _PROTOTYPE( void rw_block, (struct buf *, int) );
 FORWARD _PROTOTYPE( void rm_lru, (struct buf *bp) );
 
-#ifdef VM_BLOCKID_NONE
+PRIVATE struct buf *buf;
+#if 0
+PRIVATE struct buf **buf_hash;   /* the buffer hash table */
+PRIVATE struct buf *front;	/* points to least recently used free block */
+PRIVATE struct buf *rear;	/* points to most recently used free block */
+#endif
+PRIVATE TAILQ_HEAD(lruhead, buf) lru; /* least recently used free block list */
+PRIVATE LIST_HEAD(bufhashhead, buf) *buf_hash; /* the buffer hash table */
+
+#ifdef USE_VMCACHE
 PRIVATE int vmcache_avail = -1; /* 0 if not available, >0 if available. */
 #endif
 
@@ -138,7 +135,7 @@ PUBLIC void init_cache(int new_nr_bufs)
   buf_hash[0] = front;
 */
 
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
   vm_forgetblocks();
 #endif
 }
@@ -265,7 +262,7 @@ PRIVATE void invalidate(
   for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
 	if (bp->b_dev == device) bp->b_dev = NO_DEV;
 
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
   vm_forgetblocks();
 #endif
 }
@@ -276,7 +273,7 @@ PRIVATE void invalidate(
 PUBLIC struct buf *get_block(
   register dev_t dev,		/* on which device is the block? */
   register block_t block,	/* which block is wanted? */
-  int only_search		/* if NO_READ, don't read, else act normal */
+  enum get_block_arg_e only_search /* if NO_READ or PREFETCH, don't read */
 )
 {
 /* Check to see if the requested block is in the block cache.  If so, return
@@ -296,7 +293,7 @@ PUBLIC struct buf *get_block(
 
   int b;
   static struct buf *bp, *prev_ptr;
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
   u64_t yieldid = VM_BLOCKID_NONE, getid = make64(dev, block);
   int vmcache = 0;
 
@@ -399,7 +396,7 @@ PUBLIC struct buf *get_block(
   if (bp->b_dev != NO_DEV) {
 	if (bp->b_dirt == DIRTY) flushall(bp->b_dev);
 
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
 	/* Are we throwing out a block that contained something?
 	 * Give it to VM for the second-layer cache.
 	 */
@@ -421,7 +418,7 @@ PUBLIC struct buf *get_block(
   LIST_INSERT_HEAD(&buf_hash[b], bp, b_hash);
 #endif
 
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
   if(dev == NO_DEV) {
 	if(vmcache && cmp64(yieldid, VM_BLOCKID_NONE) != 0) {
 		vm_yield_block_get_block(yieldid, VM_BLOCKID_NONE,
@@ -437,7 +434,7 @@ PUBLIC struct buf *get_block(
 	/* Block is not found in our cache, but we do want it
 	 * if it's in the vm cache.
 	 */
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
 	if(vmcache) {
 		/* If we can satisfy the PREFETCH or NORMAL request 
 		 * from the vm cache, work is done.
@@ -457,7 +454,7 @@ PUBLIC struct buf *get_block(
   } else if (only_search == NORMAL) {
 	rw_block(bp, READING);
   } else if(only_search == NO_READ) {
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
 	/* we want this block, but its contents
 	 * will be overwritten. VM has to forget
 	 * about it.
@@ -661,7 +658,7 @@ PUBLIC void rw_scattered(
 				"fs: I/O error on device %d/%d, block %lu\n",
 					major(dev), minor(dev), bp->b_blocknr);
 				bp->b_dev = NO_DEV;	/* invalidate block */
-#ifdef VM_BLOCKID_NONE
+#ifdef USE_VMCACHE
   				vm_forgetblocks();
 #endif
 			}

@@ -17,41 +17,16 @@
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-#include <assert.h>
 #include <stdio.h>
 
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/ipc.h>
-#include <minix/vfsif.h>
 #ifdef	COMPAT316
-#include "compat.h"
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
 #include <minix/sysutil.h>	/* panic */
 
-#include "const.h"
-#include "type.h"
 #include "inode.h"
-#include "proto.h"
-#include "glo.h"
-
-#if 0
-#include "inc.h"
-#endif
-
-#if DEBUG
-#define DBGprintf(x) printf x
-#else
-#define DBGprintf(x)
-#endif
 
 /* Number of inodes. */
 /* The following number must not exceed 16. The i_num field is only a short. */

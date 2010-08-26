@@ -8,82 +8,52 @@
  *   do_noop	handle requests that do nothing and succeed
  *   no_sys	handle requests that are not implemented
  *   reply	send a reply to a process after the requested work is done
-*** + cb, internals
  *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
 
-/*#include "inc.h"*/
-#define _POSIX_SOURCE 1
 #define _POSIX_C_SOURCE 200112L	/* setenv */
-#define _MINIX 1
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
+#include "inc.h"
+
 #include <signal.h>		/* SIGTERM */
 #include <stdlib.h>		/* exit, setenv */
 #include <string.h>		/* strcmp */
 
-#if 0
-
-#include <assert.h>
-
-#include <string.h>
-#include <limits.h>
-#include <sys/stat.h>
-#include <sys/queue.h>
-
-#include <stdint.h>
-
-#include <unistd.h>	/* getprocnr */
-#endif
-
-#include <minix/config.h>
-#include <minix/const.h>
-
-#include <minix/type.h>
-#include <minix/com.h>
-#include <minix/ipc.h>
 #ifdef	COMPAT316
-#include "compat.h"
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
+#include <minix/com.h>
 #include <minix/sysutil.h>	/* env_setargs, panic */
 #include <minix/callnr.h>	/* FS_READY */
 #include <minix/sef.h>
-#include <minix/vfsif.h>
-
-/*
-#include <minix/safecopies.h>
-#include <minix/syslib.h>
-*/
-
-#include "const.h"
-#include "type.h"
-#include "proto.h"
-#include "glo.h"
 
 #include "optset.h"
 
-#if NDEBUG
-  #define DBGprintf(x)
-#else
-#include <stdio.h>
- #if DEBUG
-  #define DBGprintf(x) printf x
- #else
-  #define DBGprintf(x) if(verbose)printf x
- #endif 
+#if 0
+#include <string.h>
+#include <limits.h>
+#include <stdint.h>
+
+#include <unistd.h>	/* getprocnr */
+#include <sys/stat.h>
+
+#include <sys/queue.h>
+
+#include <minix/safecopies.h>
+#include <minix/syslib.h>
 #endif
 
+/* Private global variables: */
 PRIVATE struct optset optset_table[] = {
   { "uid",      OPT_INT,    &use_uid,         10                 },
   { "gid",      OPT_INT,    &use_gid,         10                 },
   { "fmask",    OPT_INT,    &use_file_mask,   8                  },
   { "dmask",    OPT_INT,    &use_dir_mask,    8                  },
+/*
   { "atime",    OPT_BOOL,   &keep_atime,      TRUE               },
   { "noatime",  OPT_BOOL,   &keep_atime,      FALSE              },
-/*
   { "exec",     OPT_BOOL,   &prevent_exec,    TRUE               },
   { "noexec",   OPT_BOOL,   &prevent_exec,    FALSE              },
  */
@@ -91,7 +61,7 @@ PRIVATE struct optset optset_table[] = {
   { NULL                                                         }
 };
 
-/* SEF functions and variables. */
+/* Private SEF functions and variables: */
 FORWARD _PROTOTYPE( void sef_local_startup, (void) );
 FORWARD _PROTOTYPE( int sef_cb_init_fresh, (int type, sef_init_info_t *info) );
 FORWARD _PROTOTYPE( void sef_cb_signal_handler, (int signo) );

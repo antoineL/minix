@@ -4,26 +4,13 @@
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
-
-#include <sys/types.h>
-
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/ipc.h>
+#define _TABLE
+#include "inc.h"
 
 #include <limits.h>	/* for NGROUPS_MAX, work around fishy headers */
-#include <minix/vfsif.h>
 
-#include "const.h"
-#include "type.h"
-#include "super.h"
-#include "inode.h"
-#include "proto.h"
-#define _TABLE
-#include "glo.h"
+	#include "super.h"
+	#include "inode.h"
 
 /* Dispatch table for requests. This is for the protocol as revised
  * in December 2009 (SVN rev. 5780)

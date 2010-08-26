@@ -11,33 +11,14 @@
  * Updated:
  */
 
-#define _POSIX_SOURCE 1
-#define _MINIX 1
+#include "inc.h"
 
-#define _SYSTEM 1		/* for negative error values */
-#include <errno.h>
-
-#include <sys/types.h>
 #include <sys/stat.h>
 
-#include <minix/config.h>
-#include <minix/const.h>
-#include <minix/type.h>
-#include <minix/ipc.h>
-
-#include <minix/vfsif.h>
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
-#include "const.h"
-#include "type.h"
 	#include "inode.h"
-#include "proto.h"
-#include "glo.h"
-
-/*
-#include "inc.h"
- */
 
 /*===========================================================================*
  *				get_mode				     *
@@ -52,15 +33,13 @@ int mode;
   mode &= S_IRWXU;
   mode = mode | (mode >> 3) | (mode >> 6);
 
-/*
   if (IS_DIR(ino))
-	mode = S_IFDIR | (mode & opt.dir_mask);
+	mode = S_IFDIR | (mode & use_dir_mask);
   else
-	mode = S_IFREG | (mode & opt.file_mask);
+	mode = S_IFREG | (mode & use_file_mask);
 
-  if (state.read_only)
-	mode &= ~0222;
- */
+  if (read_only)
+	mode &= ~(S_IWUSR|S_IWGRP|S_IWOTH);
 
   return mode;
 }
