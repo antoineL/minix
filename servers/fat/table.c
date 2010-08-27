@@ -9,8 +9,12 @@
 
 #include <limits.h>	/* for NGROUPS_MAX, work around fishy headers */
 
-	#include "super.h"
+/*
 	#include "inode.h"
+ */
+
+PUBLIC char dot1[2] = ".";	/* used for search_dir to bypass the access */
+PUBLIC char dot2[3] = "..";	/* permissions for . and .. */
 
 /* Dispatch table for requests. This is for the protocol as revised
  * in December 2009 (SVN rev. 5780)
@@ -22,10 +26,10 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 /*WRK*/	readonly,	/*  3 slink		*/
  /**/	/*do_ftrunc*/readonly,	/*  4 ftrunc		*/
  /**/	readonly,	/*  5 chown		*/
- /**/	/*do_chmod*/readonly,	/*  6 chmod		*/
+	do_chmod,	/*  6 chmod		*/
  /**/	do_nothing,	/*  7 inhibread		*/
 	do_stat,	/*  8 stat		*/
- /**/	/*do_utime*/readonly,	/*  9 utime		*/
+	do_utime,	/*  9 utime		*/
 	do_fstatfs,	/* 10 fstatfs		*/
 	do_blockrw,	/* 11 bread		*/
 	do_blockrw,	/* 12 bwrite		*/

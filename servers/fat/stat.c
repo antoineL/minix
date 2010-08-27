@@ -57,27 +57,35 @@ PUBLIC int do_stat()
   struct inode *ino;
 #if 0
   struct hgfs_attr attr;
+#endif
   char path[PATH_MAX];
 
   ino_nr = m_in.REQ_INODE_NR;
 
   /* Don't increase the inode refcount: it's already open anyway */
-  if ((ino = find_inode(ino_nr)) == NULL)
+  if ((ino = fetch_inode(ino_nr)) == NULL)
 	return EINVAL;
 
+#if 0
   attr.a_mask = HGFS_ATTR_MODE | HGFS_ATTR_SIZE | HGFS_ATTR_ATIME |
 		HGFS_ATTR_MTIME | HGFS_ATTR_CTIME;
 
   if ((r = verify_inode(ino, path, &attr)) != OK)
 	return r;
+#endif
 
-  stat.st_dev = state.dev;
+  stat.st_dev = dev;
   stat.st_ino = ino_nr;
-  stat.st_mode = get_mode(ino, attr.a_mode);
-  stat.st_uid = opt.uid;
-  stat.st_gid = opt.gid;
+  stat.st_mode = get_mode(ino, /*FIXME attr.a_mode*/ 0 );
+  stat.st_uid = use_uid;
+  stat.st_gid = use_gid;
   stat.st_rdev = NO_DEV;
+#if 0
   stat.st_size = ex64hi(attr.a_size) ? ULONG_MAX : ex64lo(attr.a_size);
+#else
+  stat.st_size = ino->i_size;
+#endif
+#if 0
   stat.st_atime = attr.a_atime;
   stat.st_mtime = attr.a_mtime;
   stat.st_ctime = attr.a_ctime;
@@ -98,7 +106,6 @@ PUBLIC int do_stat()
 	(vir_bytes) &stat, sizeof(stat), D);
 }
 
-#if 0
 /*===========================================================================*
  *				do_chmod				     *
  *===========================================================================*/
@@ -107,16 +114,19 @@ PUBLIC int do_chmod()
 /* Change file mode.
  */
   struct inode *ino;
+#if 0
   char path[PATH_MAX];
   struct hgfs_attr attr;
+#endif
   int r;
 
-  if (state.read_only)
+  if (read_only)
 	return EROFS;
 
-  if ((ino = find_inode(m_in.REQ_INODE_NR)) == NULL)
+  if ((ino = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return EINVAL;
 
+#if 0
   if ((r = verify_inode(ino, path, NULL)) != OK)
 	return r;
 
@@ -130,8 +140,9 @@ PUBLIC int do_chmod()
   /* We have no idea what really happened. Query for the mode again. */
   if ((r = verify_path(path, ino, &attr, NULL)) != OK)
 	return r;
+#endif
 
-  m_out.RES_MODE = get_mode(ino, attr.a_mode);
+  m_out.RES_MODE = get_mode(ino, /*FIXME attr.a_mode*/ 0 );
 
   return OK;
 }
@@ -144,16 +155,19 @@ PUBLIC int do_utime()
 /* Set file times.
  */
   struct inode *ino;
+#if 0
   char path[PATH_MAX];
   struct hgfs_attr attr;
+#endif
   int r;
 
-  if (state.read_only)
+  if (read_only)
 	return EROFS;
 
-  if ((ino = find_inode(m_in.REQ_INODE_NR)) == NULL)
+  if ((ino = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return EINVAL;
 
+#if 0
   if ((r = verify_inode(ino, path, NULL)) != OK)
 	return r;
 
@@ -162,5 +176,6 @@ PUBLIC int do_utime()
   attr.a_mtime = m_in.REQ_MODTIME;
 
   return hgfs_setattr(path, &attr);
-}
 #endif
+  return EINVAL;
+}

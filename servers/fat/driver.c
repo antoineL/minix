@@ -136,7 +136,6 @@ PUBLIC int seqblock_dev_io(
   m.IO_ENDPT = SELF_E;
   m.DEVICE   = (dev >> MINOR) & BYTE;
   m.IO_GRANT = (char *) gid;
-  m.ADDRESS  = buf;
   m.POSITION = ex64lo(pos);
   m.HIGHPOS  = ex64hi(pos);
   m.COUNT    = bytes;
@@ -207,7 +206,7 @@ PUBLIC int scattered_dev_io(
   m.IO_ENDPT = SELF_E;
   m.DEVICE   = (dev >> MINOR) & BYTE;
   m.IO_GRANT = (char *) gid;
-  m.ADDRESS  = (void *) grants_vec;
+/*  m.ADDRESS  = (void *) grants_vec; */
   m.POSITION = ex64lo(pos);
   m.HIGHPOS  = ex64hi(pos);
   m.COUNT    = cnt;
@@ -261,15 +260,43 @@ PRIVATE int update_dev_status(
   }
 
   /* Did the process we did the sendrec() for get a result? */
+#if 0
+/*MORE WORK NEEDED*/
   if (mess_ptr->REP_ENDPT != SELF_E) {
-	printf("FATfs: strange device reply from %d, "
+	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
 		"type = %d, proc = %d (not %d): ignored\n",
+		SELF_E, driver_e,
 		mess_ptr->m_source,
 		mess_ptr->m_type,
 		mess_ptr->REP_ENDPT,
-		SELF_E);
+		SELF_E );
+if(mess_ptr->REP_ENDPT != driver_e)
 	return(EIO);
   }
+#elif 0
+  if (mess_ptr->REP_ENDPT != driver_e) {
+	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
+		"type = %d, proc = %d (not %d): ignored\n",
+		SELF_E, driver_e,
+		mess_ptr->m_source,
+		mess_ptr->m_type,
+		mess_ptr->REP_ENDPT,
+		driver_e );
+if(mess_ptr->REP_ENDPT != SELF_E)
+	return(EIO);
+  }
+#else
+  if (mess_ptr->REP_ENDPT != SELF_E && mess_ptr->REP_ENDPT != driver_e) {
+	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
+		"type = %d, proc = %d (not %d or %d): ignored\n",
+		SELF_E, driver_e,
+		mess_ptr->m_source,
+		mess_ptr->m_type,
+		mess_ptr->REP_ENDPT,
+		SELF_E, driver_e);
+	return(EIO);
+  }
+#endif
 
   /* Task has completed.  See if call completed. */
   if (mess_ptr->REP_STATUS == SUSPEND) {

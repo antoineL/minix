@@ -1,4 +1,4 @@
-/* This file contains handlers related to FS stats.
+/* This file contains handlers related to FS statistical requests.
  *
  * The entry points into this file are:
  *   do_fstatfs		perform the FSTATFS file system call
@@ -18,47 +18,30 @@
 #include <sys/statvfs.h>
 #endif
 
-#if 0
-#include <string.h>
-#include <limits.h>
-#include <sys/queue.h>
-
-#include <stdint.h>
-
-#include <unistd.h>	/* getprocnr */
-
-#include "fs.h"
-#include <sys/stat.h>
-#include "inode.h"
 #include "super.h"
-
-#include <minix/type.h>
-#include <minix/com.h>
-#include <minix/ipc.h>
-#include <minix/callnr.h>	/* FS_READY */
-#include <minix/sef.h>
-#endif
+#include "inode.h"		/* find_inode(ROOT_INODE_NR) */
 
 /*===========================================================================*
  *				do_fstatfs				     *
  *===========================================================================*/
 PUBLIC int do_fstatfs(void)
 {
+/* Performs the (old-fashioned) DO_STATFS request. */
   int r;
   struct statfs st;
-#if 0
   struct inode *rip;
 
-  if((rip = find_inode(fs_dev, ROOT_INODE)) == NULL)
-#endif
+  if (state != MOUNTED)
+	  return(EINVAL);
+  if((rip = fetch_inode(ROOT_INODE_NR)) == NULL)
 	  return(EINVAL);
    
-  st.f_bsize = /*rip->i_sp->s_block_size;*/ 512;
+  st.f_bsize = sb.bpblock;
   
   /* Copy the struct to user space. */
   r = sys_safecopyto(m_in.m_source, (cp_grant_id_t) m_in.REQ_GRANT,
   		     (vir_bytes) 0, (vir_bytes) &st, (size_t) sizeof(st), D);
-  
+
   return(r);
 }
 
@@ -68,36 +51,42 @@ PUBLIC int do_fstatfs(void)
  *===========================================================================*/
 PUBLIC int do_statvfs(void)
 {
+/* Performs the (newer, X/Open-compatible) DO_STATVFS request. */
   int r;
   struct statvfs st;
 
-#if 0
-  struct super_block *sp;
-  int r, scale;
-
-  sp = get_super(fs_dev);
-
-  scale = sp->s_log_zone_size;
-
-  st.f_bsize =  sp->s_block_size << scale;	/* File system block size. */
-  st.f_frsize = sp->s_block_size;	 /* Fundamental file system block size. */
-  st.f_blocks = sp->s_zones << scale;
+/* The FS server operates with three different units:
+ *   the blocks, used in the cache (which is alike the rest of MINIX)
+ *   the sectors, the fundamental unit of FAT file systems
+ *   the clusters, the allocation unit.
+ * Evidently, the f_bsize member points to the clusters, as it is the
+ * granularity unit.
+ * And logically, b_frsize should refer to sectors, since it is the unit
+ * in the outer world.
+ * This means that the block size, which is the real unit used in most of
+ * the server, does not appear in the structure returned by this call.
+ */
+  st.f_bsize =  sb.bpcluster;	/* File system block size. */
+  st.f_frsize = sb.bpsector;	/* Fundamental file system block size:sector*/
+  st.f_blocks = sb.totalSecs;
 	 /* Total number of blocks on file system in units of f_frsize. */
-  st.f_bfree = count_free_bits(sp, ZMAP) << scale;
-	/* Total number of free blocks. */
+/* This could be computed with a traversal of the whole FAT.
+ * We will spare the time for it for the moment.
+FIXME!
+ */
+  st.f_bfree = 0;		/* Total number of free blocks. */
   st.f_bavail = st.f_bfree;
 	/* Number of free blocks available to non-privileged process */
-  st.f_files = sp->s_ninodes;
-	/* Total number of file serial numbers. */
-  st.f_ffree = count_free_bits(sp, IMAP);
-	/* Total number of free file serial numbers. */
+/* This one is debatable: */
+  st.f_files = sb.maxClust-2;	/* Total number of file serial numbers. */
+/* This cannot be computed on FAT, it does not have much sense: */
+  st.f_ffree = 0;		/* Total number of free file serial numbers*/
   st.f_favail = st.f_ffree;
 	/* Number of file serial numbers available to non-privileged process*/
-  st.f_fsid = fs_dev;		/* File system ID */
-  st.f_flag = (sp->s_rd_only == 1 ? ST_RDONLY : 0);
-	/* Bit mask of f_flag values. */
+  st.f_fsid = dev;		/* File system ID */
+  st.f_flag = (read_only ? ST_RDONLY : 0); /* Bit mask of f_flag values. */
+/* FIXME... consider LFN (255, perhaps topped with NAME_MAX) or not (12)*/
   st.f_namemax = NAME_MAX;	/* Maximum filename length */
-#endif
 
   st.f_flag |= ST_NOSUID;	/* FAT does not handle set-uid bits */
 

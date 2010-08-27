@@ -5,8 +5,8 @@ CPPFLAGS+= -DDEBUG
 #CPPFLAGS+= -DNR_BUFS=${NR_BUFS}
 
 PROG=	fat
-SRCS=	main.c table.c optset.c driver.c cache.c inode.c \
-	mount.c lookup.c readwrite.c stat.c statfs.c # utility.c
+SRCS=	main.c mount.c lookup.c readwrite.c stat.c statfs.c \
+	table.c optset.c driver.c cache.c inode.c direntry.c # fat.c utility.c
 
 DPADD+=	${LIBSYS}
 # ${LIBTIMERS}
