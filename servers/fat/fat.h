@@ -92,7 +92,6 @@ struct fat_bootsector {
  */
   union {
    struct fat_extbpb ExtBPB;	/* BPB extension (assuming FAT12/16) */
-#define offsetEXTBPB16	offsetof(struct fat_superblock, bpbBigFATsecs)
    struct {
     uint8_t bpbBigFATsecs[4];	/* number of sectors per FAT32 */
     uint8_t bpbExtFlags[2];	/* some FAT32 flags: */
@@ -109,10 +108,6 @@ begins exFAT
  * datas (not documented here). Also here would stands
  * the extended BPB in case of a FAT32 file system.
  */
-#define offsetEXTBPB32	offsetof(struct fat_superblock, bsExtBPB32)
-#if 0
-    uint8_t ExtBPB32[26];	/* BPB extension (assuming FAT32) */
-#endif
     struct fat_extbpb ExtBPB32;	/* BPB extension (assuming FAT32) */
    } f32bpb;
   } u;
@@ -189,6 +184,7 @@ struct fat_direntry {
   uint8_t deStartCluster[2];	/* starting cluster of file */
   uint8_t deFileSize[4];	/* size of file in bytes */
 };
+#define DIR_ENTRY_SIZE	(sizeof(struct fat_direntry))
 
 /* Format of a long filename (LFN) directory entry.
  * Introduced by Windows 95's "VFAT.vxd" driver, so often named
@@ -222,7 +218,6 @@ struct fat_lfnentry {
 #define	CLUST_FREE	0	/* cluster 0 means a free cluster */
 #define	CLUST_NONE	0	/* cluster 0 also means no data allocated */
 #define	CLUST_ROOT	0	/* cluster 0 also means the root dir */
-	#define	PCFSFREE	CLUST_FREE
 
 #define	CLUST_FIRST	2	/* first legal cluster number */
 	#define	CLUST_RSRVS	0xfff0	/* start of reserved cluster range	*OBS*	*/
@@ -246,6 +241,7 @@ struct fat_lfnentry {
  *
  * Note that since clusters 0 and 1 do not exist, the
  * "total number of clusters" is one less than "maxcluster".
+ * Please do the maths twice before logging any bug report. Thanks.
  */
 #define	FS_IS_FAT12(maxClust)	(maxClust <= CLUST_MAXFAT12)
 #define	FS_IS_FAT16(maxClust)  ( (unsigned long)(maxClust-CLUST_MAXFAT12-1) \
@@ -265,6 +261,7 @@ struct fat_lfnentry {
 #define	CLUSTMASK_EOF16	(CLUST_EOFS&FAT16_MASK)	/* mask for 16-bit eof mark*/
 #define	CLUSTMASK_EOF32	(CLUST_EOFS&FAT32_MASK)	/* mask for 32-bit eof mark*/
 
+/* warning: the following line is not a proper macro */
 #define	ATEOF(cn, eofmask)	(((cn) & eofmask) == eofmask)
 
 /* As seen above, cluster numbers begins at 2; so the
@@ -285,5 +282,51 @@ struct fat_lfnentry {
 #define FAT16_NOHARDERR	0x4000		/* do not need to search badblock */
 #define FAT32_CLEAN	0x08000000	/* do not need fsck at mounting */
 #define FAT32_NOHARDERR	0x04000000	/* do not need to search badblock */
+
+/*
+ *  This is the format of the contents of the deTime
+ *  field in the direntry structure.
+ */
+struct DOStime {
+	unsigned /*short*/
+			dt_2seconds:5,	/* seconds divided by 2		*/
+			dt_minutes:6,	/* minutes			*/
+			dt_hours:5;	/* hours			*/
+};
+
+/*
+ *  This is the format of the contents of the deDate
+ *  field in the direntry structure.
+ */
+struct DOSdate {
+	unsigned /*short*/
+			dd_day:5,	/* day of month			*/
+			dd_month:4,	/* month			*/
+			dd_year:7;	/* years since 1980		*/
+};
+
+/*
+ * This is the format of the contents of the deTime field in the direntry
+ * structure.
+ * We don't use bitfields because we don't know how compilers for
+ * arbitrary machines will lay them out.
+ */
+#define DT_2SECONDS_MASK	0x001F	/* seconds divided by 2 */
+#define DT_2SECONDS_SHIFT	0
+#define DT_MINUTES_MASK		0x07E0	/* minutes */
+#define DT_MINUTES_SHIFT	5
+#define DT_HOURS_MASK		0xF800	/* hours */
+#define DT_HOURS_SHIFT		11
+
+/*
+ * This is the format of the contents of the deDate field in the direntry
+ * structure.
+ */
+#define DD_DAY_MASK		0x001F	/* day of month */
+#define DD_DAY_SHIFT		0
+#define DD_MONTH_MASK		0x01E0	/* month */
+#define DD_MONTH_SHIFT		5
+#define DD_YEAR_MASK		0xFE00	/* year - 1980 */
+#define DD_YEAR_SHIFT		9
 
 #endif

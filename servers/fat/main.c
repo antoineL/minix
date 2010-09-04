@@ -61,6 +61,47 @@ PRIVATE struct optset optset_table[] = {
   { NULL                                                         }
 };
 
+#define TRACEREQNM
+#ifdef TRACEREQNM
+PRIVATE char* vfs_req_name[] = {
+	" 0=?",
+	" 1=(was getnode)",
+	" 2=putnode",
+	" 3=slink",
+	" 4=ftrunc",
+	" 5=chown",
+	" 6=chmod",
+	" 7=inhibread",
+	" 8=stat",
+	" 9=utime",
+	"10=fstatfs",
+	"11=bread",
+	"12=bwrite",
+	"13=unlink",
+	"14=rmdir",
+	"15=unmount",
+	"16=sync",
+	"17=new_driver",
+	"18=flush",
+	"19=read",
+	"20=write",
+	"21=mknod",
+	"22=mkdir",
+	"23=create",
+	"24=link",
+	"25=rename",
+	"26=lookup",
+	"27=mountpoint",
+	"28=readsuper",
+	"29=newnode (unsupported) ",
+	"30=rdlink",
+	"31=getdents",
+#ifdef REQ_STATVFS
+	"32=statvfs",
+#endif
+};
+#endif
+
 /* Private SEF functions and variables: */
 FORWARD _PROTOTYPE( void sef_local_startup, (void) );
 FORWARD _PROTOTYPE( int sef_cb_init_fresh, (int type, sef_init_info_t *info) );
@@ -116,27 +157,29 @@ PUBLIC int main(int argc, char *argv[])
 	                         if (proc_event()) break; 
 #endif
 
-		DBGprintf(("FATfs: get %d from %d\n", req_nr, who_e));
+		DBGprintf(("FATfs: get %d from %d; dropped\n", req_nr,who_e));
 		continue;
 	}
 
-#if 0
-	if (req_nr < VFS_BASE) {
+	if (state == MOUNTED
+	 || state == NAKED && req_nr == REQ_READSUPER) { 
+		req_nr -= VFS_BASE;
 
-	if (req_nr < VFS_BASE) {
-		m_in.m_type += VFS_BASE;
-		req_nr = fs_m_in.m_type;
-	}
-
-	ind = req_nr-VFS_BASE;
-
-	if (ind < 0 || ind >= NREQS) {
-		DBGprintf(("FATfs: get %d from VFS\n", req_nr));
-		error = EINVAL; 
-	} else
-		error = (*vfs_req_vec[ind])(); /* Process the request calling
-						* the appropriate function. */
+#ifdef TRACEREQNM
+		DBGprintf(("FATfs: req %s\n", vfs_req_name[req_nr]));
 #endif
+
+		if ((unsigned)req_nr < NREQS)
+		/* Process the request calling the appropriate function. */
+			error = (*vfs_req_vec[req_nr])();
+		else
+			error = no_sys();
+
+#ifdef TRACEREQNM
+		DBGprintf(("FATfs: req %s results %d\n", vfs_req_name[req_nr], error));
+#endif
+	}
+	else error = EINVAL;	/* protocol error */
 
 	m_out.m_type = error; 
 	reply(who_e, &m_out);	 	/* returns the response to VFS */
@@ -194,12 +237,13 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 /*    init_inodes(); */
   init_cache(NR_BUFS);
 
-   m_out.m_type = FS_READY;
-   if ((r = send(VFS_PROC_NR, &m_out)) != OK) {
-       panic("FATfs: Error sending login to VFS: %d", r);
-   }
+  DBGprintf(("FATfs ready!\n"));
+  m_out.m_type = FS_READY;
+  if ((r = send(VFS_PROC_NR, &m_out)) != OK) {
+	panic("FATfs: Error sending login to VFS: %d", r);
+  }
 
-   return(OK);
+  return(OK);
 }
 
 /*===========================================================================*

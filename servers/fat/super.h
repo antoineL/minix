@@ -43,7 +43,10 @@
 #include <minix/types.h>
 
 typedef	u32_t	sector_t;
+#ifndef CLUSTER_T
+#define CLUSTER_T
 typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
+#endif
 
 struct superblock {
   unsigned bpblock;		/* bytes per block */
@@ -103,11 +106,24 @@ struct superblock {
 #endif
 
 /* content of a buffer */
+union direntry_u {
+  char d_direntry[32];
+  char d_lfnentry[32];
+/*
+  struct fat_direntry d_direntry;
+  struct fat_lfnentry d_lfnentry;
+*/
+};
+
 union blkdata_u {
   char b__data[MAX_BLOCK_SIZE];	     /* ordinary user data */
-#if 0
 /* directory block */
-    struct direct b__dir[NR_DIR_ENTRIES(_MAX_BLOCK_SIZE)];    
+#ifdef DIR_ENTRY_SIZE
+  union direntry_u b__dir[MAX_BLOCK_SIZE / DIR_ENTRY_SIZE];
+#else
+  union direntry_u b__dir[16];
+#endif
+#if 0
 /* V1 indirect block */
     zone1_t b__v1_ind[V1_INDIRECTS];	     
 /* V2 indirect block */
