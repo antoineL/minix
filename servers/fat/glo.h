@@ -21,8 +21,9 @@
 #ifndef _IPC_H
 #error need to #include <minix/ipc.h>		/* message */
 #endif
-
-#include "super.h"
+#ifndef FAT_SUPER_H_
+#error need to #include "super.h"
+#endif
 
 EXTERN struct superblock sb;	/* file system fundamental values */
 
@@ -58,7 +59,7 @@ EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 /* Buffer cache. */
 EXTERN int nr_bufs;
 EXTERN int bufs_in_use;		/* # bufs currently in use (not on free list)*/
-EXTERN unsigned mfs_block_size;
+EXTERN unsigned block_size;
 EXTERN int may_use_vmcache;	/* secondary cache using VM */
 
 #if 0
@@ -76,4 +77,9 @@ EXTERN LIST_HEAD(bufhashhead, buf) *buf_hash; /* the buffer hash table */
 
 /* Inodes array is private to inode.c */
 
+/* shared gloabls...
+ * should go away on later refinements!... FIXME!
+ */
+EXTERN char dot1[2];		/* used for search_dir to bypass the access */
+EXTERN char dot2[3];		/* permissions for . and .. */
 #endif

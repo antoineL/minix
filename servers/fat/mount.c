@@ -480,6 +480,11 @@ PUBLIC int do_readsuper(void)
   m_out.RES_MODE = get_mode(ino, attr.a_mode);
 #endif
 
+/*
+pourrait etre plus grand SSI tout est bien aligne (implique en pratique FAT32)
+  set_blocksize(512);
+ */
+
 /* FIXME if FAT32... */
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
