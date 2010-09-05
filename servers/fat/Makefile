@@ -6,7 +6,7 @@ CPPFLAGS+= -DDEBUG
 
 PROG=	fat
 SRCS=	main.c mount.c lookup.c readwrite.c stat.c statfs.c \
-	table.c optset.c driver.c cache.c inode.c direntry.c # fat.c utility.c
+	table.c optset.c driver.c cache.c inode.c direntry.c fat.c # utility.c
 
 DPADD+=	${LIBSYS}
 # ${LIBTIMERS}

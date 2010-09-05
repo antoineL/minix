@@ -21,8 +21,9 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+#if 0
 #include "inode.h"
-
+#endif
 
 PRIVATE char user_path[PATH_MAX+1];  /* pathname to be processed */
 
@@ -281,7 +282,7 @@ char *suffix;			/* current remaining path. Has to point in the
   bp = get_block(dev, blink, NORMAL);
   llen = (size_t) rip->i_size;
 /* CHEW ME (!) */
-  sp = (char *) bp->bp;
+  sp = (char *) bp->dp;
   slen = strlen(suffix);
 
   /* The path we're parsing looks like this:
@@ -350,13 +351,15 @@ int chk_perm)			/* check permissions when string is looked up*/
 	return(ENOENT);
   }
 
-  /* Check for NULL. */
 #if 0
+FIXME: changed interface...
+  /* Check for NULL. */
   if (dirp == NULL) return(*res_inop = NULL);
 #else
   assert(dirp != NULL);
 #endif
 
+#if 0 /*obsolete code */
   /* If 'string' is not present in the directory, signal error. */
   if ( (r = search_dir(dirp, string, &numb, LOOK_UP, chk_perm)) != OK) {
 	return(r);
@@ -371,7 +374,15 @@ int chk_perm)			/* check permissions when string is looked up*/
 	return(ENOENT);
 #endif
   }
-/* SHOULD CALL get_inode ? */
+#endif
+
+  /* If 'string' is not present in the directory, signal error. */
+  if ( (r = lookup_dir(dirp, string, &rip)) != OK) {
+	return(r);
+  }
+
+  /* The component has been found in the directory.  Get inode. */
+  get_inode(rip);
 
   r = OK;		/* assume success without comments */
 

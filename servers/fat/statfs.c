@@ -18,8 +18,10 @@
 #include <sys/statvfs.h>
 #endif
 
+#if 0
 #include "super.h"
 #include "inode.h"		/* find_inode(ROOT_INODE_NR) */
+#endif
 
 /*===========================================================================*
  *				do_fstatfs				     *

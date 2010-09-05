@@ -26,9 +26,12 @@
 
 #include <minix/ds.h>
 
+#if 0
 #include "super.h"
 #include "inode.h"
 #include "fat.h"
+#endif
+
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )

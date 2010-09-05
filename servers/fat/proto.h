@@ -13,11 +13,10 @@
 #error need to #include "type.h"
 #endif
 
+#if 0
 struct buf;
 struct inode;
 struct direntry;
-#ifndef CLUSTER_T
-#define CLUSTER_T
 typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
 #endif
 
@@ -49,6 +48,8 @@ enum search_dir_arg_e {
 _PROTOTYPE( int search_dir, (struct inode *ldir_ptr, 
 	char string [NAME_MAX], ino_t *numb,
 	enum search_dir_arg_e flag, int check_permissions)		);	
+_PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
+	char string[NAME_MAX], struct inode **res_inop)			);
 
 /* driver.c */
 _PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
@@ -59,7 +60,10 @@ _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* fat.c */
+_PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
+_PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
+
 
 /* inode.c */
 _PROTOTYPE( struct inode *init_inode, (void)				);

@@ -144,13 +144,13 @@ struct fat_fsinfo {
 #define FSI_SIG4	BOOTSIG
 };
 
-/* Format of a FAT directory entry. This also plays the role
- * of the inode. Missing are the members for permissions,
+/* Format of a FAT directory entry. This also plays the role of
+ * the inode for files. Missing are the members for permissions,
  * uid/gid, or count of hard links, since there are no such
- * things on MS-DOS; the only data block addressed is the
- * first one (indexed by its cluster number); the other data
- * clusters will be found via the FAT itself, which is a
- * linked list of "next cluster numbers".
+ * things on MS-DOS; the only data block addressed is the first
+ * one (indexed by its cluster number); the other data clusters
+ * will be found via the FAT itself, which is a linked list of
+ * "next cluster numbers".
  */
 struct fat_direntry {
   unsigned char deName[8];	/* filename, space filled */

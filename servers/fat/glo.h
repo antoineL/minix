@@ -21,9 +21,11 @@
 #ifndef _IPC_H
 #error need to #include <minix/ipc.h>		/* message */
 #endif
+/*
 #ifndef FAT_SUPER_H_
 #error need to #include "super.h"
 #endif
+ */
 
 EXTERN struct superblock sb;	/* file system fundamental values */
 

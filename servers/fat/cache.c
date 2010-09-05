@@ -50,8 +50,6 @@
 # endif /*ndef VM_BLOCKID_NONE*/
 #endif
 
-	#include "inode.h"
-
 #define END_OF_FILE   (-104)	/* eof detected */
 
 #define NO_BITx   ((bit_t) 0)	/* returned by alloc_bit() to signal failure */
@@ -59,6 +57,7 @@
 #if 0
 #include "fs.h"
 #include "super.h"
+	#include "inode.h"
 #endif
 
 FORWARD _PROTOTYPE( void invalidate, (dev_t) );
@@ -88,9 +87,9 @@ PUBLIC void init_cache(int new_nr_bufs)
 	assert(buf);
 	(void) do_sync();
   	for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++) {
-		if(bp->bp) {
+		if(bp->dp) {
 			assert(bp->b_bytes > 0);
-			free_contig(bp->bp, bp->b_bytes);
+			free_contig(bp->dp, bp->b_bytes);
 		}
 	}
   }
@@ -116,7 +115,7 @@ PUBLIC void init_cache(int new_nr_bufs)
         bp->b_bytes = 0;
         bp->b_blocknr = NO_BLOCK;
         bp->b_dev = NO_DEV;
-        bp->bp = NULL;
+        bp->dp = NULL;
 	TAILQ_INSERT_HEAD(&lru, bp, b_next);
 	LIST_INSERT_HEAD(&buf_hash[0], bp, b_hash);
   }
@@ -323,7 +322,7 @@ PUBLIC struct buf *get_block(
 		assert(bp->b_bytes == block_size);
 		assert(bp->b_dev == dev);
 		assert(bp->b_dev != NO_DEV);
-		assert(bp->bp);
+		assert(bp->dp);
 		return(bp);
 	}
   }
@@ -333,9 +332,9 @@ PUBLIC struct buf *get_block(
 	panic("all buffers in use: %d", nr_bufs);
 
   if(bp->b_bytes < block_size) {
-	assert(!bp->bp);
+	assert(!bp->dp);
 	assert(bp->b_bytes == 0);
-	if(!(bp->bp = alloc_contig( (size_t) block_size, 0, NULL))) {
+	if(!(bp->dp = alloc_contig( (size_t) block_size, 0, NULL))) {
 		printf("MFS: couldn't allocate a new block.\n");
 		bp = TAILQ_FIRST(&lru);
 		while(bp && bp->b_bytes < block_size)
@@ -349,7 +348,7 @@ PUBLIC struct buf *get_block(
   }
 
   assert(bp);
-  assert(bp->bp);
+  assert(bp->dp);
   assert(bp->b_bytes == block_size);
   assert(bp->b_count == 0);
 
@@ -386,7 +385,7 @@ PUBLIC struct buf *get_block(
   if(dev == NO_DEV) {
 	if(vmcache && cmp64(yieldid, VM_BLOCKID_NONE) != 0) {
 		vm_yield_block_get_block(yieldid, VM_BLOCKID_NONE,
-			bp->bp, block_size);
+			bp->dp, block_size);
 	}
 	return(bp);	/* If the caller wanted a NO_DEV block, work is done. */
   }
@@ -403,7 +402,7 @@ PUBLIC struct buf *get_block(
 		 * from the vm cache, work is done.
 		 */
 		if(vm_yield_block_get_block(yieldid, getid,
-			bp->bp, block_size) == OK) {
+			bp->dp, block_size) == OK) {
 			return bp;
 		}
 	}
@@ -427,7 +426,7 @@ PUBLIC struct buf *get_block(
 #endif
   } else
 	panic("unexpected only_search value: %d", only_search);
-  assert(bp->bp);
+  assert(bp->dp);
 
   return(bp);			/* return the newly acquired block */
 }
@@ -452,8 +451,8 @@ register struct buf *bp;	/* pointer to buffer to zero */
 {
 /* Zero a block. */
   assert(bp->b_bytes > 0);
-  assert(bp->bp);
-  memset(bp->bp, 0, (size_t) bp->b_bytes);
+  assert(bp->dp);
+  memset(bp->dp, 0, (size_t) bp->b_bytes);
   bp->b_dirt = DIRTY;
 }
 
@@ -546,7 +545,7 @@ int rw_flag;			/* READING or WRITING */
 	pos = mul64u(bp->b_blocknr, block_size);
 /* WORK NEEDED ? */
 	op = (rw_flag == READING ? DEV_READ_S : DEV_WRITE_S);
-	r = seqblock_dev_io(op, bp->bp, pos, block_size);
+	r = seqblock_dev_io(op, bp->dp, pos, block_size);
 	if (r < 0) {
 		printf("FATfs I/O error on device %d/%d, block %lu\n",
 			major(dev), minor(dev), bp->b_blocknr);
@@ -617,7 +616,7 @@ PUBLIC void rw_scattered(
 	for (j = 0, iop = iovec; j < NR_IOREQS && j < bufqsize; j++, iop++) {
 		bp = bufq[j];
 		if (bp->b_blocknr != (block_t) bufq[0]->b_blocknr + j) break;
-		iop->iov_addr = (vir_bytes) bp->bp;
+		iop->iov_addr = (vir_bytes) bp->dp;
 		iop->iov_size = (vir_bytes) block_size;
 	}
 /* WORK NEEDED ? */

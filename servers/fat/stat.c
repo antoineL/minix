@@ -18,7 +18,9 @@
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
+#if 0
 	#include "inode.h"
+#endif
 
 /*===========================================================================*
  *				get_mode				     *

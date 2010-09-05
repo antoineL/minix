@@ -1,4 +1,6 @@
 /* This file deals with inode management.
+ * The inode content is mostly abstract here; the part which deals with
+ * the actual content is in direntry.c.
  *
  * The entry points into this file are:
  *   init_inode		initialize the inode table, return the root inode
@@ -11,22 +13,27 @@
  *   get_free_inode	return a free inode object
  *   have_free_inode	check whether there is a free inode available
  *   have_used_inode	check whether any inode is still in use
+MISSING
+ *   flush_inodes	flush all dirty inodes
  *
  * Auteur: Antoine Leca, aout 2010.
- * Slavishly copied from ../hgfs/inode.c (D.C. van Moolenbroek)
+ * Inspired from ../hgfs/inode.c (D.C. van Moolenbroek)
  * Updated:
  */
 
 #include "inc.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #ifdef	COMPAT316
 #include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
 #include <minix/sysutil.h>	/* panic */
 
+#if 0
 #include "inode.h"
+#endif
 
 /* The main portion of the inode array forms a fully linked tree, providing a
  * cached partial view of what the server believes is on the host system. Each
@@ -126,7 +133,10 @@ PUBLIC struct inode *init_inode()
 #endif
   ino->i_ref = 1;		/* root inode is hereby in use */
   ino->i_flags = I_DIR;		/* root inode is a directory */
-  ino->i_name[0] = 0;		/* root inode has empty name */
+  ino->i_Attributes = ATTR_DIRECTORY;
+  memset(ino->i_Name, ' ', 8);	/* root inode has empty name */
+  memset(ino->i_Extension, ' ', 3);
+  ino->i_clust = 1;		/* root inode is given a conventional number*/
 
   return ino;
 }
@@ -137,7 +147,7 @@ PUBLIC struct inode *init_inode()
 PUBLIC struct inode *fetch_inode(ino_nr)
 ino_t ino_nr;
 {
-/* Get an inode based on its inode number. Do not increase its reference count.
+/* Get an inode based on its synthetised number. Do not increase its ref.count
  */
   struct inode *ino;
   int index;
@@ -172,19 +182,19 @@ ino_t ino_nr;
  *				find_inode        			     *
  *===========================================================================*/
 PUBLIC struct inode *find_inode(
-  zone_t numb			/* cluster number */
+  cluster_t cn			/* cluster number */
 )
 {
-/* Find the inode specified by the inode and device number.
+/* Find the inode specified by its coordinates, the first cluster number.
  */
   struct inode *ino;
   int hashi;
 
-  hashi = (int) (numb % NUM_HASH_SLOTS);
+  hashi = (int) (cn % NUM_HASH_SLOTS);
 
   /* Search inode in the hash table */
   LIST_FOREACH(ino, &hash_inodes[hashi], i_hash) {
-      if (ino->i_ref > 0 && ino->i_clust == numb) {
+      if (ino->i_ref > 0 && ino->i_clust == cn) {
           return(ino);
       }
   }
@@ -202,7 +212,8 @@ struct inode *ino;
  * count were zero before, remove the inode from the free list.
  */
 
-  DBGprintf(("FATfs: get_inode(%p) ['%s']\n", ino, ino->i_name));
+  DBGprintf(("FATfs: get_inode(%p) ['%.8s.%.3s']\n", ino,
+		ino->i_Name, ino->i_Extension));
 
   /* (INUSE, CACHED) -> INUSE */
 
@@ -228,7 +239,8 @@ struct inode *ino;
  */
 
   assert(ino != NULL);
-  DBGprintf(("FATfs: put_inode(%p) ['%s']\n", ino, ino->i_name));
+  DBGprintf(("FATfs: put_inode(%p) ['%.8s.%.3s']\n", ino,
+		ino->i_Name, ino->i_Extension));
   assert(ino->i_ref > 0);
 
   ino->i_ref--;
@@ -266,7 +278,7 @@ struct inode *ino;
 {
 /* Link an inode to a parent. If both reference and link count were zero
  * before, remove the inode from the free list.
- * This function should only be called from add_dentry().
+ * This function should only be called from add_direntry().
  */
 
   /* This can never happen, right? */
@@ -286,7 +298,7 @@ struct inode *ino;
 {
 /* Unlink an inode from its parent. If both reference and link count have
  * reached zero, mark the inode as cached or free.
- * This function should only be used from del_dentry().
+ * This function should only be used from del_direntry().
  */
   struct inode *parent;
 
@@ -331,7 +343,7 @@ PUBLIC struct inode *get_free_inode()
 #if 0
   /* If this was a cached inode, free it first. */
   if (ino->i_parent != NULL)
-	del_dentry(ino);
+	del_direntry(ino);
 #endif
 
   assert(ino->i_parent == NULL);

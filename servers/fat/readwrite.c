@@ -25,8 +25,10 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+#if 0
 #include "inode.h"
 	#include "super.h"	/* POUR AVOIR format data block */
+#endif
 
 /*
  */
@@ -86,18 +88,18 @@ PUBLIC int do_readwrite(void)
 {
 /* Read or write data from or to a file or a block device.
  */
-  int r, rw_flag;
+  int r, rw_flag, n;
   cp_grant_id_t gid;
   u64_t position64;
-  off_t position;
-  unsigned int off, cum_io, chunk, block_size;
-  int completed;
-  struct inode *rip;
+  off_t position, f_size, bytes_left;
   size_t nrbytes;
+  unsigned int off, cum_io, chunk, block_size;
+  block_t b;
+  struct inode *rip;
+  struct buf *bp;
 /*
   int block_spec;
   int regular;
-  off_t f_size, bytes_left;
   unsigned chunk;
   mode_t mode_word;
  */ 
@@ -217,7 +219,7 @@ PUBLIC int do_readwrite(void)
 	}
 #endif
 	
-	if (!block_spec && b == NO_BLOCK) {
+	if (/*FIXME !block_spec &&*/ b == NO_BLOCK) {
 		if (rw_flag == READING) {
 			/* Reading from a nonexistent block.  Must read as all zeros.*/
 			bp = get_block(NO_DEV, NO_BLOCK, NORMAL);    /* get a buffer */
@@ -231,14 +233,14 @@ PUBLIC int do_readwrite(void)
 		}
 	} else if (rw_flag == READING) {
 		/* Read and read ahead if convenient. */
-		bp = rahead(rip, b, position, left);
+		bp = rahead(rip, b, position64, nrbytes);
 	} else {
 		/* Normally an existing block to be partially overwritten is first read
 		 * in.  However, a full block need not be read in.  If it is already in
 		 * the cache, acquire it, otherwise just acquire a free buffer.
 		 */
 		n = (chunk == block_size ? NO_READ : NORMAL);
-		if (!block_spec && off == 0 && (off_t) ex64lo(position) >= rip->i_size) 
+		if (/*FIXME !block_spec &&*/ off == 0 && (off_t) ex64lo(position64) >= rip->i_size) 
 			n = NO_READ;
 		bp = get_block(dev, b, n);
 	}
@@ -247,18 +249,18 @@ PUBLIC int do_readwrite(void)
 	if (bp == NULL) 
 	  	panic("bp not valid in rw_chunk; this can't happen");
 	  
-	if (rw_flag == WRITING && chunk != block_size && !block_spec &&
-	      (off_t) ex64lo(position) >= rip->i_size && off == 0) {
+	if (rw_flag == WRITING && chunk != block_size && /*FIXME !block_spec &&*/
+	      (off_t) ex64lo(position64) >= rip->i_size && off == 0) {
 		zero_block(bp);
 	}
 	
 	if (rw_flag == READING) {
 		/* Copy a chunk from the block buffer to user space. */
-		r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) buf_off,
+		r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
 				   (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
 	} else {
 		/* Copy a chunk from user space to the block buffer. */
-		r = sys_safecopyfrom(VFS_PROC_NR, gid, (vir_bytes) buf_off,
+		r = sys_safecopyfrom(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
 				     (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
 		bp->b_dirt = DIRTY;
 	}
@@ -272,7 +274,7 @@ PUBLIC int do_readwrite(void)
 	  /* Update counters and pointers. */
 	  nrbytes -= chunk;	        /* bytes yet to be read */
 	  cum_io += chunk;	        /* bytes read so far */
-	  position = add64ul(position, chunk);	/* position within the file */
+	  position64 = add64ul(position64, chunk);	/* position within the file */
 	  position += (off_t) chunk;	/* position within the file */
   }
 
