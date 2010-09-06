@@ -184,7 +184,9 @@ struct fat_direntry {
   uint8_t deStartCluster[2];	/* starting cluster of file */
   uint8_t deFileSize[4];	/* size of file in bytes */
 };
-#define DIR_ENTRY_SIZE	(sizeof(struct fat_direntry))
+
+/* Some characters are not allowed inside deName or deExtension */
+#define FAT_FORBIDDEN_CHARS	"\"*+,./:;<=>?[\\]|"
 
 /* Format of a long filename (LFN) directory entry.
  * Introduced by Windows 95's "VFAT.vxd" driver, so often named
@@ -212,6 +214,9 @@ struct fat_lfnentry {
 };
 #define	LFN_CHARS	13	/* Number of chars per lfnentry */
 
+/* Some characters are not allowed inside LFN either; others are */
+#define FAT_FORBIDDENLFN_CHARS	"\"*/:<>?\\|"
+#define FAT_ONLYLFN_CHARS	"+,.;=[]"
 
 /* Some useful cluster numbers.
  */

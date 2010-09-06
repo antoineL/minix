@@ -39,6 +39,7 @@ _PROTOTYPE( void rw_scattered, (dev_t dev,
 _PROTOTYPE( void zero_block, (struct buf *bp)				);
 
 /* direntry.c */
+_PROTOTYPE( int do_getdents, (void)					);
 enum search_dir_arg_e {
 	LOOK_UP,	/* tells search_dir to lookup string */
 	ENTER,		/* tells search_dir to make dir entry */
@@ -96,9 +97,10 @@ _PROTOTYPE( int do_readsuper, (void)					);
 _PROTOTYPE( int do_unmount, (void)					);
 
 /* readwrite.c */
-_PROTOTYPE( int do_blockrw, (void)					);
-_PROTOTYPE( int do_getdents, (void)					);
-_PROTOTYPE( int do_readwrite, (void)					);
+_PROTOTYPE( int do_bread, (void)					);
+_PROTOTYPE( int do_bwrite, (void)					);
+_PROTOTYPE( int do_read, (void)						);
+_PROTOTYPE( int do_write, (void)					);
 _PROTOTYPE( void read_ahead, (void)					);
 
 /* stat.c */

@@ -31,16 +31,16 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	do_stat,	/*  8 stat		*/
 	do_utime,	/*  9 utime		*/
 	do_fstatfs,	/* 10 fstatfs		*/
-	do_blockrw,	/* 11 bread		*/
-	do_blockrw,	/* 12 bwrite		*/
+	do_bread,	/* 11 bread		*/
+	do_bwrite,	/* 12 bwrite		*/
  /**/	/*do_unlink*/readonly,	/* 13 unlink		*/
  /**/	/*do_rmdir*/readonly,	/* 14 rmdir		*/
 	do_unmount,	/* 15 unmount		*/
 	do_sync,	/* 16 sync		*/
 	do_new_driver,	/* 17 new_driver	*/
 	do_flush,	/* 18 flush		*/
-	do_readwrite,	/* 19 read		*/
-	do_readwrite,	/* 20 write		*/
+	do_read,	/* 19 read		*/
+	do_write,	/* 20 write		*/
  /**/	readonly,	/* 21 mknod		*/
  /**/	/*do_mkdir*/readonly,	/* 22 mkdir		*/
  /**/	/*do_create*/readonly,	/* 23 create		*/

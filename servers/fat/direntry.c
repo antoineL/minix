@@ -12,6 +12,7 @@
  
 #include "inc.h"
 
+#include <ctype.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -79,10 +80,10 @@ PUBLIC int do_getdents(void)
   new_pos = rip->i_size;
 
   for(; block_pos < rip->i_size; block_pos += block_size) {
-#if 0
-	b = read_map(rip, block_pos);	/* get block number */
-NOTE: can fail with EOF
-#endif
+	b = bmap(rip, block_pos);	/* get block number */
+/* NOTE: can fail with EOF */
+	if (b == NO_BLOCK)
+		break;
 
 	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
 	bp = get_block(dev, b, NORMAL);	/* get a dir block */
@@ -222,7 +223,115 @@ FIXME: use done
 }
 
 /*===========================================================================*
- *				lookup_dir				   *
+ *				nameto83				     *
+ *===========================================================================*/
+PRIVATE int nameto83(
+  const char *filename,		/* some file name (passed by VFS) */
+  char d[],			/* place to put the 8.3 compliant equivalent */
+  int *lcase)			/* resulting LCase attribute */
+{
+/* Transforms a filename (as part of a path) into the form suitable to be
+ * used in FAT directory entries, named 8.3 because it could only count
+ * 8 characters before the only dot, and 3 characters after it.
+ * This functions returns EINVAL if invalid characters were encountered,
+ * and ENAMETOOLONG if it does not fit the 8.3 limits.
+ */
+  const unsigned char *p = (const unsigned char *)filename;
+  char *q;
+  int prev, next, havelower, haveupper;
+
+  memset(d, ' ', 8+3);		/* fill with spaces */
+
+  switch (next = *p) {
+  case '.':
+	/* cannot store a filename starting with . */
+	return(EINVAL);
+  case '\0':
+	/* filename staring with NUL ? */
+	DBGprintf(("FATfs: passed filename starting with \\0\n"));
+	return(EINVAL);
+  case ' ':
+	/* filename staring with space; legal but slippery */
+	DBGprintf(("FATfs: warning: passed filename starting with space\n"));
+	break;
+  case SLOT_E5:
+	DBGprintf(("FATfs: warning: initial character \\05 in a filename, "
+		"will be mangled into \\xE5\n"));
+  case SLOT_DELETED:
+	next = SLOT_E5;
+	break;
+  }
+
+  havelower = haveupper = prev = 0;
+  for (q=&d[0]; q<&d[8]; ++q) {
+	if (next == '.' || next == '\0') {
+		if (prev == ' ') {
+			DBGprintf(("FATfs: warning: final space character "
+				"in a name, will be dropped.\n"));
+		}
+		break;
+	} else if (strchr(FAT_FORBIDDEN_CHARS, next) != NULL) {
+		/* some characters cannot enter in FAT filenames */
+		return(EINVAL);
+	} else {
+		haveupper |= isupper(next);
+		havelower |= islower(next);
+		*q = toupper(next);
+	}
+	prev = next;
+	next = *p++;
+  }
+/* check q-d==3 &&
+   static const char *dev3[] = {"CON", "AUX", "PRN", "NUL", "   "};
+ * check q-d==4 && isdigit(q[-1])
+   static const char *dev4[] = {"COM", "LPT" };
+ */
+  if (lcase && havelower && !haveupper)
+	(*lcase) |= LCASE_NAME;
+
+  if (*p == '\0') {
+	/* no extension */
+	return(OK);
+  }
+  if (*p++ != '.') {
+	/* more than 8 chars in name... */
+	return(ENAMETOOLONG);
+  }
+  if (*p == '\0') {
+	/* initial filename was "foobar." (trailing dot)
+	 * DOS and Windows recognize it the same as "foobar"
+	 */
+	DBGprintf(("FATfs: filename \"%s\" have a trialing dot...\n"));
+	return(OK);	/* (EINVAL); */
+  }
+
+  havelower = haveupper = prev = 0;
+  for (q=&d[8]; q<&d[8+3]; ++q) {
+	if (next == '\0') {
+		if (prev == ' ') {
+			DBGprintf(("FATfs: warning: final space character "
+				"in an extension, will be dropped.\n"));
+		}
+		if (lcase && havelower && !haveupper)
+			(*lcase) |= LCASE_EXTENSION;
+		return(OK);
+	} else if (strchr(FAT_FORBIDDEN_CHARS, next) != NULL) {
+		/* some characters cannot enter in FAT filenames */
+		return(EINVAL);
+	} else {
+		haveupper |= isupper(next);
+		havelower |= islower(next);
+		*q = toupper(next);
+	}
+	prev = next;
+	next = *p++;
+  }
+  /* more than 3 chars in extension... */
+  return(ENAMETOOLONG);
+}
+
+/*===========================================================================*
+ *				lookup_dir				     *
  *===========================================================================*/
 PUBLIC int lookup_dir(
   register struct inode *dir_ptr, /* ptr to inode for dir to search */
@@ -248,11 +357,10 @@ PUBLIC int lookup_dir(
   /* Step through the directory one block at a time. */
 /* WORK NEEDED: with FAT, dir size are unknown */
   for (pos = 0; pos < dir_ptr->i_size; pos += block_size) {
-#if 0
- bmap
-	b = read_map(ldir_ptr, pos);	/* get block number */
-NOTE: can fail with EOF
-#endif
+	b = bmap(dir_ptr, pos);	/* get block number */
+/* NOTE: can fail with EOF */
+	if (b == NO_BLOCK)
+		break;
 
 	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
 	bp = get_block(dev, b, NORMAL);	/* get a dir block */
@@ -371,10 +479,7 @@ PUBLIC int search_dir(
   match = 0;			/* set when a string match occurs */
 
   for (pos = 0; pos < ldir_ptr->i_size; pos += /*FIXME ldir_ptr->i_sp->s_block_size*/ 512 ) {
-#if 0
- bmap
-	b = read_map(ldir_ptr, pos);	/* get block number */
-#endif
+	b = bmap(ldir_ptr, pos);	/* get block number */
 
 	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
 	bp = get_block(dev, b, NORMAL);	/* get a dir block */

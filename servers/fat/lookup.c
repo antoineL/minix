@@ -274,14 +274,12 @@ char *suffix;			/* current remaining path. Has to point in the
   struct buf *bp;	/* buffer containing link text */
   char *sp;		/* start of link text */
 
-#if 0
   if ((blink = bmap(rip, (off_t) 0)) == NO_BLOCK)
 	return(EIO);
-#endif
 
   bp = get_block(dev, blink, NORMAL);
   llen = (size_t) rip->i_size;
-/* CHEW ME (!) */
+/* CHEW ME (!) The link is in Unicode!!! */
   sp = (char *) bp->dp;
   slen = strlen(suffix);
 
@@ -366,13 +364,8 @@ FIXME: changed interface...
   }
 
   /* The component has been found in the directory.  Get inode. */
-#if 0
   if ( (rip = get_inode(dirp->i_dev, (int) numb)) == NULL)  {
 	return(NULL);
-#else
-  if ( (rip = find_inode(numb)) == NULL)  {
-	return(ENOENT);
-#endif
   }
 #endif
 

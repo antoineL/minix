@@ -19,11 +19,12 @@
 #include "fat.h"		/* description of the ondisk structures */
 
 /* Terminology:
- * A block is the basic unit of measure within a MINIX file
- * system server, and the unit managed by the cache.
+ * A block is the basic unit of measure within any MINIX
+ * file system server, and the unit managed by the cache.
+ * Its size can be known with (struct statfs)s.f_bsize
  * Blocks are numbered using block_t (<minix/types.h>).
  * On disk, the file system area (on the minor device) can
- * be seen as made of blocks 0 to totalSiz-1.
+ * be seen as made of blocks 0 to sb.totalSiz-1.
  *
  * A sector is the fundamental unit of measure for a FAT
  * file system.
@@ -31,14 +32,14 @@
  * Sectors are numbered using sector_t.
  * We do not care about CHS addressing, we always assume
  * LBA addressing (within the minor device) so sectors are
- * numbered from 0 to totalSecs-1.
+ * numbered from 0 to sb.totalSecs-1.
  *
  * A cluster is the unit of allocation for files in a FAT
  * file system. The size of a cluster is a power-of-2
  * multiple of the sector size.
  * Its size can be known with (struct statvfs)s.f_bsize
  * Clusters are numbered using cluster_t == zone_t,
- * from 2 up to maxClust.
+ * from 2 up to sb.maxClust.
  *
  * The code should not assume that sectors are the same size
  * as blocks; in fact, it should be possible to independantly
@@ -50,13 +51,8 @@
  * smaller than sectorsize.
  * However we assert that clusters are multiple of blocks.
  */
-
 typedef	u32_t	sector_t;
-
-#ifndef CLUSTER_T
-#define CLUSTER_T
 typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
-#endif
 
 /* Buffer (block) cache.
  * To acquire a block, a routine calls get_block(), telling which block it
@@ -67,11 +63,11 @@ typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
  * recently used block. Usage for LRU is measured by the time the
  * put_block() is done. If a block is modified, the modifying routine must
  * set b_dirt to DIRTY, so the block will eventually be rewritten to the disk.
- */
-
-/* CHECKME!!! better use b_bytes==0 ?
- * make some macros
+ *
+WORK NEEDED:
  * describe all the states a buffer can be (allocated/no, free/no, dirty etc.)
+ * make some macros
+ * CHECKME!!! better use b_bytes==0 ? b_blocknr==-1 ? flags?
  */
 /* A block is free if b_dev == NO_DEV. */
 
@@ -94,26 +90,19 @@ struct buf {
 /* CHECKME... */
 #define BUFHASH(b) ((b) % nr_bufs)
 
-
-/* FIXME: hack to achieve compiling, but will make static analysers sick. */
-#ifndef MAX_BLOCK_SIZE
-#define MAX_BLOCK_SIZE	512	/* not the real size */
-#endif
-
-/* content of a buffer */
+/* actual content of directories */
 union direntry_u {
   struct fat_direntry d_direntry;
   struct fat_lfnentry d_lfnentry;
 };
 
+#define DIR_ENTRY_SIZE     usizeof(union direntry_u)  /* # bytes/dir entry */
+#define NR_DIR_ENTRIES(sz) ((sz)/DIR_ENTRY_SIZE)   /* # dir entries/struct */
+
+/* content of a buffer */
 union blkdata_u {
   char b__data[MAX_BLOCK_SIZE];	     /* ordinary user data */
-/* directory block */
-#ifdef DIR_ENTRY_SIZE
-  union direntry_u b__dir[MAX_BLOCK_SIZE / DIR_ENTRY_SIZE];
-#else
-  union direntry_u b__dir[16];
-#endif
+  union direntry_u b__dir[NR_DIR_ENTRIES(MAX_BLOCK_SIZE)];
   unsigned char b__fat16[2][MAX_BLOCK_SIZE/2]; /* FAT16 chains */
   unsigned char b__fat32[4][MAX_BLOCK_SIZE/4]; /* FAT32 chains */
 };
@@ -182,42 +171,6 @@ struct superblock {
 /* Inode structure, as managed internally.
  *
  */
-
-/* Number of inodes, and inode numbers.
- * There are no natural value in FAT file systems to represent inode numbers.
- * So we synthetise a number which is passed back to VFS.
- * In order to catch phasing errors, that number is built using bitmasks,
- * combining the index in an array for quick reference, and a generation
- * number which is hopefully not reused quickly.
- * Some useful macros are defined below.
- *
- * The following number must not exceed 16, the i_index field is only a short.
- * Also, it is good to be close to the number of inodes in VFS, currently 512.
- */
-#define NUM_INODE_BITS		9
-
-#if 0
-/* We cannot use inode number 0, so to be able to use bitmasks to combine
- * inode and generation numbers, we have to use one fewer than the maximum of
- * inodes possible by using NUM_INODE_BITS bits.
- */
-#define NUM_INODES	((1 << NUM_INODE_BITS) - 1)
-
-#define ROOT_INODE_NR	1
-
-#else
-/* Size of the inodes[] array.
- * We should avoid inode number 0. Since the root inode is never freed,
- * we give it the [0] slot, and we make sure it gets a non-zero generation
- * number, so the resulting combined inode number is non-zero.
- */
-#define NUM_INODES	(1 << NUM_INODE_BITS)
-
-#define ROOT_GEN_NR	0x4007
-#define ROOT_INODE_NR	(ROOT_GEN_NR << NUM_INODE_BITS)
-
-#endif
-
 struct direntryref {
   cluster_t	de_clust;	/* cluster pointing the directory */
   unsigned	de_entrypos;	/* position of the entry within */
@@ -305,23 +258,6 @@ struct inode {
 #define	DELWAIT		0x0040		/* someone waiting on file lock	*/
 #define	DEMOD		0x0080		/* denode wants to be written back
 					 *  to disk			*/
-
-/* Some handy macros to manage the synthetised inode numbers.
- * warning: the following line is not a proper macro
- */
-#define INODE_NR(i)	(((i)->i_gen << NUM_INODE_BITS) | (i)->i_index)
-#if 0
-#define INODE_INDEX(n)	(((n) & ((1 << NUM_INODE_BITS) - 1)) - 1)
-#else
-#define INODE_INDEX(n)	( (n) & ((1 << NUM_INODE_BITS) - 1) )
-#endif
-#define INODE_GEN(n)	(((n) >> NUM_INODE_BITS) & 0xffff)
-
-#if 0
-#define IS_ROOT(i)	((i)->i_num == ROOT_INODE_NR)
-#else
-#define IS_ROOT(i)	((i)->i_index == (ROOT_INODE_NR & 0xffff))
-#endif
 
 #define IS_DIR(i)	((i)->i_flags & I_DIR)
 #define HAS_CHILDREN(i)	(!LIST_EMPTY(& (i)->i_child))

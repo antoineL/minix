@@ -58,11 +58,11 @@ int fc_largedistance     = 0;	/* off by more than LMMAX		*/
 /*
  *  Set a slot in the fat cache.
  */
-#define	fc_setcache(dep, slot, frcn, fsrcn) \
-	(dep)->de_fc[slot].fc_frcn = frcn; \
-	(dep)->de_fc[slot].fc_fsrcn = fsrcn;
+#define	fc_setcache(rip, slot, frcn, bn) \
+	(rip)->i_fc[slot].fc_frcn = frcn; \
+	(rip)->i_fc[slot].fc_bn = bn;
 
-_PROTOTYPE( block_t bmap, (		);
+_PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
 _PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 
 /*===========================================================================*
@@ -71,6 +71,33 @@ _PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 PUBLIC block_t bmap(struct inode *rip, off_t position)
 {
   return smap(rip, position);
+}
+
+/*
+ *  Find the closest entry in the fat cache to the
+ *  cluster we are looking for.
+ */
+fc_lookup(
+	struct inode *rip,
+	unsigned long findcn,
+	unsigned long *frcnp,
+	unsigned long *bnp)
+{
+	int i;
+	unsigned long cn;
+	struct fatcache *closest = 0;
+
+	for (i = 0; i < FC_SIZE; i++) {
+		cn = rip->i_fc[i].fc_frcn;
+		if (cn != FCE_EMPTY  &&  cn <= findcn) {
+			if (closest == 0  ||  cn > closest->fc_frcn)
+				closest = &rip->i_fc[i];
+		}
+	}
+	if (closest) {
+		*frcnp  = closest->fc_frcn;
+		*bnp = closest->fc_bn;
+	}
 }
 
 /*===========================================================================*
@@ -103,16 +130,22 @@ int
 pcbmap(dep, findcn, bnp, cnp)
 	struct denode *dep;
 	unsigned long findcn;	/* file relative cluster to get		*/
-	daddr_t *bnp;		/* returned filesys relative blk number	*/
-	unsigned long *cnp;	/* returned cluster number		*/
+	daddr_t *bnp=0;		/* returned filesys relative blk number	*/
+	unsigned long *cnp=0;	/* returned cluster number		*/
 #endif
 	int error;
+	cluster_t findcn;	/* file relative cluster to get	*/
+	block_t findbn;		/* file relative block to get */
+	block_t boff;		/* offset of block within cluster */
+/*FIXME*/typedef unsigned long daddr_t;
+	daddr_t *bnp;		/* returned filesys relative blk number	*/
+	unsigned long *cnp;	/* returned cluster number		*/
 /*FIXME*/typedef int u_long;
 	u_long i;
-	u_long cn;
-	u_long prevcn;
+	cluster_t cn;
+	cluster_t prevcn;
 	u_long byteoffset;
-	u_long bn;
+	block_t bn;
 	u_long bo;
 	struct buf *bp0 = 0;
 	u_long bp0_bn = -1;
@@ -132,6 +165,10 @@ pcbmap(dep, findcn, bnp, cnp)
 
 	i = 0;
 	cn = rip->i_clust;
+	findbn = position >> sb.bnshift;
+	findcn = position >> sb.cnshift;
+	boff = (position & (sb.bpcluster-1)) >> sb.bnshift;
+
 /*
  *  The "file" that makes up the root directory is contiguous,
  *  permanently allocated, of fixed size, and is not made up
@@ -139,22 +176,24 @@ pcbmap(dep, findcn, bnp, cnp)
  *  the root directory, then return the number of clusters in
  *  the file.
  */
-	if (cn == PCFSROOT) {
-		if (dep->de_Attributes & ATTR_DIRECTORY) {
-			if (findcn * pmp->pm_SectPerClust > pmp->pm_rootdirsize) {
+	if (cn == /*PCFSROOT*/ 1 ) {
+		if (rip->i_Attributes & ATTR_DIRECTORY) {
+			if (findbn > sb.rootBlk) {
 				if (cnp)
-					*cnp = pmp->pm_rootdirsize / pmp->pm_SectPerClust;
-				return E2BIG;
+					*cnp = sb.rootBlk;
+				return /*E2BIG*/ NO_BLOCK;
 			}
+/*
 			if (bnp)
 				*bnp = pmp->pm_rootdirblk + (findcn * pmp->pm_SectPerClust);
+ */
 			if (cnp)
-				*cnp = PCFSROOT;
-			return 0;
+				*cnp = /*PCFSROOT*/ 1;
+			return sb.rootBlk + findbn;
 		} else {	/* just an empty file */
 			if (cnp)
 				*cnp = 0;
-			return E2BIG;
+			return /*E2BIG*/ NO_BLOCK;
 		}
 	}
 
@@ -164,7 +203,8 @@ pcbmap(dep, findcn, bnp, cnp)
  *  And, keep track of how far off the cache was from
  *  where we wanted to be.
  */
-	fc_lookup(dep, findcn, &i, &cn);
+/* CHECKME: why cn && ! bn ??? */
+	fc_lookup(rip, findcn, &i, &cn);
 	if ((bn = findcn - i) >= LMMAX)
 		fc_largedistance++;
 	else
@@ -173,13 +213,14 @@ pcbmap(dep, findcn, bnp, cnp)
 /*
  *  Handle all other files or directories the normal way.
  */
-	if (FAT12(pmp)) {	/* 12 bit fat	*/
+	if (sb.fatmask == FAT12_MASK) {	/* 12 bit fat	*/
 		for (; i < findcn; i++) {
-			if (PCFSEOF(cn)) {
+			if (ATEOF(cn, FAT12_MASK)) {
 				goto hiteof;
 			}
 			byteoffset = cn + (cn >> 1);
-			bn = (byteoffset >> pmp->pm_bnshift) + pmp->pm_fatblk;
+			bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
+/*
 			bo = byteoffset &  pmp->pm_brbomask;
 			if (bn != bp0_bn) {
 				if (bp0)
@@ -192,6 +233,7 @@ pcbmap(dep, findcn, bnp, cnp)
 				bp0_bn = bn;
 			}
 			x.byte[0] = bp0->b_un.b_addr[bo];
+ */
 /*
  *  If the first byte of the fat entry was the last byte
  *  in the block, then we must read the next block in the
@@ -201,6 +243,7 @@ pcbmap(dep, findcn, bnp, cnp)
  *  Note that we free bp1 even though the next iteration of
  *  the loop might need it.
  */
+/*
 			if (bo == pmp->pm_BytesPerSec-1) {
 				if (error = bread(pmp->pm_devvp, bn+1,
 				    pmp->pm_BytesPerSec, NOCRED, &bp1)) {
@@ -215,23 +258,30 @@ pcbmap(dep, findcn, bnp, cnp)
 			if (cn & 1)
 				x.word >>= 4;
 			prevcn = cn;
-			cn = x.word & 0x0fff;
+			cn = x.word & FAT12_MASK;
+ */
 /*
  *  Force the special cluster numbers in the range
  *  0x0ff0-0x0fff to be the same as for 16 bit cluster
  *  numbers to let the rest of pcfs think it is always
  *  dealing with 16 bit fats.
  */
+/* FIXME */
 			if ((cn & 0x0ff0) == 0x0ff0)
 				cn |= 0xf000;
 		}
+#if 0
 	} else {				/* 16 bit fat	*/
+#else
+	} else if (sb.fatmask == FAT16_MASK) {	/* 16 bit fat	*/
+#endif
 		for (; i < findcn; i++) {
-			if (PCFSEOF(cn)) {
+			if (ATEOF(cn, FAT16_MASK)) {
 				goto hiteof;
 			}
 			byteoffset = cn << 1;
-			bn = (byteoffset >> pmp->pm_bnshift) + pmp->pm_fatblk;
+			bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
+/*
 			bo = byteoffset &  pmp->pm_brbomask;
 			if (bn != bp0_bn) {
 				if (bp0)
@@ -243,56 +293,35 @@ pcbmap(dep, findcn, bnp, cnp)
 				}
 				bp0_bn = bn;
 			}
+ */
 			prevcn = cn;
+/*
 			cn = *(u_short *)(bp0->b_un.b_addr+bo);
+ */
 		}
 	}
 
-	if (!PCFSEOF(cn)) {
+	if (!ATEOF(cn, sb.fatmask)) {
+/*
 		if (bp0)
 			brelse(bp0);
 		if (bnp)
 			*bnp = cntobn(pmp, cn);
 		if (cnp)
 			*cnp = cn;
-		fc_setcache(dep, FC_LASTMAP, i, cn);
+ */
+		fc_setcache(rip, FC_LASTMAP, i, cn);
 		return 0;
 	}
 
-hiteof:;
+hiteof:
 	if (cnp)
 		*cnp = i;
+/*
 	if (bp0)
 		brelse(bp0);
-	/* update last file cluster entry in the fat cache */
-	fc_setcache(dep, FC_LASTFC, i-1, prevcn);
-	return E2BIG;
-}
-
-/*
- *  Find the closest entry in the fat cache to the
- *  cluster we are looking for.
  */
-fc_lookup(dep, findcn, frcnp, fsrcnp)
-	struct denode *dep;
-	unsigned long findcn;
-	unsigned long *frcnp;
-	unsigned long *fsrcnp;
-{
-	int i;
-	unsigned long cn;
-	struct fatcache *closest = 0;
-
-	for (i = 0; i < FC_SIZE; i++) {
-		cn = dep->de_fc[i].fc_frcn;
-		if (cn != FCE_EMPTY  &&  cn <= findcn) {
-			if (closest == 0  ||  cn > closest->fc_frcn)
-				closest = &dep->de_fc[i];
-		}
-	}
-	if (closest) {
-		*frcnp  = closest->fc_frcn;
-		*fsrcnp = closest->fc_fsrcn;
-	}
+	/* update last file cluster entry in the fat cache */
+	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
+	return /*E2BIG*/ NO_BLOCK;
 }
-
