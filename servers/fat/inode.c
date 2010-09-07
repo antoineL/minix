@@ -3,9 +3,10 @@
  * the actual content is in direntry.c.
  *
  * The entry points into this file are:
- *   init_inode		initialize the inode table, return the root inode
+ *   init_inodes	initialize the inode table, return the root inode
  *   fetch_inode	find an inode based on its VFS inode number
  *   find_inode		find an inode based on its cluster
+ *   enter_inode	allocate a new inode corresponding to an entry
  *   get_inode		increase the reference count of an inode
  *   put_inode		decrease the reference count of an inode
  *   link_inode		link an inode as a directory entry to another inode
@@ -13,11 +14,9 @@
  *   get_free_inode	return a free inode object
  *   have_free_inode	check whether there is a free inode available
  *   have_used_inode	check whether any inode is still in use
-MISSING
  *   flush_inodes	flush all dirty inodes
  *
  * Auteur: Antoine Leca, aout 2010.
- * Inspired from ../hgfs/inode.c (D.C. van Moolenbroek)
  * Updated:
  */
 
@@ -34,6 +33,19 @@ MISSING
 #if 0
 #include "inode.h"
 #endif
+
+/* FIXME:
+ * explain why inode, purpose etc.
+ * explain why cannot use cluster numbers
+ * explain why cannot use dirref
+ * explain that files have only one entry (no hardlink)
+ *   but directories may have many links... and we want only one inode!
+ * explain that deleted entries should be kept around here _and_ in the
+ * FAT chains, until the last open reference in VFS is closed,
+ * and /then/ (which means in put_node) can be wiped from the disk copy...
+ */
+
+/* FIXME: recover hash linking */
 
 /* The main portion of the inode array forms a fully linked tree, providing a
  * cached partial view of what the server believes is on the host system. Each
@@ -79,7 +91,8 @@ MISSING
  * - A CACHED or FREE inode may be reused for other purposes at any time.
  */
 
-/* Number of entries in the name hashtable. */
+/* Number of entries in the cluster hashtable. */
+/* FIXME: go to const.h */
 #define NUM_HASH_SLOTS   1023
 
 PRIVATE struct inode inodes[NUM_INODES];
@@ -89,11 +102,11 @@ PRIVATE TAILQ_HEAD(free_head, inode) free_list;
 PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
 
 /*===========================================================================*
- *				init_inode				     *
+ *				init_inodes				     *
  *===========================================================================*/
-PUBLIC struct inode *init_inode()
+PUBLIC struct inode *init_inodes()
 {
-/* Initialize inode table. Return the root inode.
+/* Initialize inodes table. Return the root inode.
  */
   struct inode *ino;
   unsigned int index;
@@ -203,6 +216,32 @@ PUBLIC struct inode *find_inode(
 }
 
 /*===========================================================================*
+ *				enter_inode				     *
+ *===========================================================================*/
+PUBLIC struct inode *enter_inode(
+  struct fat_direntry * dp)	/* (short name) entry */
+{
+/* Enter the inode as specified by its directory entry.
+ */
+  struct inode *ino;
+  cluster_t cn;			/* cluster number */
+  int hashi;
+
+/* FIXME */
+  cn = 0;
+  hashi = (int) (cn % NUM_HASH_SLOTS);
+
+  /* Search inode in the hash table */
+  LIST_FOREACH(ino, &hash_inodes[hashi], i_hash) {
+      if (ino->i_ref > 0 && ino->i_clust == cn) {
+          return(ino);
+      }
+  }
+  
+  return(NULL);
+}
+
+/*===========================================================================*
  *				get_inode				     *
  *===========================================================================*/
 PUBLIC void get_inode(ino)
@@ -249,6 +288,10 @@ struct inode *ino;
   if (ino->i_ref > 0)
 	return;
 
+/* free_cluster_chain */
+/* rw indode if DIRTY + MTIME etc. */
+/* doit appeler rw_inode(rip, WRITING), cf. flush */
+
   /* Close any file handle associated with this inode. */
 /*
   put_handle(ino);
@@ -259,6 +302,8 @@ struct inode *ino;
 	return;
 
   /* INUSE -> CACHED, DELETED -> FREE */
+
+/* unhash */
 
   /* Add the inode to the head or tail of the free list, depending on whether
    * it is also deleted (and therefore can never be reused as is).
@@ -358,7 +403,7 @@ PUBLIC struct inode *get_free_inode()
 /*===========================================================================*
  *				have_free_inode				     *
  *===========================================================================*/
-PUBLIC int have_free_inode()
+PUBLIC int have_free_inode(void)
 {
 /* Check whether there are any free inodes at the moment. Kind of lame, but
  * this allows for easier error recovery in some places.
@@ -370,7 +415,7 @@ PUBLIC int have_free_inode()
 /*===========================================================================*
  *				have_used_inode				     *
  *===========================================================================*/
-PUBLIC int have_used_inode()
+PUBLIC int have_used_inode(void)
 {
 /* Check whether any inodes are still in use, that is, any of the inodes have
  * a reference count larger than zero.
@@ -382,4 +427,21 @@ PUBLIC int have_used_inode()
 		return TRUE;
 
   return FALSE;
+}
+
+/*===========================================================================*
+ *				flush_inodes				     *
+ *===========================================================================*/
+PUBLIC void flush_inodes(void)
+{
+/* Write all the dirty inodes to the disk. */
+  struct inode *rip;
+
+  for(rip = &inodes[0]; rip < &inodes[NUM_INODES]; rip++)
+	if(rip->i_ref > 0 && rip->i_flags & I_DIRTY)
+#if 0
+		rw_inode(rip, WRITING);
+#else
+		;
+#endif
 }

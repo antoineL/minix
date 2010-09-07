@@ -19,6 +19,8 @@
  * named block_size, a global variable which value can be changed
  * at init time with set_blocksize().
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
  * Private functions:
 	_PROTOTYPE( void flushall, (dev_t dev)					);
  *   invalidate:  remove all the cache blocks on some device
@@ -47,12 +49,16 @@
 #include <minix/vm.h>
 # ifndef VM_BLOCKID_NONE
 #  undef USE_VMCACHE	/* disable USE_VMCACHE if not supported */
-# endif /*ndef VM_BLOCKID_NONE*/
+# endif
 #endif
 
+/* FIXME: work needed on the detection/reporting of error... */
 #define END_OF_FILE   (-104)	/* eof detected */
 
 #define NO_BITx   ((bit_t) 0)	/* returned by alloc_bit() to signal failure */
+
+/* CHECKME... */
+#define BUFHASH(b) ((b) % nr_bufs)
 
 #if 0
 #include "fs.h"
@@ -163,21 +169,21 @@ PUBLIC int do_sync()
  * blocks must be flushed last, since rw_inode() leaves its results in
  * the block cache.
  */
+/*
   struct inode *rip;
   struct buf *bp;
+ */
 
   assert(nr_bufs > 0);
   assert(buf);
 
-/* WORK NEEDED */
-#if 0
-/* CALL flush_inodes(); */
-  /* Write all the dirty inodes to the disk. */
-  for(rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
-	  if(rip->i_count > 0 && rip->i_dirt == DIRTY) rw_inode(rip, WRITING);
-#endif
+  flush_inodes();
 
-  /* Write the dirty blocks to the disk. */
+/* if FAT12, if the whole FAT is projected in a special area,
+ * should be flushed NOW... in all the mirrors!
+ */
+/* update FSInfo (FAT32) => DIRTY */
+
 #if 0 /*obsolete*/
   for(bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
 	  if(bp->b_dev != NO_DEV && bp->b_dirt == DIRTY) 
@@ -203,6 +209,9 @@ PUBLIC int do_flush()
   if(dev == req_dev) return(EBUSY);
 #endif
 
+/* CHECKME: needed? */
+  do_sync(req_dev);
+
   flushall(req_dev);
   invalidate(req_dev);
   
@@ -216,8 +225,11 @@ PRIVATE void flushall(
   dev_t dev			/* device to flush */
 )
 {
-/* Flush all dirty blocks for one device. */
-
+/* Flush all dirty blocks for one device.
+ * This is the only place where blocks are actually written to disk.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ */
   register struct buf *bp;
   static struct buf **dirty;	/* static so it isn't on stack */
   static unsigned int dirtylistsize = 0;
@@ -232,6 +244,11 @@ PRIVATE void flushall(
 		panic("couldn't allocate dirty buf list");
 	dirtylistsize = nr_bufs;
   }
+
+/* FIXME: when the buffer is for some FAT sector,
+ * it should be mirrored (written several times)
+ * when flushed to disk... NOW!
+ */
 
   for (bp = &buf[0], ndirty = 0; bp < &buf[nr_bufs]; bp++)
 	if (bp->b_dirt == DIRTY && bp->b_dev == dev) dirty[ndirty++] = bp;
@@ -280,6 +297,8 @@ PUBLIC struct buf *get_block(
  * the block returned is valid.
  * In addition to the LRU chain, there is also a hash chain to link together
  * blocks whose block numbers end with the same bit strings, for fast lookup.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
  */
 
   int b;
@@ -556,6 +575,7 @@ int rw_flag;			/* READING or WRITING */
 	}
 
 	if (op_failed) {
+/* FIXME: should we clear bp->b_size = 0; ??? or rephrase? */
 		bp->b_dev = NO_DEV;	/* invalidate block */
 
 		/* Report read errors to interested parties. */
@@ -578,7 +598,10 @@ PUBLIC void rw_scattered(
   int rw_flag			/* READING or WRITING */
 )
 {
-/* Read or write multiple, scattered, buffers from or to a device. */
+/* Read or write multiple, scattered, buffers from or to a device.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ */
 
   register struct buf *bp;
   int gap;

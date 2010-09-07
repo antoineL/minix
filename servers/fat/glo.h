@@ -12,21 +12,6 @@
 #define EXTERN
 #endif
 
-#ifndef _TYPES_H
-#error need to #include <sys/types.h>		/* dev_t */
-#endif
-#ifndef _TYPE_H
-#error need to #include <minix/type.h>		/* endpoint_t */
-#endif
-#ifndef _IPC_H
-#error need to #include <minix/ipc.h>		/* message */
-#endif
-/*
-#ifndef FAT_SUPER_H_
-#error need to #include "super.h"
-#endif
- */
-
 EXTERN struct superblock sb;	/* file system fundamental values */
 
 /* User-settable options */
@@ -36,6 +21,13 @@ EXTERN uid_t use_uid;		/* use this uid as owner of files */
 EXTERN gid_t use_gid;		/* use this gid as owner of files */
 EXTERN mode_t use_file_mask;	/* show files with this mode */
 EXTERN mode_t use_dir_mask;	/* show directories with this mode */
+EXTERN uint8_t default_lcase;	/* map the 8.3 name to lowercase? */
+/* TODO:
+	use_hidden_mask		 remove this rwx bits when HIDDEN
+	use_system_mask		 remove this rwx bits when SYSTEM
+	use_system_uid		 use this uid as owner of SYSTEM files
+	use_system_gid		 use this gid as owner of SYSTEM files
+ */
 
 EXTERN int verbose;		/* emit comments on the console; debugging */
 
@@ -64,18 +56,7 @@ EXTERN int bufs_in_use;		/* # bufs currently in use (not on free list)*/
 EXTERN unsigned block_size;
 EXTERN int may_use_vmcache;	/* secondary cache using VM */
 
-#if 0
-EXTERN struct buf *buf;
- #if 0
-EXTERN struct buf **buf_hash;   /* the buffer hash table */
-EXTERN struct buf *front;	/* points to least recently used free block */
-EXTERN struct buf *rear;	/* points to most recently used free block */
- #endif
-EXTERN TAILQ_HEAD(lruhead, buf) lru; /* least recently used free block list */
-EXTERN LIST_HEAD(bufhashhead, buf) *buf_hash; /* the buffer hash table */
-#else
-/* Buffers and list pointers are in cache.c */
-#endif
+/* Buffers and associated list pointers are private to cache.c */
 
 /* Inodes array is private to inode.c */
 

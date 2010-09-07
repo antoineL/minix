@@ -1,9 +1,8 @@
 /* Functionality to parse strings of comma-separated options,
  * each being either a single key name or a key=value pair.
  *
- * Auteur: Antoine Leca, aout 2010.
- * Slavishly copied from ../hgfs/optset.h (D.C. van Moolenbroek)
- * Updated:
+ * Created:
+ *   May 2009 (D.C. van Moolenbroek)
  */
 
 #ifndef FS_OPTSET_H

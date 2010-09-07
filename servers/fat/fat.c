@@ -2,13 +2,13 @@
  *
  *  The entry points into this file are
  *   bmap		map a file-relative offset into a block number
- *   smap		map a file-relative offset into a sector number
  *
  *
  * Auteur: Antoine Leca, septembre 2010.
  * The basis for this file is the PCFS package targetting
  * 386BSD 0.1, published in comp.unix.bsd on October 1992
- * by Paul Popelka; his work is to be rewarded.  * Updated:
+ * by Paul Popelka; his work is to be rewarded.
+ * Updated:
  */
 /*
  * Written by Paul Popelka (paulp@uts.amdahl.com)
@@ -55,6 +55,10 @@ int fc_lmdistance[LMMAX];	/* counters for how far off the last cluster
 				 * mapped entry was. */
 int fc_largedistance     = 0;	/* off by more than LMMAX		*/
 
+/* warning: the following lines are not failsafe macros */
+#define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
+#define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
+
 /*
  *  Set a slot in the fat cache.
  */
@@ -66,12 +70,9 @@ _PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
 _PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 
 /*===========================================================================*
- *				bmap					     *
+ *				xxx					     *
  *===========================================================================*/
-PUBLIC block_t bmap(struct inode *rip, off_t position)
-{
-  return smap(rip, position);
-}
+
 
 /*
  *  Find the closest entry in the fat cache to the
@@ -79,9 +80,9 @@ PUBLIC block_t bmap(struct inode *rip, off_t position)
  */
 fc_lookup(
 	struct inode *rip,
-	unsigned long findcn,
-	unsigned long *frcnp,
-	unsigned long *bnp)
+	/*unsigned long*/ cluster_t findcn,
+	/*unsigned long*/ cluster_t * frcnp,
+	/*unsigned long*/ block_t * bnp)
 {
 	int i;
 	unsigned long cn;
@@ -101,9 +102,9 @@ fc_lookup(
 }
 
 /*===========================================================================*
- *				smap					     *
+ *				bmap					     *
  *===========================================================================*/
-PUBLIC sector_t smap(struct inode *rip, off_t position)
+PUBLIC block_t bmap(struct inode *rip, off_t position)
 {
 /*
  *  Map the logical cluster number of a file into
@@ -204,6 +205,7 @@ pcbmap(dep, findcn, bnp, cnp)
  *  where we wanted to be.
  */
 /* CHECKME: why cn && ! bn ??? */
+/* FIXME : mismatch signed/unsigned */
 	fc_lookup(rip, findcn, &i, &cn);
 	if ((bn = findcn - i) >= LMMAX)
 		fc_largedistance++;
@@ -270,11 +272,7 @@ pcbmap(dep, findcn, bnp, cnp)
 			if ((cn & 0x0ff0) == 0x0ff0)
 				cn |= 0xf000;
 		}
-#if 0
-	} else {				/* 16 bit fat	*/
-#else
 	} else if (sb.fatmask == FAT16_MASK) {	/* 16 bit fat	*/
-#endif
 		for (; i < findcn; i++) {
 			if (ATEOF(cn, FAT16_MASK)) {
 				goto hiteof;
@@ -296,7 +294,32 @@ pcbmap(dep, findcn, bnp, cnp)
  */
 			prevcn = cn;
 /*
-			cn = *(u_short *)(bp0->b_un.b_addr+bo);
+			cn = *(uint16_t *)(bp0->b_un.b_addr+bo);
+ */
+		}
+	} else if (sb.fatmask == FAT32_MASK) {	/* 32 bit fat	*/
+		for (; i < findcn; i++) {
+			if (ATEOF(cn, FAT32_MASK)) {
+				goto hiteof;
+			}
+			byteoffset = cn << 2;
+			bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
+/*
+			bo = byteoffset &  pmp->pm_brbomask;
+			if (bn != bp0_bn) {
+				if (bp0)
+					brelse(bp0);
+				if (error = bread(pmp->pm_devvp, bn,
+				    pmp->pm_BytesPerSec, NOCRED, &bp0)) {
+					brelse(bp0);
+					return error;
+				}
+				bp0_bn = bn;
+			}
+ */
+			prevcn = cn;
+/*
+			cn = *(uint32_t *)(bp0->b_un.b_addr+bo);
  */
 		}
 	}

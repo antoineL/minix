@@ -55,8 +55,8 @@ typedef	u32_t	sector_t;
 typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
 
 /* Buffer (block) cache.
- * To acquire a block, a routine calls get_block(), telling which block it
- *  wants. The block is then regarded as "in use" and has its 'b_count'
+ * To acquire a block, a routine calls get_block(), telling which block
+ * it wants. The block is then regarded as "in use" and has its 'b_ref'
  * field incremented. All the blocks that are not in use are chained
  * together in an LRU list, implemented as a tail-queue, with '_FIRST'
  * pointing to the least recently used block, and '_TAIL' to the most
@@ -80,15 +80,23 @@ struct buf {
   LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
   size_t b_bytes; 	        /* Number of bytes allocated in bp */
   block_t b_blocknr;            /* block number of its (minor) device */
+/* CHEKCME: is it still usefull? */
   dev_t b_dev;                  /* major | minor device where block resides */
   char b_dirt;                  /* CLEAN or DIRTY */
 #define CLEAN              0	/* disk and memory copies identical */
 #define DIRTY              1	/* disk and memory copies differ */
   char b_count;                 /* number of users of this buffer */
-};
 
-/* CHECKME... */
-#define BUFHASH(b) ((b) % nr_bufs)
+/* FIXME: we need an indication (or a hook) when the buffer is for
+ * some FAT sector, and should be mirrored (written several times)
+ * when flushed to disk...
+ */
+/* FIXME: we may need some special stuff to insure that FAT12
+ * even and odd blocks are contiguous in logical address space
+ * (since entry 342 lies part in sector 0 and part in sector 1)
+ */
+
+};
 
 /* actual content of directories */
 union direntry_u {
@@ -168,8 +176,7 @@ struct superblock {
   int depclust;			/* directory entries per cluster */
 };
 
-/* Inode structure, as managed internally.
- *
+/* ...
  */
 struct direntryref {
   cluster_t	de_clust;	/* cluster pointing the directory */
@@ -177,6 +184,7 @@ struct direntryref {
 };
 
 /*
+CHECKME: refine this
  *  The fat entry cache as it stands helps make extending
  *  files a "quick" operation by avoiding having to scan
  *  the fat to discover the last cluster of the file.
@@ -186,6 +194,7 @@ struct direntryref {
  *  to read.  This cache is probably pretty worthless if a
  *  file is opened by multiple processes.
  */
+/* FIXME when stuff stable: these constants should move to const.h */
 #define	FC_SIZE		3	/* number of entries in the cache */
 #define	FC_LASTMAP	0	/* entry the last call to bmap() resolved to */
 #define	FC_LASTFC	1	/* entry for the last cluster in the file */
@@ -201,7 +210,8 @@ struct fatcache {
   block_t fc_bn;		/* (filesystem relative) block number */
 };
 
-/* This is the in memory variant of a FAT directory entry.
+/* Inode structure, as managed internally.
+ * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
   struct inode *i_parent;		/* parent inode pointer */
@@ -235,20 +245,29 @@ struct inode {
   cluster_t i_clust;			/* number of first cluster of data */
   struct fatcache i_fc[FC_SIZE];	/* fat cache */
 
-  mode_t i_mode;		/* file type, protection, etc. */
-  char i_mountpoint;		/* true if mounted on */
-
+/* FIXME: reflet de credentials? useful??? */
+  mode_t i_modeXXX;		/* file type, protection, etc. */
 };
 
 #define i_free		i_u.u_free
 #define i_dirref	i_u.u_dirref
 
 #define I_DIR		0x01		/* this inode represents a directory */
-#define I_HANDLE	0x02		/* this inode has an open handle */
+
+#define I_MOUNTPOINT	0x0002		/* this inode is a mount point */
+
+#define I_SEEK		0x0100		/* last operation incured a seek */
+#define I_MTIME		0x0200		/* touched, should update MTime */
+#define I_ACCESS	0x0400		/* file was accessed */
+#define I_DIRTY		0x0800		/* on-disk copy differs */
+#define I_ORPHAN	0x1000		/* the path leading to this inode
+					 * was unlinked, but is still used
+					 */
 
 /*
  *  Values for the de_flag field of the denode.
  */
+#define I_HANDLE	0x02		/* this inode has an open handle */
 #define	DELOCKED	0x0001		/* directory entry is locked	*/
 #define	DEWANT		0x0002		/* someone wants this de	*/
 #define	DERENAME	0x0004		/* de is being renamed		*/

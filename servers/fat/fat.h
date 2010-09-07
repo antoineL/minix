@@ -9,7 +9,6 @@
 #ifndef FAT_H_
 #define FAT_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
 /* The following structures represent how the FAT structures
@@ -85,7 +84,7 @@ struct fat_bootsector {
   uint8_t bpbHugeSectors[4];	/* (large) nr of sect. if(bpbSectors==0) */
 
 /* Here lies the "extended BPB" structures for FAT12/16 files sytems
- * created after 1990 (DOS 4).
+ * created after 1988 (DOS 4).
  * However FAT32 file systems need more informationss and have
  * overwritten that extended BPB: as a result the extension
  * can be placed at two different positions...
@@ -103,10 +102,9 @@ struct fat_bootsector {
     uint8_t bpbFSInfo[2];	/* filesystem info FSInfo sectors */
     uint8_t bpbBackup[2];	/* backup boot sectors (shall be 6) */
     uint8_t bpbReserved[12];	/* reserved for future expansion (?) */
-/* End of BPB as defined for FAT32. Here 
-begins exFAT
- * datas (not documented here). Also here would stands
- * the extended BPB in case of a FAT32 file system.
+/* End of BPB as defined for FAT32. Here begins exFAT
+ * datas (not documented here). Also here stands the
+ * extended BPB in case of a FAT32 file system.
  */
     struct fat_extbpb ExtBPB32;	/* BPB extension (assuming FAT32) */
    } f32bpb;

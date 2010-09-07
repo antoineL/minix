@@ -14,9 +14,9 @@
 #define usizeof(t) ((unsigned) sizeof(t))
 #endif
 
-/* The FAT file system is built over a "sector" size which
- * is between 128 and 8192 (with varying sources and ranges),
- * but we only consider 512, the by far commonest value.
+/* The FAT file system is built over a "sector" size which is
+ * between 128 and 8192 (with varying sources and ranges), but at
+ * the moment we only consider 512, the by far commonest value.
  */
 #define SECTOR_SIZE	512
 
@@ -39,7 +39,7 @@
  * Some useful macros are defined below.
  *
  * The following number must not exceed 16, the i_index field is only a short.
- * Also, it is good to be close to the number of inodes in VFS, currently 512.
+ * Also, it is wise to be close to the number of inodes in VFS, currently 512.
  */
 #define NUM_INODE_BITS		9
 

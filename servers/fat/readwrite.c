@@ -6,6 +6,7 @@
  *   do_write		perform the WRITE file system request
  *   do_bwrite		perform the BWRITE file system request
  *   do_readwrite	perform the READ, WRITE, BREAD and BWRITE requests
+ *   do_inhibread	perform the INHIBREAD file system request
  *   read_ahead		xxx
  *
  * Auteur: Antoine Leca, aout 2010.
@@ -33,8 +34,6 @@
 
 /*
  */
-
-#define DWORD_ALIGN(len) (((len) + sizeof(long) - 1) & ~(sizeof(long) - 1))
 
 FORWARD _PROTOTYPE( struct buf *rahead, (struct inode *rip, block_t baseblock,
 			u64_t position, unsigned bytes_ahead)		);
@@ -291,7 +290,9 @@ PUBLIC int do_write(void)
  */ 
   struct inode blk_rip;  /* Pseudo inode for rw_chunk */
 
-  
+  if (read_only)
+	return EROFS;
+
   r = OK;
   
   /* Get the values from the request message */
@@ -433,7 +434,9 @@ PUBLIC int do_bwrite(void)
  */ 
   struct inode blk_rip;  /* Pseudo inode for rw_chunk */
 
-  
+  if (read_only)
+	return EROFS;
+
   r = OK;
   
   /* Get the values from the request message */
@@ -511,7 +514,6 @@ PUBLIC int do_bwrite(void)
 PUBLIC void read_ahead(void)
 {
 /* Read a block into the cache before it is needed. */
-  unsigned int block_size;
   register struct inode *rip;
   struct buf *bp;
   block_t b;
@@ -520,7 +522,6 @@ PUBLIC void read_ahead(void)
 	return;
 
   rip = rdahed_inode;		/* pointer to inode to read ahead from */
-  block_size = /*get_block_size(rip->i_dev)*/ SECTOR_SIZE;
   rdahed_inode = NULL;	/* turn off read ahead */
 #if 0
   if ( (b = read_map(rip, rdahedpos)) == NO_BLOCK) return;	/* at EOF */
@@ -547,11 +548,13 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
  * The device driver may decide it knows better and stop reading at a
  * cylinder boundary (or after an error).  Rw_scattered() puts an optional
  * flag on all reads to allow this.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
  */
 /* Minimum number of blocks to prefetch. */
 # define BLOCKS_MINIMUM		(nr_bufs < 50 ? 18 : 32)
   int block_spec, scale, read_q_size;
-  unsigned int blocks_ahead, fragment, block_size;
+  unsigned int blocks_ahead, fragment;
   block_t block, blocks_left;
   off_t ind1_pos;
 /*
@@ -578,7 +581,6 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
   else 
 	dev = rip->i_dev;
  */  
-  block_size = /*get_block_size(dev)*/ SECTOR_SIZE;
 
   block = baseblock;
   bp = get_block(dev, block, PREFETCH);
@@ -664,4 +666,20 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
   }
   rw_scattered(dev, read_q, read_q_size, READING);
   return(get_block(dev, baseblock, NORMAL));
+}
+
+/*===========================================================================*
+ *				do_inhibread				     *
+ *===========================================================================*/
+PUBLIC int do_inhibread(void)
+{
+  struct inode *rip;
+  
+  if((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+
+  /* inhibit read ahead */
+  rip->i_flags |= I_SEEK;	
+  
+  return(OK);
 }

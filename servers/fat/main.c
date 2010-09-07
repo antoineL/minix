@@ -5,9 +5,9 @@
  *
  * The entry points into this file are:
  *   main	main program of the FAT File System
- *   do_noop	handle requests that do nothing and succeed
+ *   do_nothing	handle requests that do nothing and succeed
+ *   readonly	handle requests that do not apply to ROFS
  *   no_sys	handle requests that are not implemented
- *   reply	send a reply to a process after the requested work is done
  *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
@@ -56,6 +56,15 @@ PRIVATE struct optset optset_table[] = {
   { "noatime",  OPT_BOOL,   &keep_atime,      FALSE              },
   { "exec",     OPT_BOOL,   &prevent_exec,    TRUE               },
   { "noexec",   OPT_BOOL,   &prevent_exec,    FALSE              },
+
++ TODO:
+  lfn_state
+EXTERN uint8_t default_lcase;	map the 8.3 name to lowercase?  default=24?
+
+	use_hidden_mask		 remove this rwx bits when HIDDEN
+	use_system_mask		 remove this rwx bits when SYSTEM
+	use_system_uid		 use this uid as owner of SYSTEM files
+	use_system_gid		 use this gid as owner of SYSTEM files
  */
   { "debug",    OPT_BOOL,   &verbose,         TRUE               },
   { NULL                                                         }
@@ -64,41 +73,39 @@ PRIVATE struct optset optset_table[] = {
 #define TRACEREQNM
 #ifdef TRACEREQNM
 PRIVATE char* vfs_req_name[] = {
-	" 0=?",
-	" 1=(was getnode)",
-	" 2=putnode",
-	" 3=slink",
-	" 4=ftrunc",
-	" 5=chown",
-	" 6=chmod",
-	" 7=inhibread",
-	" 8=stat",
-	" 9=utime",
-	"10=fstatfs",
-	"11=bread",
-	"12=bwrite",
-	"13=unlink",
-	"14=rmdir",
-	"15=unmount",
-	"16=sync",
-	"17=new_driver",
-	"18=flush",
-	"19=read",
-	"20=write",
-	"21=mknod",
-	"22=mkdir",
-	"23=create",
-	"24=link",
-	"25=rename",
-	"26=lookup",
-	"27=mountpoint",
-	"28=readsuper",
-	"29=newnode (unsupported) ",
-	"30=rdlink",
-	"31=getdents",
-#ifdef REQ_STATVFS
-	"32=statvfs",
-#endif
+	"?",
+	"(was getnode)",
+	"putnode",
+	"slink",
+	"ftrunc",
+	"chown",
+	"chmod",
+	"inhibread",
+	"stat",
+	"utime",
+	"fstatfs",
+	"bread",
+	"bwrite",
+	"unlink",
+	"rmdir",
+	"unmount",
+	"sync",
+	"new_driver",
+	"flush",
+	"read",
+	"write",
+	"mknod",
+	"mkdir",
+	"create",
+	"link",
+	"rename",
+	"lookup",
+	"mountpoint",
+	"readsuper",
+	"newnode",
+	"rdlink",
+	"getdents",
+	"statvfs",
 };
 #endif
 
@@ -143,6 +150,7 @@ PUBLIC int main(int argc, char *argv[])
 
 	error = OK;
 #if 0
+/* look into lookup.c about credentials to see what is future of this stuff */
 	caller_uid = -1;	/* To trap errors */
 	caller_gid = -1;
 #endif
@@ -166,7 +174,8 @@ PUBLIC int main(int argc, char *argv[])
 		req_nr -= VFS_BASE;
 
 #ifdef TRACEREQNM
-		DBGprintf(("FATfs: req %s\n", vfs_req_name[req_nr]));
+		DBGprintf(("FATfs: req %d:%s\n", req_nr,
+vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:0]));
 #endif
 
 		if ((unsigned)req_nr < NREQS)
@@ -176,16 +185,20 @@ PUBLIC int main(int argc, char *argv[])
 			error = no_sys();
 
 #ifdef TRACEREQNM
-		DBGprintf(("FATfs: req %s results %d\n", vfs_req_name[req_nr], error));
+		DBGprintf(("FATfs: req %d:%s results %d\n", req_nr,
+vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:0],
+				error));
 #endif
 	}
 	else error = EINVAL;	/* protocol error */
 
 	m_out.m_type = error; 
-	reply(who_e, &m_out);	 	/* returns the response to VFS */
+	/* returns the response to VFS */
+	if (OK != send(who_e, &m_out))
+		printf("FATfs(%d) was unable to send reply\n", SELF_E);
 
-  if (error == OK) 
-	read_ahead();		/* do block read ahead */
+	if (error == OK) 
+		read_ahead();		/* do block read ahead */
   }
 }
 
@@ -223,21 +236,16 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
  */
    int i, r;
 
-#if 0
-   /* Init driver mapping */
-   for (i = 0; i < NR_DEVICES; ++i) 
-       driver_endpoints[i].driver_e = NONE;
-#endif
   /* SELF_E will contain the id of this process */
   SELF_E = getprocnr();
 
+/* FIXME: WTF? */
 /*    hash_init(); */			/* Init the table with the ids */
    setenv("TZ","",1);		/* Used to calculate the time */
 
-/*    init_inodes(); */
   init_cache(NR_BUFS);
+  init_inodes();
 
-  DBGprintf(("FATfs ready!\n"));
   m_out.m_type = FS_READY;
   if ((r = send(VFS_PROC_NR, &m_out)) != OK) {
 	panic("FATfs: Error sending login to VFS: %d", r);
@@ -269,8 +277,7 @@ PRIVATE void sef_cb_signal_handler(int signo)
  *===========================================================================*/
 PUBLIC int do_nothing(void)
 {
-/* ...
- */
+/* handle requests that do nothing and succeed. */
   return(OK);			/* Trivially succeeds */
 }
 
@@ -279,8 +286,10 @@ PUBLIC int do_nothing(void)
  *===========================================================================*/
 PUBLIC int readonly(void)
 {
-/* ...
+/* handle requests that do not apply to read-only file system,
+ * returning EROFS
  */
+  DBGprintf(("FATfs: catch unexpected request while mounted read-only!\n"));
   return(EROFS);		/* unsupported because we are read only */
 }
 
@@ -290,22 +299,8 @@ PUBLIC int readonly(void)
 PUBLIC int no_sys(void)
 {
 /* Somebody has used an illegal system call number */
+  DBGprintf(("FATfs: catch illegal request number!\n"));
   return(EINVAL);
-}
-
-/*===========================================================================*
- *				reply					     *
- *===========================================================================*/
-PUBLIC void reply(int who, message *m_ptr)
-{
-/* ...
- */
-  if (OK != send(who, m_ptr))
-#if 0
-	printf("FATfs(%d) was unable to send reply\n", SELF_E);
-#else
-	printf("FATfs: unable to send reply\n");
-#endif
 }
 
 #ifndef INTERCEPT_SEF_SIGNAL_REQUESTS /* SEF before rev.6441... */

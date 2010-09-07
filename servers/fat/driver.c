@@ -7,6 +7,10 @@
  *   seqblock_dev_io	do I/O operations with the device
  *   scattered_dev_io	do I/O operations, targetting several buffers
  *
+ * This current version assumes somewhat that 'dev' is unique.
+ *
+ * Warning: this code is not reentrant (use static local variables)
+ *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
@@ -46,17 +50,10 @@ PUBLIC int dev_open(
   int flags			/* mode bits and flags */
 )
 {
+/* ...
+ */
   int major, r;
   message dev_mess;
-
-#if 0
-  /* Determine the major device number call the device class specific
-   * open/close routine.  (This is the only routine that must check the
-   * device number for being in range.  All others can trust this check.)
-   */
-  major = (dev >> MAJOR) & BYTE;
-  if (major >= NR_DEVICES) major = 0;
-#endif
 
   dev_mess.m_type   = DEV_OPEN;
   dev_mess.DEVICE   = (dev >> MINOR) & BYTE;
@@ -74,6 +71,8 @@ PUBLIC int dev_open(
  *===========================================================================*/
 PUBLIC void dev_close(endpoint_t driver_e, dev_t dev)
 {
+/* ...
+ */
   int r;
   message dev_mess;
 
@@ -98,7 +97,7 @@ PUBLIC int do_new_driver(void)
   assert(dev == (dev_t) m_in.REQ_DEV);
   driver_e = (endpoint_t) m_in.REQ_DRIVER_E;
 
-/* need to odev_open it ??? */
+/* need to dev_open it ??? */
 
   return(OK);
 }
@@ -116,8 +115,8 @@ PUBLIC int seqblock_dev_io(
 )
 {
 /* Read from or write to the device a single chunk.
- * The parameter 'dev' used to tell which device. Now fixed.
- * The parameter 'proc_e' used to tell the address space. Now fixed.
+ * The parameter 'dev' used to tell which device. Now fixed value.
+ * The parameter 'proc_e' used to tell the address space. Now fixed value.
  */
   int r;
   message m;
@@ -167,8 +166,8 @@ PUBLIC int scattered_dev_io(
  * On disk, the blocks still are in sequential order, starting at pos.
  * In memory on the other hand, they might be in various places, the
  * blocks are not constrained to be in order.
- * The parameter 'dev' used to tell which device. Now fixed.
- * The parameter 'proc_e' used to tell the address space. Now fixed.
+ * The parameter 'dev' used to tell which device. Now fixed value.
+ * The parameter 'proc_e' used to tell the address space. Now fixed value.
  */
   int r, j;
   message m;
@@ -178,17 +177,12 @@ PUBLIC int scattered_dev_io(
   static cp_grant_id_t gids[NR_IOREQS];
   static iovec_t grants_vec[NR_IOREQS];
   int vec_grants;
+/* FIXME: need to document the protocol with the driver... */
 
   assert(cnt<=NR_IOREQS);
 
   /* See if driver is roughly valid. */
   if (driver_e == NONE) return(EDEADEPT);
-
-  /* Grant access to my new "i/o vector". */
-  if((gid=cpf_grant_direct(driver_e, (vir_bytes) grants_vec, 
-		cnt * sizeof(iovec_t), CPF_READ | CPF_WRITE)) < 0) {
-	panic("cpf_grant_direct of vector failed");
-  }
 
   /* Grant access to i/o buffers, and pack into the "I/O vector" */
   for(j = 0, v = iovec; j < cnt; ++j, ++v) {
@@ -199,6 +193,12 @@ PUBLIC int scattered_dev_io(
 		panic("grant to iovec buf failed");
 	}
 	grants_vec[j].iov_size = v->iov_size;
+  }
+
+  /* Grant access to my new "i/o vector". */
+  if((gid=cpf_grant_direct(driver_e, (vir_bytes) grants_vec, 
+		cnt * sizeof(iovec_t), CPF_READ | CPF_WRITE)) < 0) {
+	panic("cpf_grant_direct of vector failed");
   }
 
   /* Set up rest of the message. */
@@ -265,11 +265,8 @@ PRIVATE int update_dev_status(
   if (mess_ptr->REP_ENDPT != SELF_E) {
 	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
 		"type = %d, proc = %d (not %d): ignored\n",
-		SELF_E, driver_e,
-		mess_ptr->m_source,
-		mess_ptr->m_type,
-		mess_ptr->REP_ENDPT,
-		SELF_E );
+		SELF_E, driver_e, mess_ptr->m_source, 
+		mess_ptr->m_type, mess_ptr->REP_ENDPT, SELF_E );
 if(mess_ptr->REP_ENDPT != driver_e)
 	return(EIO);
   }
@@ -277,11 +274,8 @@ if(mess_ptr->REP_ENDPT != driver_e)
   if (mess_ptr->REP_ENDPT != driver_e) {
 	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
 		"type = %d, proc = %d (not %d): ignored\n",
-		SELF_E, driver_e,
-		mess_ptr->m_source,
-		mess_ptr->m_type,
-		mess_ptr->REP_ENDPT,
-		driver_e );
+		SELF_E, driver_e, mess_ptr->m_source,
+		mess_ptr->m_type, mess_ptr->REP_ENDPT, driver_e );
 if(mess_ptr->REP_ENDPT != SELF_E)
 	return(EIO);
   }
@@ -289,11 +283,8 @@ if(mess_ptr->REP_ENDPT != SELF_E)
   if (mess_ptr->REP_ENDPT != SELF_E && mess_ptr->REP_ENDPT != driver_e) {
 	printf("FATfs(%d,drv=%d):  strange device reply from %d, "
 		"type = %d, proc = %d (not %d or %d): ignored\n",
-		SELF_E, driver_e,
-		mess_ptr->m_source,
-		mess_ptr->m_type,
-		mess_ptr->REP_ENDPT,
-		SELF_E, driver_e);
+		SELF_E, driver_e, mess_ptr->m_source,
+		mess_ptr->m_type, mess_ptr->REP_ENDPT, SELF_E, driver_e);
 	return(EIO);
   }
 #endif

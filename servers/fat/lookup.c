@@ -1,8 +1,8 @@
 /* This file provides path-to-inode lookup functionality.
  *
  * The entry points into this file are:
- *   do_lookup		perform the LOOKUP file system request
  *   do_putnode		perform the PUTNODE file system call
+ *   do_lookup		perform the LOOKUP file system request
  *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
@@ -75,6 +75,113 @@ PUBLIC int do_putnode(void)
 }
 
 /*===========================================================================*
+ *                             do_lookup				 *
+ *===========================================================================*/
+PUBLIC int do_lookup(void)
+{
+  cp_grant_id_t grant, grant2;
+  int r, r1, flags, symlinks;
+  unsigned int len;
+  size_t offset = 0, path_size, cred_size;
+/* CHECKME:
+ * should be moved to globals? to inode? i_mode?
+ * its use is to be around when used by other ops
+ * which might not include all the details...
+ * _but_ how can we do the mapping?
+ */
+  vfs_ucred_t credentials;
+  mode_t mask;
+  ino_t dir_ino, root_ino;
+  struct inode *rip;
+
+  grant		= (cp_grant_id_t) m_in.REQ_GRANT;
+  path_size	= (size_t) m_in.REQ_PATH_SIZE; /* Size of the buffer */
+  len		= (int) m_in.REQ_PATH_LEN; /* including terminating nul */
+  dir_ino	= (ino_t) m_in.REQ_DIR_INO;
+  root_ino	= (ino_t) m_in.REQ_ROOT_INO;
+  flags		= (int) m_in.REQ_FLAGS;
+
+  /* Check length. */
+  if(len > sizeof(user_path)) return(E2BIG);	/* too big for buffer */
+  if(len == 0) return(EINVAL);			/* too small */
+
+  /* Copy the pathname and set up caller's user and group id */
+  r = sys_safecopyfrom(m_in.m_source, grant, /*offset*/ (vir_bytes) 0, 
+            (vir_bytes) user_path, (size_t) len, D);
+  if(r != OK) return(r);
+
+  /* Verify this is a null-terminated path. */
+  if(user_path[len - 1] != '\0') return(EINVAL);
+
+  if(flags & PATH_GET_UCRED) { /* Do we have to copy uid/gid credentials? */
+  	grant2 = (cp_grant_id_t) m_in.REQ_GRANT2;
+  	cred_size = (size_t) m_in.REQ_UCRED_SIZE;
+
+  	if (cred_size > sizeof(credentials)) return(EINVAL); /* Too big. */
+  	r = sys_safecopyfrom(m_in.m_source, grant2, (vir_bytes) 0,
+  			 (vir_bytes) &credentials, cred_size, D);
+  	if (r != OK) return(r);
+/*
+  	caller_uid = credentials.vu_uid;
+  	caller_gid = credentials.vu_gid;
+ */
+  } else {
+  	memset(&credentials, 0, sizeof(credentials));
+	credentials.vu_uid = m_in.REQ_UID;
+	credentials.vu_gid = m_in.REQ_GID;
+	credentials.vu_ngroups = 0;
+/*
+	caller_uid	= (uid_t) m_in.REQ_UID;
+	caller_gid	= (gid_t) m_in.REQ_GID;
+ */
+  }
+  mask = get_mask(&credentials);	/* CHEKCME: what is it for? */
+
+  /* Lookup inode */
+  rip = NULL;
+  r = parse_path(dir_ino, root_ino, flags, &rip, &offset, &symlinks);
+
+  if(symlinks != 0 && (r == ELEAVEMOUNT || r == EENTERMOUNT || r == ESYMLINK)){
+	len = strlen(user_path)+1;
+	if(len > path_size) return(ENAMETOOLONG);
+
+	r1 = sys_safecopyto(m_in.m_source, grant, (vir_bytes) 0,
+			(vir_bytes) user_path, (size_t) len, D);
+	if(r1 != OK) return(r1);
+  }
+
+  if(r == ELEAVEMOUNT || r == ESYMLINK) {
+	/* Report offset and the error */
+	m_out.RES_OFFSET = offset;
+	m_out.RES_SYMLOOP = symlinks;
+
+	return(r);
+  }
+
+  if (r != OK && r != EENTERMOUNT) return(r);
+
+  m_out.RES_INODE_NR = INODE_NR(rip);
+  m_out.RES_MODE		= /*rip->i_mode*/ 0;
+  m_out.RES_FILE_SIZE_LO = rip->i_size;
+  m_out.RES_FILE_SIZE_HI = 0;
+  m_out.RES_SYMLOOP		= symlinks;
+  m_out.RES_UID = use_uid;
+  m_out.RES_GID = use_gid;
+  
+  /* This is only valid for block and character specials. But it doesn't
+   * cause any harm to set RES_DEV always.
+   */
+  m_out.RES_DEV = dev;
+
+  if(r == EENTERMOUNT) {
+	m_out.RES_OFFSET	= offset;
+	put_inode(rip); /* Only return a reference to the final object */
+  }
+
+  return(r);
+}
+
+/*===========================================================================*
  *				get_mask				 *
  *===========================================================================*/
 PRIVATE int get_mask(
@@ -139,7 +246,7 @@ int *symlinkp;
    * system mounted on top returned an ELEAVEMOUNT error. In this case, we must
    * only accept ".." as the first path component.
    */
-  leaving_mount = rip->i_mountpoint; /* True iff rip is a mountpoint */
+  leaving_mount = rip->i_flags & I_MOUNTPOINT; /* True iff rip is mountpoint*/
 
   /* Scan the path component by component. */
   while (TRUE) {
@@ -151,7 +258,7 @@ int *symlinkp;
 		*offsetp += cp - user_path;
 
 		/* Return EENTERMOUNT if we are at a mount point */
-		if (rip->i_mountpoint) return(EENTERMOUNT);
+		if (rip->i_flags & I_MOUNTPOINT) return(EENTERMOUNT);
 		
 		return(OK);
 	}
@@ -180,6 +287,7 @@ int *symlinkp;
 		}
 
 		if (IS_ROOT(rip)) {
+/* NOTE: in FAT filesystems the root directory does NOT have the . and .. entries */
 			/* comment: we cannot be the root FS! */
 			/* Climbing up to parent FS */
 
@@ -190,7 +298,7 @@ int *symlinkp;
 	}
 
 	/* Only check for a mount point if we are not coming from one. */
-	if (!leaving_mount && rip->i_mountpoint) {
+	if (!leaving_mount && rip->i_flags & I_MOUNTPOINT) {
 		/* Going to enter a child FS */
 
 		*res_inop = rip;
@@ -213,6 +321,7 @@ int *symlinkp;
 	leaving_mount = 0;
 
 	/* The call to advance() succeeded.  Fetch next component. */
+#if 0
 	if (S_ISLNK(rip->i_mode)) {
 
 		if (next_cp[0] == '\0' && (flags & PATH_RET_SYMLINK)) {
@@ -247,6 +356,7 @@ int *symlinkp;
 		get_inode(dir_ip);
 		rip = dir_ip;
 	} 
+#endif
 
 	put_inode(dir_ip);
 	cp = next_cp; /* Process subsequent component in next round */
@@ -404,7 +514,7 @@ FIXME: changed interface...
    * mounted file system.  The super_block provides the linkage between the
    * inode mounted on and the root directory of the mounted file system.
    */
-  if (rip->i_mountpoint) {
+  if (rip->i_flags & I_MOUNTPOINT) {
 	/* Mountpoint encountered, report it */
 	r = EENTERMOUNT;
   }
@@ -752,105 +862,3 @@ PUBLIC int hgfs_lookup()
   return OK;
 }
 #endif
-
-/*===========================================================================*
- *                             do_lookup				 *
- *===========================================================================*/
-PUBLIC int do_lookup(void)
-{
-  cp_grant_id_t grant, grant2;
-  int r, r1, flags, symlinks;
-  unsigned int len;
-  size_t offset = 0, path_size, cred_size;
-  vfs_ucred_t credentials;
-  mode_t mask;
-  ino_t dir_ino, root_ino;
-  struct inode *rip;
-
-  grant		= (cp_grant_id_t) m_in.REQ_GRANT;
-  path_size	= (size_t) m_in.REQ_PATH_SIZE; /* Size of the buffer */
-  len		= (int) m_in.REQ_PATH_LEN; /* including terminating nul */
-  dir_ino	= (ino_t) m_in.REQ_DIR_INO;
-  root_ino	= (ino_t) m_in.REQ_ROOT_INO;
-  flags		= (int) m_in.REQ_FLAGS;
-
-  /* Check length. */
-  if(len > sizeof(user_path)) return(E2BIG);	/* too big for buffer */
-  if(len == 0) return(EINVAL);			/* too small */
-
-  /* Copy the pathname and set up caller's user and group id */
-  r = sys_safecopyfrom(m_in.m_source, grant, /*offset*/ (vir_bytes) 0, 
-            (vir_bytes) user_path, (size_t) len, D);
-  if(r != OK) return(r);
-
-  /* Verify this is a null-terminated path. */
-  if(user_path[len - 1] != '\0') return(EINVAL);
-
-  if(flags & PATH_GET_UCRED) { /* Do we have to copy uid/gid credentials? */
-  	grant2 = (cp_grant_id_t) m_in.REQ_GRANT2;
-  	cred_size = (size_t) m_in.REQ_UCRED_SIZE;
-
-  	if (cred_size > sizeof(credentials)) return(EINVAL); /* Too big. */
-  	r = sys_safecopyfrom(m_in.m_source, grant2, (vir_bytes) 0,
-  			 (vir_bytes) &credentials, cred_size, D);
-  	if (r != OK) return(r);
-/*
-  	caller_uid = credentials.vu_uid;
-  	caller_gid = credentials.vu_gid;
- */
-  } else {
-  	memset(&credentials, 0, sizeof(credentials));
-	credentials.vu_uid = m_in.REQ_UID;
-	credentials.vu_gid = m_in.REQ_GID;
-	credentials.vu_ngroups = 0;
-/*
-	caller_uid	= (uid_t) m_in.REQ_UID;
-	caller_gid	= (gid_t) m_in.REQ_GID;
- */
-  }
-  mask = get_mask(&credentials);
-
-  /* Lookup inode */
-  rip = NULL;
-  r = parse_path(dir_ino, root_ino, flags, &rip, &offset, &symlinks);
-
-  if(symlinks != 0 && (r == ELEAVEMOUNT || r == EENTERMOUNT || r == ESYMLINK)){
-	len = strlen(user_path)+1;
-	if(len > path_size) return(ENAMETOOLONG);
-
-	r1 = sys_safecopyto(m_in.m_source, grant, (vir_bytes) 0,
-			(vir_bytes) user_path, (size_t) len, D);
-	if(r1 != OK) return(r1);
-  }
-
-  if(r == ELEAVEMOUNT || r == ESYMLINK) {
-	/* Report offset and the error */
-	m_out.RES_OFFSET = offset;
-	m_out.RES_SYMLOOP = symlinks;
-
-	return(r);
-  }
-
-  if (r != OK && r != EENTERMOUNT) return(r);
-
-  m_out.RES_INODE_NR = INODE_NR(rip);
-  m_out.RES_MODE		= /*rip->i_mode*/ 0;
-  m_out.RES_FILE_SIZE_LO = rip->i_size;
-  m_out.RES_FILE_SIZE_HI = 0;
-  m_out.RES_SYMLOOP		= symlinks;
-  m_out.RES_UID = use_uid;
-  m_out.RES_GID = use_gid;
-  
-  /* This is only valid for block and character specials. But it doesn't
-   * cause any harm to set RES_DEV always.
-  m_out.RES_DEV		= (dev_t) rip->i_zone[0];
- */
-  m_out.RES_DEV = NO_DEV;
-
-  if(r == EENTERMOUNT) {
-	m_out.RES_OFFSET	= offset;
-	put_inode(rip); /* Only return a reference to the final object */
-  }
-
-  return(r);
-}

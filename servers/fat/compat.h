@@ -1,4 +1,4 @@
-/* Compatibility hack.
+/* Compatibility hack. Enable this service to be compiled with MINIX 3.1.6.
  *
  * Auteur: Antoine Leca, aout 2010.
  */

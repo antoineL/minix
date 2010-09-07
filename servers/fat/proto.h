@@ -6,20 +6,6 @@
 #ifndef FAT_PROTO_H_
 #define FAT_PROTO_H_
 
-#ifndef _IPC_H
-#error need to #include <minix/ipc.h>		/* message */
-#endif
-#ifndef FAT_TYPE_H_
-#error need to #include "type.h"
-#endif
-
-#if 0
-struct buf;
-struct inode;
-struct direntry;
-typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
-#endif
-
 /* cache.c */
 _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
@@ -49,6 +35,12 @@ enum search_dir_arg_e {
 _PROTOTYPE( int search_dir, (struct inode *ldir_ptr, 
 	char string [NAME_MAX], ino_t *numb,
 	enum search_dir_arg_e flag, int check_permissions)		);	
+
+_PROTOTYPE( int add_direntry, (struct inode *dir_ptr,
+	char string[NAME_MAX], struct inode **res_inop)			);
+_PROTOTYPE( int del_direntry, (struct inode *dir_ptr,
+				struct inode *ent_ptr)			);
+_PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
 _PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
 
@@ -67,16 +59,18 @@ _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
 
 /* inode.c */
-_PROTOTYPE( struct inode *init_inode, (void)				);
+_PROTOTYPE( struct inode *enter_inode, (struct fat_direntry*)		);
 _PROTOTYPE( struct inode *fetch_inode, (ino_t ino_nr)			);
 _PROTOTYPE( struct inode *find_inode, (cluster_t)			);
-_PROTOTYPE( void get_inode, (struct inode *ino)				);
-_PROTOTYPE( void put_inode, (struct inode *ino)				);
-_PROTOTYPE( void link_inode, (struct inode *parent, struct inode *ino)	);
-_PROTOTYPE( void unlink_inode, (struct inode *ino)			);
+_PROTOTYPE( void flush_inodes, (void)					);
 _PROTOTYPE( struct inode *get_free_inode, (void)			);
+_PROTOTYPE( void get_inode, (struct inode *ino)				);
 _PROTOTYPE( int have_free_inode, (void)					);
 _PROTOTYPE( int have_used_inode, (void)					);
+_PROTOTYPE( struct inode *init_inodes, (void)				);
+_PROTOTYPE( void link_inode, (struct inode *parent, struct inode *ino)	);
+_PROTOTYPE( void put_inode, (struct inode *ino)				);
+_PROTOTYPE( void unlink_inode, (struct inode *ino)			);
 
 /* lookup.c */
 _PROTOTYPE( int advance, (struct inode *dirp,
@@ -90,7 +84,6 @@ _PROTOTYPE( int do_putnode, (void)					);
 _PROTOTYPE( int do_nothing, (void)					);
 _PROTOTYPE( int readonly, (void)					);
 _PROTOTYPE( int no_sys, (void)						);
-_PROTOTYPE( void reply, (int, message *)				);
 
 /* mount.c */
 _PROTOTYPE( int do_readsuper, (void)					);
@@ -99,6 +92,7 @@ _PROTOTYPE( int do_unmount, (void)					);
 /* readwrite.c */
 _PROTOTYPE( int do_bread, (void)					);
 _PROTOTYPE( int do_bwrite, (void)					);
+_PROTOTYPE( int do_inhibread, (void)					);
 _PROTOTYPE( int do_read, (void)						);
 _PROTOTYPE( int do_write, (void)					);
 _PROTOTYPE( void read_ahead, (void)					);

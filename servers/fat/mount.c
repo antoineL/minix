@@ -32,14 +32,24 @@
 #include "fat.h"
 #endif
 
+FORWARD _PROTOTYPE( int reco_extbpb, (struct fat_extbpb*,char fstype[])	);
+FORWARD _PROTOTYPE( int reco_bootsector,
+		(struct fat_bootsector *, struct fat_extbpb *)		);
+FORWARD _PROTOTYPE( int chk_bootsector, (struct fat_bootsector *)	);
+FORWARD _PROTOTYPE( int find_basic_sizes, (struct fat_bootsector *)	);
+FORWARD _PROTOTYPE( int find_sector_counts,
+		(struct fat_bootsector *, struct fat_extbpb *)		);
+FORWARD _PROTOTYPE( int chk_fatsize,
+		(struct fat_bootsector *, struct fat_extbpb *)		);
+
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
 
 /*===========================================================================*
- *				recognize_extbpb			     *
+ *				reco_extbpb				     *
  *===========================================================================*/
-PRIVATE int recognize_extbpb(
+PRIVATE int reco_extbpb(
   struct fat_extbpb *ep,	/* is this structure an extended BPB */
   char fstype[])		/* of this proposed type ?*/
 {
@@ -55,9 +65,9 @@ PRIVATE int recognize_extbpb(
 }
 
 /*===========================================================================*
- *				recognize_bootsector			     *
+ *				reco_bootsector				     *
  *===========================================================================*/
-PRIVATE int recognize_bootsector(
+PRIVATE int reco_bootsector(
   struct fat_bootsector *bs,
   struct fat_extbpb *extbpbp
   )		/* of this proposed type ?*/
@@ -84,20 +94,20 @@ PRIVATE int recognize_bootsector(
   sb.fatmask = 0;
   extbpbp = NULL;
   /* Try to recognize an extended BPB; first tries FAT32 ones */
-  if (recognize_extbpb(&(bs->u.f32bpb.ExtBPB32), FAT32_FSTYPE)) {
+  if (reco_extbpb(&(bs->u.f32bpb.ExtBPB32), FAT32_FSTYPE)) {
 	extbpbp = &bs->u.f32bpb.ExtBPB32;
 	sb.fatmask = FAT32_MASK;
-  } else if (recognize_extbpb(&bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
+  } else if (reco_extbpb(&bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
 	extbpbp = &bs->u.f32bpb.ExtBPB32;
   }
   /* it didn't work; then try FAT12/FAT16, at a different place */
-  else   if (recognize_extbpb(&bs->u.ExtBPB, FAT16_FSTYPE)) {
+  else   if (reco_extbpb(&bs->u.ExtBPB, FAT16_FSTYPE)) {
 	extbpbp = &bs->u.ExtBPB;
 	sb.fatmask = FAT16_MASK;
-  } else if (recognize_extbpb(&bs->u.ExtBPB, FAT12_FSTYPE)) {
+  } else if (reco_extbpb(&bs->u.ExtBPB, FAT12_FSTYPE)) {
 	extbpbp = &bs->u.ExtBPB;
 	sb.fatmask = FAT12_MASK;
-  } else if (recognize_extbpb(&bs->u.ExtBPB, FAT_FSTYPE)) {
+  } else if (reco_extbpb(&bs->u.ExtBPB, FAT_FSTYPE)) {
 	extbpbp = &bs->u.ExtBPB;
   } else if (bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG
           || bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG_ALT ) {
@@ -128,12 +138,9 @@ PRIVATE int recognize_bootsector(
 }
 
 /*===========================================================================*
- *				check_bootsector			     *
+ *				chk_bootsector				     *
  *===========================================================================*/
-PRIVATE int check_bootsector(
-  struct fat_bootsector *bs
-
-  )		/* of this proposed type ?*/
+PRIVATE int chk_bootsector(struct fat_bootsector *bs)
 {
   /* Sanity checks... */
   if (bs->bpbBytesPerSec[0]!=0 || bs->bpbBytesPerSec[1]!=2) {
@@ -162,9 +169,7 @@ PRIVATE int check_bootsector(
 /*===========================================================================*
  *				find_basic_sizes			     *
  *===========================================================================*/
-PRIVATE int find_basic_sizes(
-  struct fat_bootsector *bs
-  )		/* of this proposed type ?*/
+PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 {
   /* Fill the superblock */
   int i;
@@ -214,8 +219,7 @@ PRIVATE int find_basic_sizes(
  *===========================================================================*/
 PRIVATE int find_sector_counts(
   struct fat_bootsector *bs,
-  struct fat_extbpb *extbpbp
-  )		/* of this proposed type ?*/
+  struct fat_extbpb *extbpbp)
 {
   sector_t systemarea;
 
@@ -266,11 +270,11 @@ PRIVATE int find_sector_counts(
 }
 
 /*===========================================================================*
- *				check_fatsize				     *
+ *				chk_fatsize				     *
  *===========================================================================*/
-PRIVATE int check_fatsize(
+PRIVATE int chk_fatsize(
   struct fat_bootsector *bs,
-  struct fat_extbpb *extbpbp)		/* of this proposed type ?*/
+  struct fat_extbpb *extbpbp)
 {
   /* Final check about FAT sizes */
   int nibble_per_clust;	/* nibble (half-octet) per cluster: 3, 4 or 8 */
@@ -329,6 +333,9 @@ PRIVATE int check_fatsize(
 	slack = COMPUTE_SLACK(sb.maxClust*4);
   }
   assert(sb.fatmask != 0);
+  assert(sb.maxClust < sb.fatmask);
+  assert( (sb.maxClust & sb.fatmask) == 0);
+  assert(sb.maxClust < (sb.fatmask & CLUST_BAD) );
 
   DBGprintf(("FATfs: mounting on %s, %ld clusters, %d rootdir entries\n",
 		fs_dev_label, (long)sb.maxClust-1, sb.rootEntries));
@@ -351,6 +358,8 @@ PUBLIC int do_readsuper(void)
  * refers to it, whenever the pathname lookup leaves a partition an
  * ELEAVEMOUNT error is transferred back so that the VFS knows that it has
  * to find the vnode on which this FS process' partition is mounted on.
+ *
+ * Warning: this code is not reentrant (use static local variable, without mutex)
  */
   int r;
   struct inode *root_ip;
@@ -366,6 +375,7 @@ PUBLIC int do_readsuper(void)
 	(dev_t) m_in.REQ_DEV, m_in.REQ_FLAGS));
 
   if (m_in.REQ_FLAGS & REQ_ISROOT) {
+	/* FIXME: explain... */
 	printf("FATfs: attempt to mount as root device\n");
 	return EINVAL;
   }
@@ -422,11 +432,11 @@ PUBLIC int do_readsuper(void)
  * structure which will keep them available for future use.
  */
   extbpbp = NULL;
-  if ( (r = recognize_bootsector(bs, extbpbp)) != OK
-    || (r = check_bootsector(bs)) != OK
+  if ( (r = reco_bootsector(bs, extbpbp)) != OK
+    || (r = chk_bootsector(bs)) != OK
     || (r = find_basic_sizes(bs)) != OK
     || (r = find_sector_counts(bs, extbpbp)) != OK
-    || (r = check_fatsize(bs, extbpbp)) != OK )
+    || (r = chk_fatsize(bs, extbpbp)) != OK )
 	return(r);
 
 /*FIXME sb.rootCluster et le reste des checks FAT32 (vers0 etc) */
@@ -491,7 +501,7 @@ pourrait etre plus grand SSI tout est bien aligne (implique en pratique FAT32)
 /* FIXME if FAT32... */
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
-  root_ip = init_inode();
+  root_ip = init_inodes();
 
   m_out.RES_INODE_NR = INODE_NR(root_ip);
   m_out.RES_MODE = /*FIXME!!! get_mode(ino, attr.a_mode)*/ 0 ;
