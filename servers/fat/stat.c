@@ -7,7 +7,6 @@
  *   do_utime		perform the UTIME file system request
  *
  * Auteur: Antoine Leca, aout 2010.
- * Slavishly copied from ../hgfs/stat.c (D.C. van Moolenbroek)
  * Updated:
  */
 
@@ -25,17 +24,17 @@
 /*===========================================================================*
  *				get_mode				     *
  *===========================================================================*/
-PUBLIC mode_t get_mode(ino, mode)
-struct inode *ino;
-int mode;
+PUBLIC mode_t get_mode(
+  struct inode *rip)
 {
-/* Return the mode for an inode, given the inode and the HGFS retrieved mode.
+/* Return the mode for an inode, given the direntry embeeded in the inode.
  */
+  int mode;
 
-  mode &= S_IRWXU;
+  mode = S_IRUSR | S_IXUSR | (rip->i_Attributes&ATTR_READONLY ? 0 : S_IWUSR);
   mode = mode | (mode >> 3) | (mode >> 6);
 
-  if (IS_DIR(ino))
+  if (IS_DIR(rip))
 	mode = S_IFDIR | (mode & use_dir_mask);
   else
 	mode = S_IFREG | (mode & use_file_mask);
@@ -49,7 +48,7 @@ int mode;
 /*===========================================================================*
  *				do_stat					     *
  *===========================================================================*/
-PUBLIC int do_stat()
+PUBLIC int do_stat(void)
 {
 /* Retrieve inode statistics.
  */
@@ -76,16 +75,19 @@ PUBLIC int do_stat()
 	return r;
 #endif
 
+  memset(&stat, '\0', sizeof stat);	/* Avoid leaking any data */
   stat.st_dev = dev;
   stat.st_ino = ino_nr;
-  stat.st_mode = get_mode(ino, /*FIXME attr.a_mode*/ 0 );
+  stat.st_mode = get_mode(ino);
   stat.st_uid = use_uid;
   stat.st_gid = use_gid;
   stat.st_rdev = NO_DEV;
 #if 0
   stat.st_size = ex64hi(attr.a_size) ? ULONG_MAX : ex64lo(attr.a_size);
-#else
+#elif 0
   stat.st_size = ino->i_size;
+#else
+  stat.st_size = IS_DIR(ino) ? 65535 : ino->i_size;
 #endif
 #if 0
   stat.st_atime = attr.a_atime;
@@ -104,6 +106,9 @@ PUBLIC int do_stat()
 	if (HAS_CHILDREN(ino)) stat.st_nlink++;
   }
 
+  DBGprintf(("FATfs: stat ino=%lx, mode=%o, size=%ld...\n",
+	ino_nr, stat.st_mode, stat.st_size));
+
   return sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0,
 	(vir_bytes) &stat, sizeof(stat), D);
 }
@@ -111,7 +116,7 @@ PUBLIC int do_stat()
 /*===========================================================================*
  *				do_chmod				     *
  *===========================================================================*/
-PUBLIC int do_chmod()
+PUBLIC int do_chmod(void)
 {
 /* Change file mode.
  */
@@ -144,7 +149,7 @@ PUBLIC int do_chmod()
 	return r;
 #endif
 
-  m_out.RES_MODE = get_mode(ino, /*FIXME attr.a_mode*/ 0 );
+  m_out.RES_MODE = get_mode(ino);
 
   return OK;
 }
@@ -152,7 +157,7 @@ PUBLIC int do_chmod()
 /*===========================================================================*
  *				do_utime				     *
  *===========================================================================*/
-PUBLIC int do_utime()
+PUBLIC int do_utime(void)
 {
 /* Set file times.
  */

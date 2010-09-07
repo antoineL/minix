@@ -137,6 +137,9 @@ PUBLIC int do_lookup(void)
   }
   mask = get_mask(&credentials);	/* CHEKCME: what is it for? */
 
+  DBGprintf(("FATfs: enter lookup dir=%lx, root=%lx, <%.*s>...\n",
+	dir_ino, root_ino, len, user_path));
+
   /* Lookup inode */
   rip = NULL;
   r = parse_path(dir_ino, root_ino, flags, &rip, &offset, &symlinks);
@@ -232,8 +235,10 @@ int *symlinkp;
   *symlinkp = 0;
 
   /* Find starting inode inode according to the request message */
-  if((rip = find_inode( /*fs_dev,*/ dir_ino)) == NULL) 
+  if((rip = fetch_inode( /*fs_dev,*/ dir_ino)) == NULL) {
+	DBGprintf(("FATfs: parse_path cannot locate dir inode %lx...\n", dir_ino));
 	return(ENOENT);
+  }
 
   /* If dir has been removed return ENOENT. */
 /*CHEKCME

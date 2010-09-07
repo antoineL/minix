@@ -334,7 +334,7 @@ PRIVATE int chk_fatsize(
   }
   assert(sb.fatmask != 0);
   assert(sb.maxClust < sb.fatmask);
-  assert( (sb.maxClust & sb.fatmask) == 0);
+  assert( (sb.maxClust & ~sb.fatmask) == 0);
   assert(sb.maxClust < (sb.fatmask & CLUST_BAD) );
 
   DBGprintf(("FATfs: mounting on %s, %ld clusters, %d rootdir entries\n",

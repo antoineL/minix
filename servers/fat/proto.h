@@ -98,7 +98,7 @@ _PROTOTYPE( int do_write, (void)					);
 _PROTOTYPE( void read_ahead, (void)					);
 
 /* stat.c */
-_PROTOTYPE( mode_t get_mode, (struct inode *ino, int mode)		);
+_PROTOTYPE( mode_t get_mode, (struct inode *)				);
 _PROTOTYPE( int do_stat, (void)						);
 _PROTOTYPE( int do_chmod, (void)					);
 _PROTOTYPE( int do_utime, (void)					);

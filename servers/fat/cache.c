@@ -210,7 +210,7 @@ PUBLIC int do_flush()
 #endif
 
 /* CHECKME: needed? */
-  do_sync(req_dev);
+  do_sync();
 
   flushall(req_dev);
   invalidate(req_dev);
