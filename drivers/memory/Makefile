@@ -13,7 +13,7 @@ BINDIR?= /usr/sbin
 INSTALLFLAGS+=	-S 8k
 
 CPPFLAGS.memory.c+=	-I${MINIXSRCDIR}
-CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -T /usr/tmp
+CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -I../ramdisk -T /usr/tmp
 
 imgrd.d: touch-genfiles
 
