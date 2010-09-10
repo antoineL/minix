@@ -60,7 +60,7 @@
  */
 #define NUM_INODES	(1 << NUM_INODE_BITS)
 
-#define ROOT_GEN_NR	0x4007
+#define ROOT_GEN_NR	04007
 #define ROOT_INODE_NR	(ROOT_GEN_NR << NUM_INODE_BITS)
 
 #endif	/* !0 */

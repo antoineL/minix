@@ -483,31 +483,27 @@ PUBLIC int do_readsuper(void)
 
   superblock.s_rd_only = readonly;
   superblock.s_is_root = isroot;
-  
-*** now the HGFS view ***
-
-  init_dentry();
-  ino = init_inode();
-
-  m_out.RES_INODE_NR = INODE_NR(ino);
-  m_out.RES_MODE = get_mode(ino, attr.a_mode);
 #endif
 
 /*
 pourrait etre plus grand SSI tout est bien aligne (implique en pratique FAT32)
-  set_blocksize(512);
  */
+  set_blocksize(sb.bpblock);
 
 /* FIXME if FAT32... */
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
   root_ip = init_inodes();
 
-  m_out.RES_INODE_NR = INODE_NR(root_ip);
-  m_out.RES_MODE = /*FIXME!!! get_mode(ino, attr.a_mode)*/ 0 ;
   assert(rootDirSize <= 0xffffffff);
+  root_ip->i_size = rootDirSize;
+  root_ip->i_flags |= I_DIRSIZED;
+  root_ip->i_mode = get_mode(root_ip);
+
+  m_out.RES_INODE_NR = INODE_NR(root_ip);
+  m_out.RES_MODE = root_ip->i_mode;
   m_out.RES_FILE_SIZE_HI = 0;
-  m_out.RES_FILE_SIZE_LO = rootDirSize;
+  m_out.RES_FILE_SIZE_LO = root_ip->i_size;
   m_out.RES_UID = use_uid;
   m_out.RES_GID = use_gid;
   m_out.RES_DEV = dev;

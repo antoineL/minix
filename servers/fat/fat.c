@@ -170,6 +170,8 @@ pcbmap(dep, findcn, bnp, cnp)
 	findcn = position >> sb.cnshift;
 	boff = (position & (sb.bpcluster-1)) >> sb.bnshift;
 
+DBGprintf(("FATfs: bmap in %lo, off %ld\n", INODE_NR(rip), position));
+
 /*
  *  The "file" that makes up the root directory is contiguous,
  *  permanently allocated, of fixed size, and is not made up
@@ -190,6 +192,8 @@ pcbmap(dep, findcn, bnp, cnp)
  */
 			if (cnp)
 				*cnp = /*PCFSROOT*/ 1;
+DBGprintf(("FATfs: bmap returns %ld\n", sb.rootBlk + findbn));
+
 			return sb.rootBlk + findbn;
 		} else {	/* just an empty file */
 			if (cnp)

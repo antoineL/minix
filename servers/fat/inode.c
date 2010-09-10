@@ -113,8 +113,12 @@ PUBLIC struct inode *init_inodes()
 
   TAILQ_INIT(&free_list);
 
-  DBGprintf(("FATfs: %d inodes, %u bytes each, equals %u bytes\n",
-	NUM_INODES, sizeof(struct inode), sizeof(inodes)));
+  DBGprintf(("FATfs: %d inodes (0-0%lo), %u bytes each, = %u b.\n",
+	NUM_INODES, NUM_INODES-1, sizeof(struct inode), sizeof(inodes)));
+
+  /* Initialize (as empty) all the hash queues. */
+  for (index = 0; index < NUM_HASH_SLOTS; index++)
+	LIST_INIT(&hash_inodes[index]);
 
   /* Mark all inodes except the root inode as free. */
   for (index = 1; index < NUM_INODES; index++) {
@@ -222,14 +226,21 @@ PUBLIC struct inode *enter_inode(
   struct fat_direntry * dp)	/* (short name) entry */
 {
 /* Enter the inode as specified by its directory entry.
+
+FIXME: need the struct direntryref (*?)
  */
   struct inode *ino;
   cluster_t cn;			/* cluster number */
   int hashi;
 
-/* FIXME */
-  cn = 0;
+#ifndef get_le16
+#define get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
+#endif
+/* FIXME FAT32 */
+  cn = get_le16(dp->deStartCluster);
   hashi = (int) (cn % NUM_HASH_SLOTS);
+
+  DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
 
   /* Search inode in the hash table */
   LIST_FOREACH(ino, &hash_inodes[hashi], i_hash) {
@@ -237,8 +248,17 @@ PUBLIC struct inode *enter_inode(
           return(ino);
       }
   }
+
+  ino = get_free_inode();
+  ino->i_direntry = *dp;
+  ino->i_clust = cn;
+  LIST_INSERT_HEAD(&hash_inodes[hashi], ino, i_hash);
+/* more work needed here: i_mode, i_size */
+
+  DBGprintf(("FATfs: enter_inode create entry for ['%.8s.%.3s']\n",
+		ino->i_Name, ino->i_Extension));
   
-  return(NULL);
+  return(ino);
 }
 
 /*===========================================================================*
@@ -251,8 +271,8 @@ struct inode *ino;
  * count were zero before, remove the inode from the free list.
  */
 
-  DBGprintf(("FATfs: get_inode(%p) ['%.8s.%.3s']\n", ino,
-		ino->i_Name, ino->i_Extension));
+  DBGprintf(("FATfs: get_inode(%p):%lo ['%.8s.%.3s']\n", ino,
+		INODE_NR(ino), ino->i_Name, ino->i_Extension));
 
   /* (INUSE, CACHED) -> INUSE */
 
@@ -278,8 +298,8 @@ struct inode *ino;
  */
 
   assert(ino != NULL);
-  DBGprintf(("FATfs: put_inode(%p) ['%.8s.%.3s']\n", ino,
-		ino->i_Name, ino->i_Extension));
+  DBGprintf(("FATfs: put_inode(%p):%lo ['%.8s.%.3s']\n", ino,
+		INODE_NR(ino), ino->i_Name, ino->i_Extension));
   assert(ino->i_ref > 0);
 
   ino->i_ref--;
@@ -423,8 +443,12 @@ PUBLIC int have_used_inode(void)
   unsigned int index;
 
   for (index = 0; index < NUM_INODES; index++)
-	if (inodes[index].i_ref > 0)
+	if (inodes[index].i_ref > 0) {
+		DBGprintf(("FATfs: have_used_inode is TRUE "
+			"because inode %lo has %d open references...\n",
+			INODE_NR(&inodes[index]), inodes[index].i_ref));
 		return TRUE;
+	}
 
   return FALSE;
 }

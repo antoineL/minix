@@ -330,6 +330,8 @@ PUBLIC struct buf *get_block(
   assert(req_dev == dev);	/* this cache only deals with a single dev */
   assert(block_size > 0);
 
+DBGprintf(("FATfs: get_block %ld ...", block));
+
   /* Search the hash chain for (dev, block). */
   assert(dev != NO_DEV);
   b = BUFHASH(block);
@@ -342,6 +344,7 @@ PUBLIC struct buf *get_block(
 		assert(bp->b_dev == dev);
 		assert(bp->b_dev != NO_DEV);
 		assert(bp->dp);
+DBGprintf(("found in cache! returns %d @ %p\n", bp-buf, bp->dp));
 		return(bp);
 	}
   }
@@ -349,6 +352,8 @@ PUBLIC struct buf *get_block(
   /* Desired block is not on available chain.  Take oldest block. */
   if ((bp = TAILQ_FIRST(&lru)) == NULL)
 	panic("all buffers in use: %d", nr_bufs);
+
+DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
 
   if(bp->b_bytes < block_size) {
 	assert(!bp->dp);
@@ -361,6 +366,7 @@ PUBLIC struct buf *get_block(
 		if(!bp) {
 			panic("no buffer available");
 		}
+DBGprintf(("... so will try %p ...", bp));
 	} else {
 		bp->b_bytes = block_size;
 	}
@@ -372,6 +378,7 @@ PUBLIC struct buf *get_block(
   assert(bp->b_count == 0);
 
   rm_lru(bp);
+DBGprintf(("allocated @ %.8p...", bp->dp));
 
   /* Remove the block that was just taken from its hash chain. */
   b = BUFHASH(bp->b_blocknr);
@@ -391,6 +398,7 @@ PUBLIC struct buf *get_block(
 	assert(bp->b_bytes == block_size);
 	bp->b_dev = NO_DEV;
 #endif
+DBGprintf(("old flushed..."));
   }
 
   /* Fill in block's parameters and add it to the hash chain where it goes. */
@@ -406,6 +414,7 @@ PUBLIC struct buf *get_block(
 		vm_yield_block_get_block(yieldid, VM_BLOCKID_NONE,
 			bp->dp, block_size);
 	}
+DBGprintf(("and found in L2 (VM) cache! paged in @ %.8p!\n", bp->dp));
 	return(bp);	/* If the caller wanted a NO_DEV block, work is done. */
   }
 #endif
@@ -433,6 +442,7 @@ PUBLIC struct buf *get_block(
 	bp->b_dev = NO_DEV;
   } else if (only_search == NORMAL) {
 	rw_block(bp, READING);
+DBGprintf(("read..."));
   } else if(only_search == NO_READ) {
 #ifdef USE_VMCACHE
 	/* we want this block, but its contents
@@ -447,6 +457,7 @@ PUBLIC struct buf *get_block(
 	panic("unexpected only_search value: %d", only_search);
   assert(bp->dp);
 
+DBGprintf(("and returned!\n"));
   return(bp);			/* return the newly acquired block */
 }
 

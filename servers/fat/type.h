@@ -218,7 +218,7 @@ struct inode {
   LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
   LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
   LIST_ENTRY(inode) i_hash;		/* hashtable chain entry */
-  unsigned short i_index;			/* inode number for quick reference */
+  unsigned short i_index;		/* inode number for quick reference */
   unsigned short i_gen;			/* inode generation number */
   unsigned short i_ref;			/* VFS reference count */
   unsigned short i_flags;		/* any combination of I_* flags */
@@ -226,35 +226,31 @@ struct inode {
 	TAILQ_ENTRY(inode) u_free;	/* free list chain entry */
 	struct direntryref u_dirref;	/* coordinates of this entry */
   } i_u;
+#define i_free		i_u.u_free
+#define i_dirref	i_u.u_dirref
 
   struct fat_direntry i_direntry;	/* actual data of entry */
-/*
- * Shorthand macros used to reference fields in the direntry
- *  contained in the denode structure.
- */
+/* Shorthand macros used to reference fields in the direntry */
 #define	i_Name		i_direntry.deName
 #define	i_Extension	i_direntry.deExtension
 #define	i_Attributes	i_direntry.deAttributes
 #define	i_LCase		i_direntry.deLCase
 /* beware: the following fields are stored in little-endian packed form */
-#define	i_StartCluster	i_direntry.deStartCluster
-#define	i_HighClust	i_direntry.deHighClust
-#define	i_FileSize	i_direntry.deFileSize
+#define	iz_StartCluster	i_direntry.deStartCluster
+#define	iz_HighClust	i_direntry.deHighClust
+#define	iz_FileSize	i_direntry.deFileSize
 
-  off_t i_size;				/* current file size in bytes */
-  cluster_t i_clust;			/* number of first cluster of data */
+  mode_t i_mode;		/* file type, protection, as seen by VFS */
+  off_t i_size;			/* current file size in bytes */
+  cluster_t i_clust;		/* number of first cluster of data */
+
   struct fatcache i_fc[FC_SIZE];	/* fat cache */
-
-/* FIXME: reflet de credentials? useful??? */
-  mode_t i_modeXXX;		/* file type, protection, etc. */
 };
 
-#define i_free		i_u.u_free
-#define i_dirref	i_u.u_dirref
 
 #define I_DIR		0x01		/* this inode represents a directory */
 
-#define I_MOUNTPOINT	0x0002		/* this inode is a mount point */
+#define I_MOUNTPOINT	0x0010		/* this inode is a mount point */
 
 #define I_SEEK		0x0100		/* last operation incured a seek */
 #define I_MTIME		0x0200		/* touched, should update MTime */
@@ -263,6 +259,7 @@ struct inode {
 #define I_ORPHAN	0x1000		/* the path leading to this inode
 					 * was unlinked, but is still used
 					 */
+#define I_DIRSIZED	0x2000		/* size is not estimated */
 
 /*
  *  Values for the de_flag field of the denode.

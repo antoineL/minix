@@ -84,7 +84,7 @@ PUBLIC int do_lookup(void)
   unsigned int len;
   size_t offset = 0, path_size, cred_size;
 /* CHECKME:
- * should be moved to globals? to inode? i_mode?
+ * should be moved to globals? to inode?
  * its use is to be around when used by other ops
  * which might not include all the details...
  * _but_ how can we do the mapping?
@@ -137,7 +137,7 @@ PUBLIC int do_lookup(void)
   }
   mask = get_mask(&credentials);	/* CHEKCME: what is it for? */
 
-  DBGprintf(("FATfs: enter lookup dir=%lx, root=%lx, <%.*s>...\n",
+  DBGprintf(("FATfs: enter lookup dir=%lo, root=%lo, <%.*s>...\n",
 	dir_ino, root_ino, len, user_path));
 
   /* Lookup inode */
@@ -164,12 +164,12 @@ PUBLIC int do_lookup(void)
   if (r != OK && r != EENTERMOUNT) return(r);
 
   m_out.RES_INODE_NR = INODE_NR(rip);
-  m_out.RES_MODE		= /*rip->i_mode*/ 0;
+  m_out.RES_MODE = rip->i_mode;
   m_out.RES_FILE_SIZE_LO = rip->i_size;
   m_out.RES_FILE_SIZE_HI = 0;
-  m_out.RES_SYMLOOP		= symlinks;
   m_out.RES_UID = use_uid;
   m_out.RES_GID = use_gid;
+  m_out.RES_SYMLOOP		= symlinks;
   
   /* This is only valid for block and character specials. But it doesn't
    * cause any harm to set RES_DEV always.
@@ -236,7 +236,7 @@ int *symlinkp;
 
   /* Find starting inode inode according to the request message */
   if((rip = fetch_inode( /*fs_dev,*/ dir_ino)) == NULL) {
-	DBGprintf(("FATfs: parse_path cannot locate dir inode %lx...\n", dir_ino));
+	DBGprintf(("FATfs: parse_path cannot locate dir inode %lo...\n", dir_ino));
 	return(ENOENT);
   }
 
@@ -326,7 +326,7 @@ int *symlinkp;
 	leaving_mount = 0;
 
 	/* The call to advance() succeeded.  Fetch next component. */
-#if 0
+
 	if (S_ISLNK(rip->i_mode)) {
 
 		if (next_cp[0] == '\0' && (flags & PATH_RET_SYMLINK)) {
@@ -361,7 +361,6 @@ int *symlinkp;
 		get_inode(dir_ip);
 		rip = dir_ip;
 	} 
-#endif
 
 	put_inode(dir_ip);
 	cp = next_cp; /* Process subsequent component in next round */

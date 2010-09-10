@@ -106,7 +106,7 @@ PUBLIC int do_stat(void)
 	if (HAS_CHILDREN(ino)) stat.st_nlink++;
   }
 
-  DBGprintf(("FATfs: stat ino=%lx, mode=%o, size=%ld...\n",
+  DBGprintf(("FATfs: stat ino=%lo, mode=%o, size=%ld...\n",
 	ino_nr, stat.st_mode, stat.st_size));
 
   return sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0,

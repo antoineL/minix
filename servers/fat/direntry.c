@@ -68,6 +68,8 @@ PUBLIC int do_getdents(void)
   size = (size_t) m_in.REQ_MEM_SIZE;
   pos = (off_t) m_in.REQ_SEEK_POS_LO;
 
+  DBGprintf(("FATfs: getdents in %lo, off %ld\n", m_in.REQ_INODE_NR, pos));
+
   /* Check whether the position is properly aligned */
   if( (unsigned int) pos % DIR_ENTRY_SIZE)
 	return(ENOENT);
@@ -124,6 +126,9 @@ PUBLIC int do_getdents(void)
 	for (; fatdp < (struct fat_direntry *) &bp->b_dir[16]; fatdp++) {
 #endif
 
+DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
+	dp->d_direntry.deName, dp->d_direntry.deExtension, dp->d_direntry.deName[0]));
+
 		/* is the EndOfDirectory mark found? */
 		if (dp->d_direntry.deName[0] == SLOT_EMPTY) {
 			done = TRUE;
@@ -151,20 +156,23 @@ PUBLIC int do_getdents(void)
 		}
 		fatdp = & dp->d_direntry;
 		{
-			cp = (char*) fatdp->deName[8];
+			cp = (char*) &fatdp->deName[8];
+DBGprintf(("cp[-8] = '%.8s' ", cp-8));
 			while (--cp > (char*)&fatdp->deName[1])
 				if (*cp != ' ') break;
-			namelen = cp - (char*)fatdp->deName[0] + 1;
+			namelen = cp - (char*)fatdp->deName + 1;
 			assert(namelen > 0);
 			assert(namelen <= 8);
 	
-			cp = (char*) fatdp->deExtension[3];
+			cp = (char*) &fatdp->deExtension[3];
+DBGprintf(("cp[-3] = '%.3s' ", cp-3));
 			while (--cp > (char*)&fatdp->deExtension[0])
 				if (*cp != ' ') break;
-			extlen = cp - (char*)fatdp->deExtension[0] + 1;
+			extlen = cp - (char*)fatdp->deExtension + 1;
 			assert(extlen >= 0);
 			assert(extlen <= 3);
-			len = namelen + (extlen?1:0) + extlen;
+			len = namelen + (extlen ? 1 + extlen : 0);
+DBGprintf(("calc.len = %d\n", len));
 /* FIXME: lcase */
 		}
 		assert(len > 0);
@@ -177,6 +185,7 @@ PUBLIC int do_getdents(void)
 			/* the buffer has been cleared before */
 
 		if (mybuf_off + reclen > GETDENTS_BUFSIZ) {
+DBGprintf(("flush: off=%d, reclen=%d, max=%u\n", mybuf_off, reclen, GETDENTS_BUFSIZ));
 			/* flush my buffer */
 			r = sys_safecopyto(VFS_PROC_NR, gid,
 					   (vir_bytes) callerbuf_off, 
@@ -194,6 +203,7 @@ PUBLIC int do_getdents(void)
 		}
 		
 		if(callerbuf_off + mybuf_off + reclen > size) {
+DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", callerbuf_off, mybuf_off, reclen, size));
 			/* The user has no space for one more record */
 			done = TRUE;
 			
@@ -223,6 +233,8 @@ PUBLIC int do_getdents(void)
 		{
 			cp = &dep->d_name[0];
 /* FIXME: lcase */
+DBGprintf(("FATfs: copying '%.*' to %.8p (buf+%d)", namelen, fatdp->deName, cp, cp-getdents_buf));
+
 			memcpy(cp, fatdp->deName, namelen);
 			if (fatdp->deName[0] == SLOT_E5)
 				*cp = SLOT_DELETED;	/*DOS was hacked too*/
@@ -230,9 +242,12 @@ PUBLIC int do_getdents(void)
 			if (extlen) {
 				*cp++ = '.';
 /* FIXME: lcase */
+DBGprintf((", '%.*' to %.8p (buf+%d)", extlen, fatdp->deExtension, cp, cp-getdents_buf));
 				memcpy(cp, fatdp->deExtension, extlen);
+cp += extlen;
 			}
 		}
+DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-getdents_buf, reclen));
 		dep->d_name[len] = '\0';
 		mybuf_off += reclen;
 	}
