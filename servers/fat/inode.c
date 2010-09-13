@@ -224,13 +224,14 @@ PUBLIC struct inode *find_inode(
  *				enter_inode				     *
  *===========================================================================*/
 PUBLIC struct inode *enter_inode(
-  struct fat_direntry * dp)	/* (short name) entry */
+  struct fat_direntry * dp,	/* (short name) entry */
+  unsigned entrypos)		/* position within the parent directory */
 {
 /* Enter the inode as specified by its directory entry.
 
 FIXME: need the struct direntryref (*?)
  */
-  struct inode *ino;
+  struct inode *rip;
   cluster_t cn;			/* cluster number */
   int hashi;
 
@@ -244,22 +245,24 @@ FIXME: need the struct direntryref (*?)
   DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
 
   /* Search inode in the hash table */
-  LIST_FOREACH(ino, &hash_inodes[hashi], i_hash) {
-      if (ino->i_ref > 0 && ino->i_clust == cn) {
-          return(ino);
-      }
+  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
+	if (rip->i_ref > 0 && rip->i_clust == cn) {
+		++rip->i_ref;
+		return(rip);
+	}
   }
 
-  ino = get_free_inode();
-  ino->i_direntry = *dp;
-  ino->i_clust = cn;
-  LIST_INSERT_HEAD(&hash_inodes[hashi], ino, i_hash);
+  /* get a new inode with ref. count = 1 */
+  rip = get_free_inode();
+  rip->i_direntry = *dp;
+  rip->i_clust = cn;
+  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
 /* more work needed here: i_mode, i_size */
 
   DBGprintf(("FATfs: enter_inode create entry for ['%.8s.%.3s']\n",
-		ino->i_Name, ino->i_Extension));
+		rip->i_Name, rip->i_Extension));
   
-  return(ino);
+  return(rip);
 }
 
 /*===========================================================================*

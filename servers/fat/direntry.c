@@ -220,13 +220,13 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
  * because we have no idea of the generation number...
  * So we enter it anyway in the inode array, hoping it will survive...
  */
-		newip = enter_inode(fatdp);
+		newip = enter_inode(fatdp, ent_pos);
 		if( newip == NULL ) {
 /* FIXME: do something clever... */
 			panic("FATfs: getdents cannot create some virtual inode\n");
 		} else
 			dep->d_ino = INODE_NR(newip);
-		/* put_inode(newip); */
+		put_inode(newip);
 		dep->d_off = ent_pos;
 		dep->d_reclen = (unsigned short) reclen;
 		{
@@ -414,6 +414,8 @@ PUBLIC int lookup_dir(
 	return(ENOTDIR);
   }
 
+/* FIXME: use some name cache/hash... */
+
 /* FIXME: we currently assume FAT directories are always searchable...
  * A well-behaved way would be to honour use_dir_mask vs. credentials,
  * even more to honour the SYSTEM attribute and use_system_uid etc.
@@ -467,12 +469,12 @@ PUBLIC int lookup_dir(
 			/* we have a match on short name! */
 			r = OK;
 			assert(res_inop);
-			*res_inop = enter_inode(&dp->d_direntry);
+			*res_inop = enter_inode(&dp->d_direntry,
+				pos + ((char*)dp - (char*)&bp->b_dir[0]) );
 			if( *res_inop == NULL ) {
 /* FIXME: do something clever... */
 				panic("FATfs: lookup cannot create inode\n");
 			}
-			/* get_inode(*res_inop); */
 			put_block(bp);
 			return(r);
 		}
@@ -487,7 +489,7 @@ PUBLIC int lookup_dir(
  * Either we encounter the 0 (SLOT_EMPTY) marker,
  * or we exhausted the cluster chain.
  */
-  panic("FATfs: broke out of dir.lookup loop\n");
+  panic("FATfs: broke out of direntry!lookup loop\n");
 }
 
 /*===========================================================================*

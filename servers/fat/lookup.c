@@ -2,6 +2,7 @@
  *
  * The entry points into this file are:
  *   do_putnode		perform the PUTNODE file system call
+ *   do_mountpoint	perform the MOUNTPOINT file system call
  *   do_lookup		perform the LOOKUP file system request
  *
  * Auteur: Antoine Leca, aout 2010.
@@ -53,6 +54,40 @@ PUBLIC int do_putnode(void)
   put_inode(ino);
 
   return OK;
+}
+
+/*===========================================================================*
+ *				do_mountpoint				     *
+ *===========================================================================*/
+PUBLIC int do_mountpoint(void)
+{
+/* This function looks up the mount point, it checks the condition whether
+ * another file system can be mounted on the inode or not. 
+ */
+  struct inode *rip;
+  int r = OK;
+  mode_t bits;
+  
+  /* Get the inode, increase the inode refcount */
+  /*CHECKME: is it needed? is the file open anyway? */
+  if( (rip = get_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+  
+  if (rip->i_flags & I_MOUNTPOINT) r = EBUSY;
+
+#if 0
+  /* It may not be special. */
+  bits = rip->i_mode & I_TYPE;
+  if (bits == I_BLOCK_SPECIAL || bits == I_CHAR_SPECIAL) r = ENOTDIR;
+#else
+/* !IS_DIR => ENOTDIR */
+#endif
+
+  if(r == OK) rip->i_flags |= I_MOUNTPOINT;
+
+  put_inode(rip);
+
+  return(r);
 }
 
 /*===========================================================================*

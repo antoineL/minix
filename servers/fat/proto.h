@@ -59,7 +59,7 @@ _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
 
 /* inode.c */
-_PROTOTYPE( struct inode *enter_inode, (struct fat_direntry*)		);
+_PROTOTYPE( struct inode *enter_inode, (struct fat_direntry*, unsigned)	);
 _PROTOTYPE( struct inode *fetch_inode, (ino_t ino_nr)			);
 _PROTOTYPE( struct inode *find_inode, (cluster_t)			);
 _PROTOTYPE( void flush_inodes, (void)					);
@@ -79,6 +79,12 @@ _PROTOTYPE( int advance, (struct inode *dirp,
 #define CHK_PERM	1
 _PROTOTYPE( int do_lookup, (void)					);
 _PROTOTYPE( int do_putnode, (void)					);
+
+_PROTOTYPE( int do_create, (void)					);
+_PROTOTYPE( int do_mkdir, (void)					);
+_PROTOTYPE( int do_mknod, (void)					);
+_PROTOTYPE( int do_mountpoint, (void)					);
+_PROTOTYPE( int do_symlink, (void)					);
 
 /* main.c */
 _PROTOTYPE( int do_nothing, (void)					);
