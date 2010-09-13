@@ -26,12 +26,6 @@
 
 #include <minix/ds.h>
 
-#if 0
-#include "super.h"
-#include "inode.h"
-#include "fat.h"
-#endif
-
 FORWARD _PROTOTYPE( int reco_extbpb, (struct fat_extbpb*,char fstype[])	);
 FORWARD _PROTOTYPE( int reco_bootsector,
 		(struct fat_bootsector *, struct fat_extbpb *)		);
@@ -443,62 +437,42 @@ PUBLIC int do_readsuper(void)
 
   sb.freeClustValid = sb.freeClust = sb.nextClust = 0;
 
-#if 0
-	if (version == V2)
-		sp->s_block_size = _STATIC_BLOCK_SIZE;
-	if (sp->s_block_size < _MIN_BLOCK_SIZE) {
-		return EINVAL;
-	}
-	sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
-	sp->s_ndzones = V2_NR_DZONES;
-	sp->s_nindirs = V2_INDIRECTS(sp->s_block_size);
-
-  if (sp->s_block_size < _MIN_BLOCK_SIZE) 
-	return(EINVAL);
-  
-  if ((sp->s_block_size % 512) != 0) 
-	return(EINVAL);
-  sp->s_isearch = 0;		/* inode searches initially start at 0 */
-  sp->s_zsearch = 0;		/* zone searches initially start at 0 */
-  sp->s_version = version;
-  sp->s_native  = native;
-
-  set_blocksize(superblock.s_block_size);
-  
-  /* Get the root inode of the mounted file system. */
-  if( (root_ip = get_inode(fs_dev, ROOT_INODE)) == NULL)  {
-	  printf("MFS: couldn't get root inode\n");
-	  superblock.s_dev = NO_DEV;
-	  dev_close(driver_e, fs_dev);
-	  return(EINVAL);
-  }
-  
-  if(root_ip->i_mode == 0) {
-	  printf("%s:%d zero mode for root inode?\n", __FILE__, __LINE__);
-	  put_inode(root_ip);
-	  superblock.s_dev = NO_DEV;
-	  dev_close(driver_e, fs_dev);
-	  return(EINVAL);
-  }
-
-  superblock.s_rd_only = readonly;
-  superblock.s_is_root = isroot;
-#endif
-
-/*
-pourrait etre plus grand SSI tout est bien aligne (implique en pratique FAT32)
+/* Check the size of the block as used in the cache system.
+ * The easy way is to stick on sectors, since everything is
+ * computed as sector count in a FAT file system. However it
+ * pratically prevents to use the VM-based level2 cache,
+ * (on i386), which is based on 4K-pages.
+ *
+ * The second best option (not implemented yet) is to check
+ * if by chance, the FATs and the data blocks are aligned
+ * on 4KB boundaries: this usually means we are using FAT32
+ * since most FAT12 and FAT16 file systems only have 1 reserved
+ * sector at the beginning, hence everything is mis-aligned.
  */
-  set_blocksize(sb.bpblock);
+#if 0
+/* Why MFS is doing such a test? */
+  if (sb.bpblock < _MIN_BLOCK_SIZE) 
+	return(EINVAL);
+#endif
+  if ((sb.bpblock % 512) != 0) 
+	return(EINVAL);
+  init_cache(NR_BUFS, sb.bpblock);
+
+/* FIXME: if FAT12, read the FAT into specials (contiguous) buffers */
+
+  root_ip = init_inodes(NUM_INODES);
 
 /* FIXME if FAT32... */
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
-
-  root_ip = init_inodes();
 
   assert(rootDirSize <= 0xffffffff);
   root_ip->i_size = rootDirSize;
   root_ip->i_flags |= I_DIRSIZED;
   root_ip->i_mode = get_mode(root_ip);
+/* FIXME: cluster number, etc. */
+/* Future work: may fetch the volume name (either extBPB or root dir) */
+
+/* FIXME: fake entries . and .. in root dir */
 
   m_out.RES_INODE_NR = INODE_NR(root_ip);
   m_out.RES_MODE = root_ip->i_mode;
@@ -524,24 +498,32 @@ PUBLIC int do_unmount()
 
   DBGprintf(("FATfs: do_unmount\n"));
 
+/* FIXME: if FAT12, deref the special blocks containing the FAT */
+
 #if 1
-  /* Decrease the reference count of the root inode. */
+  /* Decrease the reference count of the root inode.
+   * Do not increase the inode refcount.
+   */
   if ((root_ip = fetch_inode(ROOT_INODE_NR)) == NULL) {
 	panic("couldn't find root inode while unmounting\n");
 	return EINVAL;
   }
-
+/* FIXME: check root_ip->i_ref==1 */
   put_inode(root_ip);
 
   /* There should not be any referenced inodes anymore now. */
-  if (have_used_inode())
-	printf("in-use inodes left at unmount time!\n");
+  if (have_used_inode()) {
  	/* this is NOT clean unmounting! */
+	printf("in-use inodes left at unmount time!\n");
+  #if 0
+	/* MFS even does: */
+	return(EBUSY);		/* can't umount a busy file system */
+  #endif
+  }
 #endif
 
 #if 0
 /* now the MFS view */
-
   /* See if the mounted device is busy.  Only 1 inode using it should be
    * open --the root inode-- and that inode only 1 time. */
   count = 0;
@@ -564,7 +546,8 @@ PUBLIC int do_unmount()
 
   /* force any cached blocks out of memory */
 /* CHECKME: perhaps better to call explicitely
-	flush_inodes()+flushall() +? invalidate()
+	flush_inodes()+flushall()+invalidate()
+ * CHECME fsync()? (will imply invalidate)
  */
   do_sync();
 

@@ -243,8 +243,8 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 /*    hash_init(); */			/* Init the table with the ids */
    setenv("TZ","",1);		/* Used to calculate the time */
 
-  init_cache(NR_BUFS);
 /* will be done at mount time...
+  init_cache(NR_BUFS);
   init_inodes();
  */
   m_out.m_type = FS_READY;

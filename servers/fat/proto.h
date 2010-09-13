@@ -15,7 +15,7 @@ enum get_block_arg_e {
 	PREFETCH	/* tells get_block not to read or mark dev */
 };
 _PROTOTYPE( struct buf *get_block, (dev_t, block_t blocknr, enum get_block_arg_e)	);
-_PROTOTYPE( void init_cache, (int bufs)					);
+_PROTOTYPE( void init_cache, (int bufs, unsigned int blocksize)		);
 /*
 _PROTOTYPE( void put_block, (struct buf *bp, int block_type)		);
  */
@@ -67,7 +67,7 @@ _PROTOTYPE( struct inode *get_free_inode, (void)			);
 _PROTOTYPE( void get_inode, (struct inode *ino)				);
 _PROTOTYPE( int have_free_inode, (void)					);
 _PROTOTYPE( int have_used_inode, (void)					);
-_PROTOTYPE( struct inode *init_inodes, (void)				);
+_PROTOTYPE( struct inode *init_inodes, (int inodes)			);
 _PROTOTYPE( void link_inode, (struct inode *parent, struct inode *ino)	);
 _PROTOTYPE( void put_inode, (struct inode *ino)				);
 _PROTOTYPE( void unlink_inode, (struct inode *ino)			);
@@ -101,6 +101,7 @@ _PROTOTYPE( void read_ahead, (void)					);
 _PROTOTYPE( mode_t get_mode, (struct inode *)				);
 _PROTOTYPE( int do_stat, (void)						);
 _PROTOTYPE( int do_chmod, (void)					);
+_PROTOTYPE( int do_chown, (void)					);
 _PROTOTYPE( int do_utime, (void)					);
 
 /* statfs.c */

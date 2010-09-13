@@ -5,9 +5,9 @@
  * The entry points into this file are:
  *   init_inodes	initialize the inode table, return the root inode
  *   fetch_inode	find an inode based on its VFS inode number
- *   find_inode		find an inode based on its cluster
+ *   find_inode		find an inode based on its cluster number
  *   enter_inode	allocate a new inode corresponding to an entry
- *   get_inode		increase the reference count of an inode
+ *   get_inode		find or load an inode, increasing its reference count
  *   put_inode		decrease the reference count of an inode
  *   link_inode		link an inode as a directory entry to another inode
  *   unlink_inode	unlink an inode from its parent directory
@@ -29,10 +29,6 @@
 #include "compat.h"	/* MUST come before <minix/sysutil.h> */
 #endif
 #include <minix/sysutil.h>	/* panic */
-
-#if 0
-#include "inode.h"
-#endif
 
 /* FIXME:
  * explain why inode, purpose etc.
@@ -104,21 +100,23 @@ PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
 /*===========================================================================*
  *				init_inodes				     *
  *===========================================================================*/
-PUBLIC struct inode *init_inodes()
+PUBLIC struct inode *init_inodes(int new_num_inodes)
 {
 /* Initialize inodes table. Return the root inode.
  */
   struct inode *ino;
-  unsigned int index;
+  int index;
+
+  assert(new_num_inodes == NUM_INODES);
 
   TAILQ_INIT(&free_list);
-
-  DBGprintf(("FATfs: %d inodes (0-0%lo), %u bytes each, = %u b.\n",
-	NUM_INODES, NUM_INODES-1, sizeof(struct inode), sizeof(inodes)));
 
   /* Initialize (as empty) all the hash queues. */
   for (index = 0; index < NUM_HASH_SLOTS; index++)
 	LIST_INIT(&hash_inodes[index]);
+
+  DBGprintf(("FATfs: %d inodes (0-0%lo), %u bytes each, = %u b.\n",
+	NUM_INODES, NUM_INODES-1, sizeof(struct inode), sizeof(inodes)));
 
   /* Mark all inodes except the root inode as free. */
   for (index = 1; index < NUM_INODES; index++) {
@@ -164,12 +162,14 @@ PUBLIC struct inode *init_inodes()
 PUBLIC struct inode *fetch_inode(ino_nr)
 ino_t ino_nr;
 {
-/* Get an inode based on its synthetised number. Do not increase its ref.count
+/* Return an inode based on its (perhaps synthetised) number, as known by VFS.
+ * Do not increase its reference count.
  */
   struct inode *ino;
   int index;
 
   /* Inode 0 (= index -1) is not a valid inode number. */
+
   index = INODE_INDEX(ino_nr);
   if (index < 0) {
 	printf("FATfs: VFS passed invalid inode number!\n");
@@ -203,6 +203,7 @@ PUBLIC struct inode *find_inode(
 )
 {
 /* Find the inode specified by its coordinates, the first cluster number.
+ * Do not increase its reference count.
  */
   struct inode *ino;
   int hashi;

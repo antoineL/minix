@@ -25,7 +25,7 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	do_putnode,	/*  2 putnode		*/
 /*WRK*/	readonly,	/*  3 slink		*/
  /**/	/*do_ftrunc*/readonly,	/*  4 ftrunc		*/
- /**/	readonly,	/*  5 chown		*/
+	do_chown,	/*  5 chown		*/
 	do_chmod,	/*  6 chmod		*/
 	do_inhibread,	/*  7 inhibread		*/
 	do_stat,	/*  8 stat		*/

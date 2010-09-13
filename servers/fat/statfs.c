@@ -18,11 +18,6 @@
 #include <sys/statvfs.h>
 #endif
 
-#if 0
-#include "super.h"
-#include "inode.h"		/* find_inode(ROOT_INODE_NR) */
-#endif
-
 /*===========================================================================*
  *				do_fstatfs				     *
  *===========================================================================*/
@@ -31,11 +26,8 @@ PUBLIC int do_fstatfs(void)
 /* Performs the (old-fashioned) DO_STATFS request. */
   int r;
   struct statfs st;
-  struct inode *rip;
 
   if (state != MOUNTED)
-	  return(EINVAL);
-  if((rip = fetch_inode(ROOT_INODE_NR)) == NULL)
 	  return(EINVAL);
    
   st.f_bsize = sb.bpblock;
@@ -57,11 +49,14 @@ PUBLIC int do_statvfs(void)
   int r;
   struct statvfs st;
 
+  if (state != MOUNTED)
+	  return(EINVAL);
+
 /* The FS server operates with three different units:
  *   the blocks, used in the cache (which is alike the rest of MINIX)
  *   the sectors, the fundamental unit of FAT file systems
  *   the clusters, the allocation unit.
- * Evidently, the f_bsize member points to the clusters, as it is the
+ * Clearly, the f_bsize member points to the clusters, as it is the
  * granularity unit.
  * And logically, b_frsize should refer to sectors, since it is the unit
  * in the outer world.
@@ -79,7 +74,7 @@ FIXME!
   st.f_bfree = 0;		/* Total number of free blocks. */
   st.f_bavail = st.f_bfree;
 	/* Number of free blocks available to non-privileged process */
-/* This one is debatable: */
+/* This one is quite debatable: */
   st.f_files = sb.maxClust-2;	/* Total number of file serial numbers. */
 /* This cannot be computed on FAT, it does not have much sense: */
   st.f_ffree = 0;		/* Total number of free file serial numbers*/

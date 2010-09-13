@@ -4,15 +4,14 @@
  * cache.
  *
  * The entry points into this file are:
-	_PROTOTYPE( void init_cache, (int bufs)					);
-	_PROTOTYPE( void set_blocksize, (unsigned int blocksize)		);
- *   do_sync		perform the SYNC file system call
- *   do_flush		perform the FLUSH file system call
- *   get_block:	  request to fetch a block for reading or writing from cache
- *   put_block:	  return a block previously requested with get_block
+ *   init_cache	initialize the buffer pool
+ *   do_sync	perform the SYNC file system call
+ *   do_flush	perform the FLUSH file system call
+ *   get_block	request to fetch a block for reading or writing from cache
+ *   zero_block	overwrite a block with zeroes
+ *   put_block	return a block previously requested with get_block
 	_PROTOTYPE( void rw_scattered, (dev_t dev,
 			struct buf **bufq, int bufqsize, int rw_flag)	);
- *   zero_block:   overwrite a block with zeroes
  *
  * This current version assumes somewhat that 'dev' is unique,
  * and assumes in many places that blocks are all of the same size
@@ -24,8 +23,8 @@
  * Private functions:
 	_PROTOTYPE( void flushall, (dev_t dev)					);
  *   invalidate:  remove all the cache blocks on some device
- *   rw_block:    read or write a block from the disk itself
  *   rm_lru:
+ *   rw_block:    read or write a block from the disk itself
  *
  * Auteur: Antoine Leca, aout 2010. From ../mfs/cache.c
  * Updated:
@@ -55,16 +54,8 @@
 /* FIXME: work needed on the detection/reporting of error... */
 #define END_OF_FILE   (-104)	/* eof detected */
 
-#define NO_BITx   ((bit_t) 0)	/* returned by alloc_bit() to signal failure */
-
 /* CHECKME... */
 #define BUFHASH(b) ((b) % nr_bufs)
-
-#if 0
-#include "fs.h"
-#include "super.h"
-	#include "inode.h"
-#endif
 
 FORWARD _PROTOTYPE( void invalidate, (dev_t) );
 FORWARD _PROTOTYPE( void flushall, (dev_t) );
@@ -76,18 +67,24 @@ PRIVATE TAILQ_HEAD(lruhead, buf) lru; /* least recently used free block list */
 PRIVATE LIST_HEAD(bufhashhead, buf) *buf_hash; /* the buffer hash table */
 
 #ifdef USE_VMCACHE
+/*FIXME: some text to describe the interaction with the level 2 VM cache... */
 PRIVATE int vmcache_avail = -1; /* 0 if not available, >0 if available. */
 #endif
 
 /*===========================================================================*
  *				init_cache                                   *
  *===========================================================================*/
-PUBLIC void init_cache(int new_nr_bufs)
+PUBLIC void init_cache(int new_nr_bufs, unsigned int blocksize)
 {
-/* Initialize the buffer pool. */
+/* Initialize the buffer pool, and set the (unique) size of the blocks. */
   register struct buf *bp;
 
   assert(new_nr_bufs > 0);
+  assert(blocksize > 0);
+
+/* CHECKME: useful? */
+  if (have_used_inode())
+	panic("init_cache with inode(s) in use");
 
   if(nr_bufs > 0) {
 	assert(buf);
@@ -112,6 +109,7 @@ PUBLIC void init_cache(int new_nr_bufs)
 	panic("couldn't allocate buf hash list (%d)", new_nr_bufs);
 
   nr_bufs = new_nr_bufs;
+  block_size = blocksize;
 
   bufs_in_use = 0;
   TAILQ_INIT(&lru);
@@ -132,38 +130,11 @@ PUBLIC void init_cache(int new_nr_bufs)
 }
 
 /*===========================================================================*
- *				set_blocksize				     *
- *===========================================================================*/
-PUBLIC void set_blocksize(unsigned int blocksize)
-{
-/* Set the (unique) size of a block. */
-  struct buf *bp;
-#if 0
-  struct inode *rip;
-#endif
-
-  assert(blocksize > 0);
-
-  for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
-	if(bp->b_count != 0) panic("change blocksize with buffer in use");
-
-#if 0
-  for (rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
-	if (rip->i_count > 0) panic("change blocksize with inode in use");
-#else
-  if (have_used_inode())
-	panic("change blocksize with inode in use");
-#endif
-
-  init_cache(nr_bufs);
-  block_size = blocksize;
-}
-
-/*===========================================================================*
  *				do_sync					     *
  *===========================================================================*/
 PUBLIC int do_sync()
 {
+/*FIXME: revise text (rw_inode) */
 /* Perform the REQ_SYNC request.  Flush all the tables. 
  * The order in which the various tables are flushed is critical.  The
  * blocks must be flushed last, since rw_inode() leaves its results in

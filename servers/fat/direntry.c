@@ -26,12 +26,6 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
-#if 0
-#include "fat.h"
-#include "super.h"
-#include "inode.h"
-#endif
-
 FORWARD _PROTOTYPE( int nameto83,
 		 (char string[NAME_MAX+1], struct fat_direntry *)	);
 
@@ -70,12 +64,17 @@ PUBLIC int do_getdents(void)
 
   DBGprintf(("FATfs: getdents in %lo, off %ld\n", m_in.REQ_INODE_NR, pos));
 
-  /* Check whether the position is properly aligned */
+/* Check whether the position is properly aligned */
   if( (unsigned int) pos % DIR_ENTRY_SIZE)
 	return(ENOENT);
 
-  if( (rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
+/* Get the values from the request message.
+ * We might work for a bit, reading blocks etc., so we will increase
+ * the reference count of the inode (Check-me?)
+ */
+  if( (rip = get_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
 	return(EINVAL);
+
   off = pos & (block_size-1);	/* Offset in block */
   block_pos = pos - off;
   done = FALSE;		/* Stop processing blocks when done is set */

@@ -17,15 +17,10 @@
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 
-#if 0
-	#include "inode.h"
-#endif
-
 /*===========================================================================*
  *				get_mode				     *
  *===========================================================================*/
-PUBLIC mode_t get_mode(
-  struct inode *rip)
+PUBLIC mode_t get_mode(struct inode *rip)
 {
 /* Return the mode for an inode, given the direntry embeeded in the inode.
  */
@@ -42,7 +37,7 @@ PUBLIC mode_t get_mode(
   if (read_only)
 	mode &= ~(S_IWUSR|S_IWGRP|S_IWOTH);
 
-  return mode;
+  return(mode);
 }
 
 /*===========================================================================*
@@ -55,7 +50,7 @@ PUBLIC int do_stat(void)
   int r;
   struct stat stat;
   ino_t ino_nr;
-  struct inode *ino;
+  struct inode *rip;
 #if 0
   struct hgfs_attr attr;
 #endif
@@ -64,8 +59,8 @@ PUBLIC int do_stat(void)
   ino_nr = m_in.REQ_INODE_NR;
 
   /* Don't increase the inode refcount: it's already open anyway */
-  if ((ino = fetch_inode(ino_nr)) == NULL)
-	return EINVAL;
+  if ((rip = fetch_inode(ino_nr)) == NULL)
+	return(EINVAL);
 
 #if 0
   attr.a_mask = HGFS_ATTR_MODE | HGFS_ATTR_SIZE | HGFS_ATTR_ATIME |
@@ -78,16 +73,16 @@ PUBLIC int do_stat(void)
   memset(&stat, '\0', sizeof stat);	/* Avoid leaking any data */
   stat.st_dev = dev;
   stat.st_ino = ino_nr;
-  stat.st_mode = get_mode(ino);
+  stat.st_mode = get_mode(rip);
   stat.st_uid = use_uid;
   stat.st_gid = use_gid;
   stat.st_rdev = NO_DEV;
 #if 0
   stat.st_size = ex64hi(attr.a_size) ? ULONG_MAX : ex64lo(attr.a_size);
 #elif 0
-  stat.st_size = ino->i_size;
+  stat.st_size = rip->i_size;
 #else
-  stat.st_size = IS_DIR(ino) ? 65535 : ino->i_size;
+  stat.st_size = IS_DIR(rip) ? 65535 : rip->i_size;
 #endif
 #if 0
   stat.st_atime = attr.a_atime;
@@ -100,10 +95,10 @@ PUBLIC int do_stat(void)
    * It's just not worth it.
    */
   stat.st_nlink = 0;
-  if (ino->i_parent != NULL) stat.st_nlink++;
-  if (IS_DIR(ino)) {
+  if (rip->i_parent != NULL) stat.st_nlink++;
+  if (IS_DIR(rip)) {
 	stat.st_nlink++;
-	if (HAS_CHILDREN(ino)) stat.st_nlink++;
+	if (HAS_CHILDREN(rip)) stat.st_nlink++;
   }
 
   DBGprintf(("FATfs: stat ino=%lo, mode=%o, size=%ld...\n",
@@ -120,7 +115,7 @@ PUBLIC int do_chmod(void)
 {
 /* Change file mode.
  */
-  struct inode *ino;
+  struct inode *rip;
 #if 0
   char path[PATH_MAX];
   struct hgfs_attr attr;
@@ -128,10 +123,11 @@ PUBLIC int do_chmod(void)
   int r;
 
   if (read_only)
-	return EROFS;
+	return(EROFS);
 
-  if ((ino = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
-	return EINVAL;
+  /* Don't increase the inode refcount: it's already open anyway */
+  if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
+	return(EINVAL);
 
 #if 0
   if ((r = verify_inode(ino, path, NULL)) != OK)
@@ -149,9 +145,38 @@ PUBLIC int do_chmod(void)
 	return r;
 #endif
 
-  m_out.RES_MODE = get_mode(ino);
+  m_out.RES_MODE = get_mode(rip);
 
-  return OK;
+  return(OK);
+}
+
+/*===========================================================================*
+ *				do_chown				     *
+ *===========================================================================*/
+PUBLIC int do_chown(void)
+{
+/* We are requested to change file owner or group. We cannot actually.
+ *
+ * Note that there is no ctime field on FAT file systems, so we cannot
+ * update it (unless we fake it in inodes[] just to pass the tests...)
+ */
+  struct inode *rip;
+  int r;
+
+  if (read_only)
+	return(EROFS);
+
+  /* Don't increase the inode refcount: it's already open anyway */
+  if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
+	return(EINVAL);
+
+  if (m_in.REQ_UID != use_uid || m_in.REQ_GID != use_gid)
+	return(EPERM);
+
+/* FIXME: just i_mode also does the trick... */
+  m_out.RES_MODE = get_mode(rip);
+
+  return(OK);
 }
 
 /*===========================================================================*
@@ -161,7 +186,7 @@ PUBLIC int do_utime(void)
 {
 /* Set file times.
  */
-  struct inode *ino;
+  struct inode *rip;
 #if 0
   char path[PATH_MAX];
   struct hgfs_attr attr;
@@ -169,10 +194,11 @@ PUBLIC int do_utime(void)
   int r;
 
   if (read_only)
-	return EROFS;
+	return(EROFS);
 
-  if ((ino = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
-	return EINVAL;
+  /* Don't increase the inode refcount: it's already open anyway */
+  if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
+	return(EINVAL);
 
 #if 0
   if ((r = verify_inode(ino, path, NULL)) != OK)

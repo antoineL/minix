@@ -27,22 +27,11 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
-#if 0
-#include "inode.h"
-	#include "super.h"	/* POUR AVOIR format data block */
-#endif
-
 /*
  */
 
 FORWARD _PROTOTYPE( struct buf *rahead, (struct inode *rip, block_t baseblock,
 			u64_t position, unsigned bytes_ahead)		);
-/*
-FORWARD _PROTOTYPE( int rw_chunk, (struct inode *rip, u64_t position,
-	unsigned off, size_t chunk, unsigned left, int rw_flag,
-	cp_grant_id_t gid, unsigned buf_off, unsigned int block_size,
-	int *completed)							);
- */
 
 PRIVATE off_t rdahedpos;         /* position to read ahead */
 PRIVATE struct inode *rdahed_inode;      /* pointer to inode to read ahead */
@@ -67,8 +56,7 @@ PUBLIC int do_read(void)
   
   r = OK;
   
-  /* Get the values from the request message */
-  /* Find the inode referred */
+  /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
   position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
@@ -295,7 +283,7 @@ PUBLIC int do_write(void)
 
   r = OK;
   
-  /* Get the values from the request message */
+  /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
   position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
