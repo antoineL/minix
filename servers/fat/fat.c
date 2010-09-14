@@ -43,31 +43,11 @@
 #include "inode.h"
 #endif
 
-/*
- *  Fat cache stats.
- */
-int fc_fileextends       = 0;	/* # of file extends			*/
-int fc_lfcempty          = 0;	/* # of time last file cluster cache entry
-				 * was empty */
-int fc_bmapcalls         = 0;	/* # of times pcbmap was called		*/
-#define	LMMAX	20
-int fc_lmdistance[LMMAX];	/* counters for how far off the last cluster
-				 * mapped entry was. */
-int fc_largedistance     = 0;	/* off by more than LMMAX		*/
-
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
 
-/*
- *  Set a slot in the fat cache.
- */
-#define	fc_setcache(rip, slot, frcn, bn) \
-	(rip)->i_fc[slot].fc_frcn = frcn; \
-	(rip)->i_fc[slot].fc_bn = bn;
-
 _PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
-_PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 
 /*===========================================================================*
  *				xxx					     *
@@ -134,6 +114,7 @@ pcbmap(dep, findcn, bnp, cnp)
 	daddr_t *bnp=0;		/* returned filesys relative blk number	*/
 	unsigned long *cnp=0;	/* returned cluster number		*/
 #endif
+
 	int error;
 	cluster_t findcn;	/* file relative cluster to get	*/
 	block_t findbn;		/* file relative block to get */
@@ -142,7 +123,7 @@ pcbmap(dep, findcn, bnp, cnp)
 	daddr_t *bnp;		/* returned filesys relative blk number	*/
 	unsigned long *cnp;	/* returned cluster number		*/
 /*FIXME*/typedef int u_long;
-	u_long i;
+/*FIXME*/cluster_t /*u_long*/ i;	/* file-relative cluster iterator */
 	cluster_t cn;
 	cluster_t prevcn;
 	u_long byteoffset;
@@ -155,14 +136,6 @@ pcbmap(dep, findcn, bnp, cnp)
 	struct pcfsmount *pmp = dep->de_pmp;
 	union fattwiddle x;
  */
-	fc_bmapcalls++;
-
-/*
- *  If they don't give us someplace to return a value
- *  then don't bother doing anything.
-	if (bnp == NULL  &&  cnp == NULL)
-		return 0;
- */
 
 	i = 0;
 	cn = rip->i_clust;
@@ -170,7 +143,8 @@ pcbmap(dep, findcn, bnp, cnp)
 	findcn = position >> sb.cnshift;
 	boff = (position & (sb.bpcluster-1)) >> sb.bnshift;
 
-DBGprintf(("FATfs: bmap in %lo, off %ld\n", INODE_NR(rip), position));
+DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
+	INODE_NR(rip), position, findcn, boff, cn));
 
 /*
  *  The "file" that makes up the root directory is contiguous,
@@ -182,39 +156,16 @@ DBGprintf(("FATfs: bmap in %lo, off %ld\n", INODE_NR(rip), position));
 	if (cn == /*PCFSROOT*/ 1 ) {
 		if (rip->i_Attributes & ATTR_DIRECTORY) {
 			if (findbn > sb.rootBlk) {
-				if (cnp)
-					*cnp = sb.rootBlk;
 				return /*E2BIG*/ NO_BLOCK;
 			}
-/*
-			if (bnp)
-				*bnp = pmp->pm_rootdirblk + (findcn * pmp->pm_SectPerClust);
- */
-			if (cnp)
-				*cnp = /*PCFSROOT*/ 1;
 DBGprintf(("FATfs: bmap returns %ld\n", sb.rootBlk + findbn));
-
 			return sb.rootBlk + findbn;
+
 		} else {	/* just an empty file */
-			if (cnp)
-				*cnp = 0;
+/* cannot happen? */
 			return /*E2BIG*/ NO_BLOCK;
 		}
 	}
-
-/*
- *  Rummage around in the fat cache, maybe we can avoid
- *  tromping thru every fat entry for the file.
- *  And, keep track of how far off the cache was from
- *  where we wanted to be.
- */
-/* CHECKME: why cn && ! bn ??? */
-/* FIXME : mismatch signed/unsigned */
-	fc_lookup(rip, findcn, &i, &cn);
-	if ((bn = findcn - i) >= LMMAX)
-		fc_largedistance++;
-	else
-		fc_lmdistance[bn]++;
 
 /*
  *  Handle all other files or directories the normal way.
@@ -283,23 +234,19 @@ DBGprintf(("FATfs: bmap returns %ld\n", sb.rootBlk + findbn));
 			}
 			byteoffset = cn << 1;
 			bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
-/*
-			bo = byteoffset &  pmp->pm_brbomask;
+			bo = byteoffset & sb.brelmask;
 			if (bn != bp0_bn) {
 				if (bp0)
-					brelse(bp0);
-				if (error = bread(pmp->pm_devvp, bn,
-				    pmp->pm_BytesPerSec, NOCRED, &bp0)) {
-					brelse(bp0);
-					return error;
+					put_block(bp0);
+				bp0 = get_block(dev, bn, NORMAL);
+				if (bp0 == NO_BLOCK) {
+DBGprintf(("FATfs: bmap unable to get FAT block %ld\n", bn));
+					return(NO_BLOCK);
 				}
 				bp0_bn = bn;
 			}
- */
 			prevcn = cn;
-/*
-			cn = *(uint16_t *)(bp0->b_un.b_addr+bo);
- */
+			cn = *(uint16_t *)(bp0->b_data+bo);
 		}
 	} else if (sb.fatmask == FAT32_MASK) {	/* 32 bit fat	*/
 		for (; i < findcn; i++) {
@@ -308,47 +255,39 @@ DBGprintf(("FATfs: bmap returns %ld\n", sb.rootBlk + findbn));
 			}
 			byteoffset = cn << 2;
 			bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
-/*
-			bo = byteoffset &  pmp->pm_brbomask;
+			bo = byteoffset & sb.brelmask;
 			if (bn != bp0_bn) {
 				if (bp0)
-					brelse(bp0);
-				if (error = bread(pmp->pm_devvp, bn,
-				    pmp->pm_BytesPerSec, NOCRED, &bp0)) {
-					brelse(bp0);
-					return error;
+					put_block(bp0);
+				bp0 = get_block(dev, bn, NORMAL);
+				if (bp0 == NO_BLOCK) {
+DBGprintf(("FATfs: bmap unable to get FAT block %ld\n", bn));
+					return(NO_BLOCK);
 				}
 				bp0_bn = bn;
 			}
- */
 			prevcn = cn;
-/*
-			cn = *(uint32_t *)(bp0->b_un.b_addr+bo);
- */
+			cn = *(uint32_t *)(bp0->b_data+bo);
 		}
 	}
 
 	if (!ATEOF(cn, sb.fatmask)) {
-/*
 		if (bp0)
-			brelse(bp0);
-		if (bnp)
-			*bnp = cntobn(pmp, cn);
-		if (cnp)
-			*cnp = cn;
- */
+			put_block(bp0);
+/*
 		fc_setcache(rip, FC_LASTMAP, i, cn);
+ */
 		return 0;
 	}
 
 hiteof:
 	if (cnp)
 		*cnp = i;
-/*
 	if (bp0)
-		brelse(bp0);
- */
+		put_block(bp0);
 	/* update last file cluster entry in the fat cache */
+/*
 	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
+ */
 	return /*E2BIG*/ NO_BLOCK;
 }

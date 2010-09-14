@@ -24,7 +24,9 @@
 
 PRIVATE char user_path[PATH_MAX+1];  /* pathname to be processed */
 
+/*
 FORWARD _PROTOTYPE( int ltraverse, (struct inode *rip, char *suffix)	);
+ */
 FORWARD _PROTOTYPE( int parse_path, (ino_t dir, ino_t root, int flags,
 	struct inode **res_inop, size_t *offsetp, int *symlinkp)	);
 
@@ -61,31 +63,29 @@ PUBLIC int do_putnode(void)
  *===========================================================================*/
 PUBLIC int do_mountpoint(void)
 {
-/* This function looks up the mount point, it checks the condition whether
- * another file system can be mounted on the inode or not. 
- */
+/* Register a mount point. Nothing really extraordinary for FAT. */
   struct inode *rip;
   int r = OK;
   mode_t bits;
   
-  /* Get the inode, increase the inode refcount */
-  /*CHECKME: is it needed? is the file open anyway? */
-  if( (rip = get_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+  /* Get the inode from the request msg. Do not increase the inode refcount*/
+  /*CHECKME: is it needed? is the file open anyway? should we increase ref? */
+  if( (rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	  return(EINVAL);
   
   if (rip->i_flags & I_MOUNTPOINT) r = EBUSY;
 
-#if 0
+#if 1
   /* It may not be special. */
-  bits = rip->i_mode & I_TYPE;
-  if (bits == I_BLOCK_SPECIAL || bits == I_CHAR_SPECIAL) r = ENOTDIR;
+  bits = rip->i_mode & S_IFMT;
+  if (bits == S_IFCHR || bits == S_IFBLK) r = ENOTDIR;
 #else
 /* !IS_DIR => ENOTDIR */
 #endif
 
   if(r == OK) rip->i_flags |= I_MOUNTPOINT;
 
-  put_inode(rip);
+  /* put_inode(rip);	we did not increase the refcount, no need to release*/
 
   return(r);
 }
@@ -95,6 +95,9 @@ PUBLIC int do_mountpoint(void)
  *===========================================================================*/
 PUBLIC int do_lookup(void)
 {
+/* Perform the LOOKUP file system request. Crack the parameters and defer
+ * to parse_path which will crunch the path passed.
+ */
   cp_grant_id_t grant, grant2;
   int r, r1, flags, symlinks;
   unsigned int len;
@@ -257,10 +260,11 @@ int *symlinkp;
   }
 
   /* If dir has been removed return ENOENT. */
-/*CHEKCME
+/*CHECKME
   if (rip->i_nlinks == NO_LINK) return(ENOENT);
  */
  
+  /* Increase the inode refcount. */
   get_inode(rip);
 
   /* If the given start inode is a mountpoint, we must be here because the file
@@ -274,6 +278,8 @@ int *symlinkp;
 	if(cp[0] == '\0') {
 		/* We're done; either the path was empty or we've parsed all 
 		 components of the path */
+
+DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
 		
 		*res_inop = rip;
 		*offsetp += cp - user_path;
@@ -284,7 +290,6 @@ int *symlinkp;
 		return(OK);
 	}
 
-	while(cp[0] == '/') cp++;
 	next_cp = get_name(cp, component);
 
 	/* Special code for '..'. A process is not allowed to leave a chrooted
@@ -342,129 +347,19 @@ int *symlinkp;
 	leaving_mount = 0;
 
 	/* The call to advance() succeeded.  Fetch next component. */
-
-	if (S_ISLNK(rip->i_mode)) {
-
-		if (next_cp[0] == '\0' && (flags & PATH_RET_SYMLINK)) {
-			put_inode(dir_ip);
-			*res_inop = rip;
-			*offsetp += next_cp - user_path;
-			return(OK);
-		}
-
-		/* Extract path name from the symlink file */
-		r = ltraverse(rip, next_cp);
-		next_cp = user_path;
-		*offsetp = 0;
-
-		/* Symloop limit reached? */
-		if (++(*symlinkp) > SYMLOOP_MAX)
-			r = ELOOP;
-
-		if (r != OK) {
-			put_inode(dir_ip);
-			put_inode(rip);
-			return(r);
-		}
-
-		if (next_cp[0] == '/') {
-                        put_inode(dir_ip);
-                        put_inode(rip);
-                        return(ESYMLINK);
-		}
-	
-		put_inode(rip);
-		get_inode(dir_ip);
-		rip = dir_ip;
-	} 
-
-	put_inode(dir_ip);
-	cp = next_cp; /* Process subsequent component in next round */
+	put_inode(dir_ip);	/* release the current inode */
+	cp = next_cp;
   }
-}
-
-/*===========================================================================*
- *                             ltraverse				   *
- *===========================================================================*/
-PRIVATE int ltraverse(rip, suffix)
-register struct inode *rip;	/* symbolic link */
-char *suffix;			/* current remaining path. Has to point in the
-				 * user_path buffer
-				 */
-{
-/* Traverse a symbolic link. Copy the link text from the inode and insert
- * the text into the path. Return error code or report success. Base 
- * directory has to be determined according to the first character of the
- * new pathname.
- */
-  
-  block_t blink;	/* block containing link text */
-  size_t llen;		/* length of link */
-  size_t slen;		/* length of suffix */
-  struct buf *bp;	/* buffer containing link text */
-  char *sp;		/* start of link text */
-
-  if ((blink = bmap(rip, (off_t) 0)) == NO_BLOCK)
-	return(EIO);
-
-  bp = get_block(dev, blink, NORMAL);
-  llen = (size_t) rip->i_size;
-/* CHEW ME (!) The link is in Unicode!!! */
-  sp = (char *) bp->dp;
-  slen = strlen(suffix);
-
-  /* The path we're parsing looks like this:
-   * /already/processed/path/<link> or
-   * /already/processed/path/<link>/not/yet/processed/path
-   * After expanding the <link>, the path will look like
-   * <expandedlink> or
-   * <expandedlink>/not/yet/processed
-   * In both cases user_path must have enough room to hold <expandedlink>.
-   * However, in the latter case we have to move /not/yet/processed to the
-   * right place first, before we expand <link>. When strlen(<expandedlink>) is
-   * smaller than strlen(/already/processes/path), we move the suffix to the
-   * left. Is strlen(<expandedlink>) greater then we move it to the right. Else
-   * we do nothing.
-   */ 
-
-  if (slen > 0) { /* Do we have path after the link? */
-	/* For simplicity we require that suffix starts with a slash */
-	if (suffix[0] != '/') {
-		panic("ltraverse: suffix does not start with a slash");
-	}
-
-	/* To be able to expand the <link>, we have to move the 'suffix'
-	 * to the right place.
-	 */
-	if (slen + llen + 1 > sizeof(user_path))
-		return(ENAMETOOLONG);/* <expandedlink>+suffix+\0 does not fit*/
-	if ((unsigned) (suffix-user_path) != llen) { 
-		/* Move suffix left or right */
-		memmove(&user_path[llen], suffix, slen+1);
-	}
-  } else {
-  	if (llen + 1 > sizeof(user_path))
-  		return(ENAMETOOLONG); /* <expandedlink> + \0 does not fix */
-  		
-	/* Set terminating nul */
-	user_path[llen]= '\0';
-  }
-
-  /* Everything is set, now copy the expanded link to user_path */
-  memmove(user_path, sp, llen);
-
-  put_block(bp);
-  return(OK);
 }
 
 /*===========================================================================*
  *				advance					   *
  *===========================================================================*/
 PUBLIC int advance(
-struct inode *dirp,		/* inode for directory to be searched */
-struct inode **res_inop,
-char string[NAME_MAX],		/* component name to look for */
-int chk_perm)			/* check permissions when string is looked up*/
+  struct inode *dirp,		/* inode for directory to be searched */
+  struct inode **res_inop,
+  char string[NAME_MAX],	/* component name to look for */
+  int chk_perm)			/* check permissions when string is looked up*/
 {
 /* Given a directory and a component of a path, look up the component in
  * the directory, find the inode, open it, and return a pointer to its inode
@@ -473,6 +368,9 @@ int chk_perm)			/* check permissions when string is looked up*/
   int r;
   ino_t numb;
   struct inode *rip;
+
+  DBGprintf(("FATfs: advance in dir=%lo, looking for <%s>...\n",
+	INODE_NR(dirp), string));
 
   /* If 'string' is empty, return an error. */
   if (string[0] == '\0') {
@@ -533,12 +431,12 @@ FIXME: changed interface...
 /*===========================================================================*
  *				get_name				   *
  *===========================================================================*/
-PRIVATE char *get_name(path_name, string)
-char *path_name;		/* path name to parse */
-char string[NAME_MAX+1];	/* component extracted from 'old_name' */
+PRIVATE char *get_name(
+  char *path_name,		/* path name to parse */
+  char string[NAME_MAX+1])	/* component extracted from 'old_name' */
 {
-/* Given a pointer to a path name in fs space, 'path_name', copy the first
- * component to 'string' (truncated if necessary, always nul terminated).
+/* Given a pointer to a path name, 'path_name', copy the first component
+ * to 'string' (truncated if necessary, always nul terminated).
  * A pointer to the string after the first component of the name as yet
  * unparsed is returned.  Roughly speaking,
  * 'get_name' = 'path_name' - 'string'.
@@ -555,9 +453,17 @@ char string[NAME_MAX+1];	/* component extracted from 'old_name' */
   while (cp[0] == '/') cp++;
 
   /* Find the end of the first component */
+#if 0
   ep = cp;
   while(ep[0] != '\0' && ep[0] != '/')
 	ep++;
+#else
+  ep = strchr(cp, '/');
+  if (ep == NULL) {
+	ep = cp + strlen(cp);
+	assert(*ep == '\0');
+  }
+#endif
 
   len = (size_t) (ep - cp);
 

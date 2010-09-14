@@ -26,8 +26,12 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+void rehash_inode(struct inode *node);
+
+FORWARD _PROTOTYPE( struct inode *enter_as_inode,
+		(struct fat_direntry*, unsigned)			);
 FORWARD _PROTOTYPE( int nameto83,
-		 (char string[NAME_MAX+1], struct fat_direntry *)	);
+		(char string[NAME_MAX+1], struct fat_direntry *)	);
 
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
@@ -52,6 +56,7 @@ PUBLIC int do_getdents(void)
   struct fat_direntry *fatdp;
   int len, namelen, extlen, reclen;
   block_t b;
+  ino_t ino;
   cp_grant_id_t gid;
   size_t size, mybuf_off, callerbuf_off;
   off_t pos, off, block_pos, new_pos, ent_pos;
@@ -72,7 +77,7 @@ PUBLIC int do_getdents(void)
  * We might work for a bit, reading blocks etc., so we will increase
  * the reference count of the inode (Check-me?)
  */
-  if( (rip = get_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
+  if( (rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
 	return(EINVAL);
 
   off = pos & (block_size-1);	/* Offset in block */
@@ -191,7 +196,7 @@ DBGprintf(("flush: off=%d, reclen=%d, max=%u\n", mybuf_off, reclen, GETDENTS_BUF
 					   (vir_bytes) getdents_buf,
 					   (size_t) mybuf_off, D);
 			if (r != OK) {
-				put_inode(rip);
+				/* put_inode(rip); */
 				put_block(bp);
 				return(r);
 			}
@@ -215,20 +220,26 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 		}
 
 		dep = (struct dirent *) &getdents_buf[mybuf_off];
+/* FIXME FAT32 */
+		ino = get_le16(fatdp->deStartCluster);
+		if (ino = 0) {
 /* HACK HACK HACK
  * cannot give the "real" inode given when the file will be opened (lookup)
  * because we have no idea of the generation number...
  * So we enter it anyway in the inode array, hoping it will survive...
  */
-		newip = enter_inode(fatdp, ent_pos);
-		if( newip == NULL ) {
+			newip = enter_as_inode(fatdp, ent_pos);
+			if( newip == NULL ) {
 /* FIXME: do something clever... */
-			panic("FATfs: getdents cannot create some virtual inode\n");
-		} else
-			dep->d_ino = INODE_NR(newip);
-		put_inode(newip);
+				panic("FATfs: getdents cannot create some virtual inode\n");
+			} else
+				ino = INODE_NR(newip);
+			put_inode(newip);
+		}
+		dep->d_ino = ino;
 		dep->d_off = ent_pos;
 		dep->d_reclen = (unsigned short) reclen;
+
 		{
 			cp = &dep->d_name[0];
 /* FIXME: lcase */
@@ -261,7 +272,7 @@ DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-
 	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) callerbuf_off,
 			   (vir_bytes) getdents_buf, (size_t) mybuf_off, D);
 	if (r != OK) {
-		put_inode(rip);
+		/* put_inode(rip); */
 		return(r);
 	}
 
@@ -277,8 +288,65 @@ DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-
 	r = OK;
   }
 
-  put_inode(rip);		/* release the inode */
+/* CHECKME... */
+  /* put_inode(rip); */		/* release the inode */
   return(r);
+}
+
+/*===========================================================================*
+ *				enter_as_inode				     *
+ *===========================================================================*/
+PRIVATE struct inode *enter_as_inode(
+  struct fat_direntry * dp,	/* (short name) entry */
+  unsigned entrypos)		/* position within the parent directory */
+{
+/* Enter the inode as specified by its directory entry.
+
+FIXME: need the struct direntryref (*?)
+ */
+  struct inode *rip;
+  cluster_t cn;			/* cluster number */
+/*
+  int hashi;
+ */
+
+  cn = get_le16(dp->deStartCluster);
+/*
+  hashi = (int) (cn % NUM_HASH_SLOTS);
+ */
+#if 0
+  DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
+
+/* should not happen... */
+  /* Search inode in the hash table */
+  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
+	if (rip->i_ref > 0 && rip->i_clust == cn) {
+		++rip->i_ref;
+		return(rip);
+	}
+  }
+#endif
+
+  /* get a new inode with ref. count = 1 */
+  rip = get_free_inode();
+  rip->i_flags = 0;
+  rip->i_direntry = *dp;
+/* FIXME FAT32 */
+  rip->i_clust = get_le16(dp->deStartCluster);
+/*
+  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
+ */
+  rehash_inode(rip);
+  rip->i_mode = get_mode(rip);
+  rip->i_size = get_le32(dp->deFileSize);
+  memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
+/* more work needed here: i_mode, i_fc, dirref, IS_DIR=>SIZE_UNKNOWN */
+/* assert(IS_DIR => i_clust!=0) */
+
+  DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld\n",
+		rip->i_Name, rip->i_Extension, rip->i_clust));
+  
+  return(rip);
 }
 
 /*===========================================================================*
@@ -339,7 +407,7 @@ PRIVATE int nameto83(
 		*q = toupper(next);
 	}
 	prev = next;
-	next = *p++;
+	next = *++p;
   }
 /* check q-d==3 &&
    static const char *dev3[] = {"CON", "AUX", "PRN", "NUL", "   "};
@@ -348,6 +416,7 @@ PRIVATE int nameto83(
  */
   if (havelower && !haveupper)
 	fatdp->deLCase |= LCASE_NAME;
+/* FIXME: register the case havelower, which asks for LFN to store name... */
 
   if (*p == '\0') {
 	/* no extension */
@@ -385,7 +454,7 @@ PRIVATE int nameto83(
 		*q = toupper(next);
 	}
 	prev = next;
-	next = *p++;
+	next = *++p;
   }
   /* more than 3 chars in extension... */
   return(ENAMETOOLONG);
@@ -395,7 +464,7 @@ PRIVATE int nameto83(
  *				lookup_dir				     *
  *===========================================================================*/
 PUBLIC int lookup_dir(
-  register struct inode *dir_ptr, /* ptr to inode for dir to search */
+  register struct inode *dirp,	/* ptr to inode for dir to search */
   char string[NAME_MAX],	/* component to search for */
   struct inode **res_inop)	/* pointer to inode if found */
 {
@@ -408,9 +477,10 @@ PUBLIC int lookup_dir(
   int r;
   off_t pos;
   block_t b;
+  ino_t ino;
 
-  /* If 'dir_ptr' is not a pointer to a dir inode, error. */
-  if ( (dir_ptr->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
+  /* If 'dirp' is not a pointer to a dir inode, error. */
+  if ( (dirp->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
 	return(ENOTDIR);
   }
 
@@ -423,6 +493,9 @@ PUBLIC int lookup_dir(
  *   Note: if 'string' is dot1 or dot2, no access permissions are checked.
  */
   
+  DBGprintf(("FATfs: lookup in dir=%lo, looking for <%s>...\n",
+	INODE_NR(dirp), string));
+
   memset(&direntry, '\0', sizeof direntry);	/* Avoid leaking any data */
   if ( (r = nameto83(string, &direntry)) != OK)
 /* WORK NEEDED: LFN... */
@@ -430,11 +503,11 @@ PUBLIC int lookup_dir(
 
   /* Step through the directory one block at a time. */
 /*
-  for (; pos < dir_ptr->i_size; pos += block_size) {
+  for (; pos < dirp->i_size; pos += block_size) {
  */
   pos = 0;
   while (TRUE) {
-	b = bmap(dir_ptr, pos);	/* get block number */
+	b = bmap(dirp, pos);	/* get block number */
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 		return(ENOENT);
@@ -469,11 +542,19 @@ PUBLIC int lookup_dir(
 			/* we have a match on short name! */
 			r = OK;
 			assert(res_inop);
-			*res_inop = enter_inode(&dp->d_direntry,
-				pos + ((char*)dp - (char*)&bp->b_dir[0]) );
-			if( *res_inop == NULL ) {
+/* FIXME FAT32 */
+			ino = get_le16(dp->d_direntry.deStartCluster);
+			if (ino && (*res_inop = find_inode(ino)) ) {
+				/* found in inode cache */
+				get_inode(*res_inop);
+			} else {
+/* WORK NEEDED! */
+				*res_inop = enter_as_inode(&dp->d_direntry,
+					pos + ((char*)dp - (char*)&bp->b_dir[0]) );
+				if( *res_inop == NULL ) {
 /* FIXME: do something clever... */
-				panic("FATfs: lookup cannot create inode\n");
+					panic("FATfs: lookup cannot create inode\n");
+				}
 			}
 			put_block(bp);
 			return(r);
@@ -496,7 +577,7 @@ PUBLIC int lookup_dir(
  *				add_direntry				     *
  *===========================================================================*/
 PUBLIC int add_direntry(
-  register struct inode *dir_ptr, /* ptr to inode for dir to search */
+  register struct inode *dirp, /* ptr to inode for dir to search */
   char string[NAME_MAX],	/* component to search for */
   struct inode **res_inop)	/* pointer to inode if added */
 {
@@ -517,8 +598,8 @@ PUBLIC int add_direntry(
   int extended = 0;
 
 #if 0
-  /* If 'dir_ptr' is not a pointer to a dir inode, error. */
-  if ( (dir_ptr->i_mode & I_TYPE) != I_DIRECTORY)  {
+  /* If 'dirp' is not a pointer to a dir inode, error. */
+  if ( (dirp->i_mode & I_TYPE) != I_DIRECTORY)  {
 	return(ENOTDIR);
    }
   
@@ -535,20 +616,20 @@ PUBLIC int add_direntry(
 				   /* only a writable device is required. */
 #if 0
         } else if(check_permissions) {
-		r = forbidden(ldir_ptr, bits); /* check access permissions */
+		r = forbidden(ldirp, bits); /* check access permissions */
 #endif
 	}
   }
   if (r != OK) return(r);
   
   /* Step through the directory one block at a time. */
-  old_slots = (unsigned) (ldir_ptr->i_size/ DIR_ENTRY_SIZE );
+  old_slots = (unsigned) (ldirp->i_size/ DIR_ENTRY_SIZE );
   new_slots = 0;
   e_hit = FALSE;
   match = 0;			/* set when a string match occurs */
 
-  for (pos = 0; pos < ldir_ptr->i_size; pos += /*FIXME ldir_ptr->i_sp->s_block_size*/ 512 ) {
-	b = bmap(ldir_ptr, pos);	/* get block number */
+  for (pos = 0; pos < ldirp->i_size; pos += /*FIXME ldirp->i_sp->s_block_size*/ 512 ) {
+	b = bmap(ldirp, pos);	/* get block number */
 
 	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
 	bp = get_block(dev, b, NORMAL);	/* get a dir block */
@@ -558,7 +639,7 @@ PUBLIC int add_direntry(
 #if 0
 	/* Search a directory block. */
 	for (dp = &bp->b_dir[0];
-		dp < &bp->b_dir[NR_DIR_ENTRIES(ldir_ptr->i_sp->s_block_size)];
+		dp < &bp->b_dir[NR_DIR_ENTRIES(ldirp->i_sp->s_block_size)];
 		dp++) {
 		if (++new_slots > old_slots) { /* not found, but room left */
 			if (flag == ENTER) e_hit = TRUE;
@@ -588,10 +669,10 @@ PUBLIC int add_direntry(
 				*((ino_t *) &dp->d_name[t]) = dp->d_ino;
 				dp->d_ino = NO_ENTRY;	/* erase entry */
 				bp->b_dirt = DIRTY;
-				ldir_ptr->i_update |= CTIME | MTIME;
-				ldir_ptr->i_dirt = DIRTY;
+				ldirp->i_update |= CTIME | MTIME;
+				ldirp->i_dirt = DIRTY;
 			} else {
-				sp = ldir_ptr->i_sp;	/* 'flag' is LOOK_UP */
+				sp = ldirp->i_sp;	/* 'flag' is LOOK_UP */
 				*numb = (ino_t) conv4(sp->s_native,
 						    (int) dp->d_ino);
 			}
@@ -625,7 +706,7 @@ PUBLIC int add_direntry(
 	new_slots++;		/* increase directory size by 1 entry */
 	if (new_slots == 0) return(EFBIG); /* dir size limited by slot count */
 #if 0
-	if ( (bp = new_block(ldir_ptr, ldir_ptr->i_size)) == NULL)
+	if ( (bp = new_block(ldirp, ldirp->i_size)) == NULL)
 		return(err_code);
 	dp = &bp->b_dir[0];
 #endif
@@ -636,16 +717,16 @@ PUBLIC int add_direntry(
   /* 'bp' now points to a directory block with space. 'dp' points to slot. */
   (void) memset(dp->d_name, 0, (size_t) NAME_MAX); /* clear entry */
   for (i = 0; i < NAME_MAX && string[i]; i++) dp->d_name[i] = string[i];
-  sp = ldir_ptr->i_sp; 
+  sp = ldirp->i_sp; 
   dp->d_ino = conv4(sp->s_native, (int) *numb);
   bp->b_dirt = DIRTY;
   put_block(bp, DIRECTORY_BLOCK);
-  ldir_ptr->i_update |= CTIME | MTIME;	/* mark mtime for update later */
-  ldir_ptr->i_dirt = DIRTY;
+  ldirp->i_update |= CTIME | MTIME;	/* mark mtime for update later */
+  ldirp->i_dirt = DIRTY;
   if (new_slots > old_slots) {
-	ldir_ptr->i_size = (off_t) new_slots * DIR_ENTRY_SIZE;
+	ldirp->i_size = (off_t) new_slots * DIR_ENTRY_SIZE;
 	/* Send the change to disk if the directory is extended. */
-	if (extended) rw_inode(ldir_ptr, WRITING);
+	if (extended) rw_inode(ldirp, WRITING);
   }
 #endif
   return(OK);
@@ -655,7 +736,7 @@ PUBLIC int add_direntry(
  *				del_direntry				     *
  *===========================================================================*/
 PUBLIC int del_direntry(
-  register struct inode *dir_ptr, /* ptr to inode for dir to search */
+  register struct inode *dirp, /* ptr to inode for dir to search */
   struct inode *ent_ptr)	/* pointer to inode if found */
 {
 /* This function searches the directory whose inode is pointed to by 'ldip',
@@ -668,8 +749,8 @@ PUBLIC int del_direntry(
   off_t pos;
   block_t b;
 
-  /* If 'dir_ptr' is not a pointer to a dir inode, error. */
-  if ( (dir_ptr->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
+  /* If 'dirp' is not a pointer to a dir inode, error. */
+  if ( (dirp->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
 	return(ENOTDIR);
   }
 /* we should use the dir_ref to check we search the correct parent,
@@ -681,7 +762,7 @@ PUBLIC int del_direntry(
  *				is_empty_dir				     *
  *===========================================================================*/
 PUBLIC int is_empty_dir(
-  register struct inode *dir_ptr) /* ptr to inode for dir to search */
+  register struct inode *dirp) /* ptr to inode for dir to search */
 {
 /* This function searches the directory whose inode is pointed to by 'ldip',
  * and return OK if only . and .. in dir, else ENOTEMPTY;
@@ -693,8 +774,8 @@ PUBLIC int is_empty_dir(
   off_t pos;
   block_t b;
 
-  /* If 'dir_ptr' is not a pointer to a dir inode, error. */
-  if ( (dir_ptr->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
+  /* If 'dirp' is not a pointer to a dir inode, error. */
+  if ( (dirp->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
 	return(ENOTDIR);
   }
 
@@ -707,11 +788,11 @@ PUBLIC int is_empty_dir(
 
   /* Step through the directory one block at a time. */
 /*
-  for (; pos < dir_ptr->i_size; pos += block_size) {
+  for (; pos < dirp->i_size; pos += block_size) {
  */
   pos = 0;
   while (TRUE) {
-	b = bmap(dir_ptr, pos);	/* get block number */
+	b = bmap(dirp, pos);	/* get block number */
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 		return(OK);	/* it was empty! */

@@ -9,6 +9,7 @@
  *   enter_inode	allocate a new inode corresponding to an entry
  *   get_inode		find or load an inode, increasing its reference count
  *   put_inode		decrease the reference count of an inode
+ *   rehash_inode	replace an inode into the hash queue
  *   link_inode		link an inode as a directory entry to another inode
  *   unlink_inode	unlink an inode from its parent directory
  *   get_free_inode	return a free inode object
@@ -96,6 +97,8 @@ PRIVATE struct inode inodes[NUM_INODES];
 PRIVATE TAILQ_HEAD(free_head, inode) free_list;
 /* inode hashtable */
 PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
+
+FORWARD _PROTOTYPE( void unhash_inode, (struct inode *node) 		);
 
 /*===========================================================================*
  *				init_inodes				     *
@@ -221,9 +224,9 @@ PUBLIC struct inode *find_inode(
 }
 
 /*===========================================================================*
- *				enter_inode				     *
+ *				(x)enter_inode				     *
  *===========================================================================*/
-PUBLIC struct inode *enter_inode(
+PUBLIC struct inode *xenter_inode(
   struct fat_direntry * dp,	/* (short name) entry */
   unsigned entrypos)		/* position within the parent directory */
 {
@@ -261,8 +264,36 @@ FIXME: need the struct direntryref (*?)
 
   DBGprintf(("FATfs: enter_inode create entry for ['%.8s.%.3s']\n",
 		rip->i_Name, rip->i_Extension));
-  
+
   return(rip);
+}
+
+/*===========================================================================*
+ *				rehash_inode   			     *
+ *===========================================================================*/
+PUBLIC void rehash_inode(struct inode *rip) 
+{
+  int hashi;
+  cluster_t cn;			/* cluster number */
+
+#ifndef get_le16
+#define get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
+#endif
+/* FIXME FAT32 */
+  cn = get_le16(rip->iz_StartCluster);
+  hashi = (int) (cn % NUM_HASH_SLOTS);
+  
+  /* insert into hash table */
+  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
+}
+
+/*===========================================================================*
+ *				unhash_inode      			     *
+ *===========================================================================*/
+PRIVATE void unhash_inode(struct inode *rip) 
+{
+  /* remove from hash table */
+  LIST_REMOVE(rip, i_hash);
 }
 
 /*===========================================================================*
