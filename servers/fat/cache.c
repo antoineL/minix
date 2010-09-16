@@ -55,7 +55,7 @@
 #define END_OF_FILE   (-104)	/* eof detected */
 
 /* CHECKME... */
-#define BUFHASH(b) ((b) % nr_bufs)
+#define BUFHASH(b) ((b) % num_bufs)
 
 FORWARD _PROTOTYPE( void invalidate, (dev_t) );
 FORWARD _PROTOTYPE( void flushall, (dev_t) );
@@ -74,22 +74,22 @@ PRIVATE int vmcache_avail = -1; /* 0 if not available, >0 if available. */
 /*===========================================================================*
  *				init_cache                                   *
  *===========================================================================*/
-PUBLIC void init_cache(int new_nr_bufs, unsigned int blocksize)
+PUBLIC void init_cache(int new_num_bufs, unsigned int blocksize)
 {
 /* Initialize the buffer pool, and set the (unique) size of the blocks. */
   register struct buf *bp;
 
-  assert(new_nr_bufs > 0);
+  assert(new_num_bufs > 0);
   assert(blocksize > 0);
 
 /* CHECKME: useful? */
   if (have_used_inode())
 	panic("init_cache with inode(s) in use");
 
-  if(nr_bufs > 0) {
+  if(num_bufs > 0) {
 	assert(buf);
 	(void) do_sync();
-  	for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++) {
+  	for (bp = &buf[0]; bp < &buf[num_bufs]; bp++) {
 		if(bp->dp) {
 			assert(bp->b_bytes > 0);
 			free_contig(bp->dp, bp->b_bytes);
@@ -100,22 +100,26 @@ PUBLIC void init_cache(int new_nr_bufs, unsigned int blocksize)
   if(buf)
 	free(buf);
 
-  if(!(buf = calloc(sizeof(buf[0]), new_nr_bufs)))
-	panic("couldn't allocate buf list (%d)", new_nr_bufs);
+  if(!(buf = calloc(sizeof(buf[0]), new_num_bufs)))
+	panic("couldn't allocate buf list (%d)", new_num_bufs);
 
   if(buf_hash)
 	free(buf_hash);
-  if(!(buf_hash = calloc(sizeof(buf_hash[0]), new_nr_bufs)))
-	panic("couldn't allocate buf hash list (%d)", new_nr_bufs);
+  if(!(buf_hash = calloc(sizeof(buf_hash[0]), new_num_bufs)))
+	panic("couldn't allocate buf hash list (%d)", new_num_bufs);
 
-  nr_bufs = new_nr_bufs;
+  num_bufs = new_num_bufs;
   block_size = blocksize;
+
+  DBGprintf(("FATfs: %d blocks, %u+%u bytes each, = %lu b.(virtual)\n",
+	num_bufs, (unsigned)block_size + usizeof(struct buf),
+	(unsigned long)(block_size+sizeof(buf[0])) * num_bufs));
 
   bufs_in_use = 0;
   TAILQ_INIT(&lru);
   LIST_INIT(&buf_hash[0]);
 
-  for (bp = &buf[nr_bufs]; bp-- > &buf[0]; ) {
+  for (bp = &buf[num_bufs]; bp-- > &buf[0]; ) {
         bp->b_bytes = 0;
         bp->b_blocknr = NO_BLOCK;
         bp->b_dev = NO_DEV;
@@ -145,7 +149,7 @@ PUBLIC int do_sync()
   struct buf *bp;
  */
 
-  assert(nr_bufs > 0);
+  assert(num_bufs > 0);
   assert(buf);
 
   flush_inodes();
@@ -156,7 +160,7 @@ PUBLIC int do_sync()
 /* update FSInfo (FAT32) => DIRTY */
 
 #if 0 /*obsolete*/
-  for(bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
+  for(bp = &buf[0]; bp < &buf[num_bufs]; bp++)
 	  if(bp->b_dev != NO_DEV && bp->b_dirt == DIRTY) 
 		  flushall(bp->b_dev);
 #endif
@@ -206,14 +210,14 @@ PRIVATE void flushall(
   static unsigned int dirtylistsize = 0;
   int ndirty;
 
-  if(dirtylistsize != nr_bufs) {
+  if(dirtylistsize != num_bufs) {
 	if(dirtylistsize > 0) {
 		assert(dirty != NULL);
 		free(dirty);
 	}
-	if(!(dirty = malloc(sizeof(dirty[0])*nr_bufs)))
+	if(!(dirty = malloc(sizeof(dirty[0])*num_bufs)))
 		panic("couldn't allocate dirty buf list");
-	dirtylistsize = nr_bufs;
+	dirtylistsize = num_bufs;
   }
 
 /* FIXME: when the buffer is for some FAT sector,
@@ -221,7 +225,7 @@ PRIVATE void flushall(
  * when flushed to disk... NOW!
  */
 
-  for (bp = &buf[0], ndirty = 0; bp < &buf[nr_bufs]; bp++)
+  for (bp = &buf[0], ndirty = 0; bp < &buf[num_bufs]; bp++)
 	if (bp->b_dirt == DIRTY && bp->b_dev == dev) dirty[ndirty++] = bp;
   rw_scattered(dev, dirty, ndirty, WRITING);
 }
@@ -237,7 +241,7 @@ PRIVATE void invalidate(
 
   register struct buf *bp;
 
-  for (bp = &buf[0]; bp < &buf[nr_bufs]; bp++)
+  for (bp = &buf[0]; bp < &buf[num_bufs]; bp++)
 	if (bp->b_dev == device) bp->b_dev = NO_DEV;
 
 #ifdef USE_VMCACHE
@@ -280,7 +284,7 @@ PUBLIC struct buf *get_block(
 
   assert(buf_hash);
   assert(buf);
-  assert(nr_bufs > 0);
+  assert(num_bufs > 0);
 
   if(vmcache_avail < 0) {
 	/* Test once for the availability of the vm yield block feature. */
@@ -322,7 +326,7 @@ DBGprintf(("found in cache! returns %d @ %p\n", bp-buf, bp->dp));
 
   /* Desired block is not on available chain.  Take oldest block. */
   if ((bp = TAILQ_FIRST(&lru)) == NULL)
-	panic("all buffers in use: %d", nr_bufs);
+	panic("all buffers in use: %d", num_bufs);
 
 DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
 

@@ -88,10 +88,6 @@
  * - A CACHED or FREE inode may be reused for other purposes at any time.
  */
 
-/* Number of entries in the cluster hashtable. */
-/* FIXME: go to const.h */
-#define NUM_HASH_SLOTS   1023
-
 PRIVATE struct inode inodes[NUM_INODES];
 
 PRIVATE TAILQ_HEAD(free_head, inode) free_list;
@@ -107,7 +103,7 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 {
 /* Initialize inodes table. Return the root inode.
  */
-  struct inode *ino;
+  struct inode *rip;
   int index;
 
   assert(new_num_inodes == NUM_INODES);
@@ -123,40 +119,50 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 
   /* Mark all inodes except the root inode as free. */
   for (index = 1; index < NUM_INODES; index++) {
-	ino = &inodes[index];
-	ino->i_parent = NULL;
-	LIST_INIT(&ino->i_child);
+	rip = &inodes[index];
+	rip->i_parent = NULL;
+	LIST_INIT(&rip->i_child);
 #if 0
 	ino->i_num = index + 1;
 	ino->i_gen = (unsigned short)-1; /* aesthetics */
-#else
+#elif 0
 	ino->i_index = index;
-#endif
 	ino->i_gen = (index*index) & 0xff; /* some fancy small number */
-	ino->i_ref = 0;
-	ino->i_flags = 0;
-	TAILQ_INSERT_TAIL(&free_list, ino, i_free);
+#else
+	rip->i_index = index;
+	rip->i_gen = (unsigned short)-1; /* aesthetics */
+#endif
+	rip->i_ref = 0;
+	rip->i_flags = 0;
+	TAILQ_INSERT_TAIL(&free_list, rip, i_free);
   }
 
   /* Initialize and return the root inode. */
-  ino = &inodes[0];
-  ino->i_parent = ino;		/* root inode is its own parent */
-  LIST_INIT(&ino->i_child);
+  rip = &inodes[0];
+  rip->i_parent = rip;		/* root inode is its own parent */
+  LIST_INIT(&rip->i_child);
 #if 0
   ino->i_num = ROOT_INODE_NR;
   ino->i_gen = 0;		/* unused by root node */
-#else
+#elif 0
   ino->i_index = 0;
   ino->i_gen = ROOT_GEN_NR;	/* fixed for root node */
+#else
+  rip->i_num = ROOT_INODE_NR;
+  rip->i_index = 0;
+  rip->i_gen = 0;		/* unused */
 #endif
-  ino->i_ref = 1;		/* root inode is hereby in use */
-  ino->i_flags = I_DIR;		/* root inode is a directory */
-  ino->i_Attributes = ATTR_DIRECTORY;
-  memset(ino->i_Name, ' ', 8);	/* root inode has empty name */
-  memset(ino->i_Extension, ' ', 3);
-  ino->i_clust = 1;		/* root inode is given a conventional number*/
+  rip->i_ref = 1;		/* root inode is hereby in use */
+  rip->i_flags = I_DIR | I_ROOTDIR; /* root inode is a directory */
+  rip->i_Attributes = ATTR_DIRECTORY;
+  memset(rip->i_Name, ' ', 8);	/* root inode has empty name */
+  memset(rip->i_Extension, ' ', 3);
+/* FIXME: FAT32 is different... */
+  rip->i_clust = 1;		/* root inode is given a conventional number*/
 
-  return ino;
+  rehash_inode(rip);
+
+  return(rip);
 }
 
 /*===========================================================================*
@@ -168,9 +174,10 @@ ino_t ino_nr;
 /* Return an inode based on its (perhaps synthetised) number, as known by VFS.
  * Do not increase its reference count.
  */
-  struct inode *ino;
+  struct inode *rip;
   int index;
 
+#if 0
   /* Inode 0 (= index -1) is not a valid inode number. */
 
   index = INODE_INDEX(ino_nr);
@@ -190,12 +197,42 @@ ino_t ino_nr;
 
 	return NULL;
   }
+#else
+  /* Inode 0 (= index -1) is not a valid inode number. */
+  if (ino_nr <= 0) {
+	printf("FATfs: VFS passed invalid inode number!\n");
+	return NULL;
+  }
+  
+  if (IS_SYNTHETIC(ino_nr)) {
+	index = INODE_INDEX(ino_nr);
+	if (index < 0) {
+		printf("FATfs: VFS passed invalid inode number!\n");
+		return NULL;
+	}
+
+	assert(index < NUM_INODES);
+	
+	rip = &inodes[index];
+	
+	/* Make sure the generation number matches. */
+	if (INODE_GEN(ino_nr) != rip->i_gen) {
+		printf("FATfs: VFS passed outdated inode number!\n");
+		return NULL;
+	}
+  } else {
+	if ( (rip = find_inode(ino_nr)) == NULL) {
+		printf("FATfs: VFS passed unknown inode number!\n");
+		return NULL;
+	}
+  }
+#endif
 
   /* The VFS/FS protocol only uses referenced inodes. */
-  if (ino->i_ref == 0)
+  if (rip->i_ref == 0)
 	printf("FATfs: VFS passed unused inode!\n");
 
-  return ino;
+  return rip;
 }
 
 /*===========================================================================*
@@ -208,15 +245,15 @@ PUBLIC struct inode *find_inode(
 /* Find the inode specified by its coordinates, the first cluster number.
  * Do not increase its reference count.
  */
-  struct inode *ino;
+  struct inode *rip;
   int hashi;
 
   hashi = (int) (cn % NUM_HASH_SLOTS);
 
   /* Search inode in the hash table */
-  LIST_FOREACH(ino, &hash_inodes[hashi], i_hash) {
-      if (ino->i_ref > 0 && ino->i_clust == cn) {
-          return(ino);
+  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
+      if (rip->i_ref > 0 && rip->i_clust == cn) {
+          return(rip);
       }
   }
   
@@ -274,6 +311,7 @@ FIXME: need the struct direntryref (*?)
 PUBLIC void rehash_inode(struct inode *rip) 
 {
   int hashi;
+#if 0
   cluster_t cn;			/* cluster number */
 
 #ifndef get_le16
@@ -282,6 +320,9 @@ PUBLIC void rehash_inode(struct inode *rip)
 /* FIXME FAT32 */
   cn = get_le16(rip->iz_StartCluster);
   hashi = (int) (cn % NUM_HASH_SLOTS);
+#else
+  hashi = (int) ((rip->i_num) % NUM_HASH_SLOTS);
+#endif
   
   /* insert into hash table */
   LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
@@ -299,48 +340,46 @@ PRIVATE void unhash_inode(struct inode *rip)
 /*===========================================================================*
  *				get_inode				     *
  *===========================================================================*/
-PUBLIC void get_inode(ino)
-struct inode *ino;
+PUBLIC void get_inode(struct inode *rip)
 {
 /* Increase the given inode's reference count. If both reference and link
  * count were zero before, remove the inode from the free list.
  */
 
-  DBGprintf(("FATfs: get_inode(%p):%lo ['%.8s.%.3s']\n", ino,
-		INODE_NR(ino), ino->i_Name, ino->i_Extension));
+  DBGprintf(("FATfs: get_inode(%p):%lo ['%.8s.%.3s']\n", rip,
+		INODE_NR(rip), rip->i_Name, rip->i_Extension));
 
   /* (INUSE, CACHED) -> INUSE */
 
   /* If this is the first reference, remove the node from the free list. */
-  if (ino->i_ref == 0 && !HAS_CHILDREN(ino))
-	TAILQ_REMOVE(&free_list, ino, i_free);
+  if (rip->i_ref == 0 && !HAS_CHILDREN(rip))
+	TAILQ_REMOVE(&free_list, rip, i_free);
 
-  ino->i_ref++;
+  rip->i_ref++;
 
-  if (ino->i_ref == 0)
+  if (rip->i_ref == 0)
 	panic("inode reference count wrapped");
 }
 
 /*===========================================================================*
  *				put_inode				     *
  *===========================================================================*/
-PUBLIC void put_inode(ino)
-struct inode *ino;
+PUBLIC void put_inode(struct inode *rip)
 {
 /* Decrease an inode's reference count. If this count has reached zero, close
  * the inode's file handle, if any. If both reference and link count have
  * reached zero, mark the inode as cached or free.
  */
 
-  assert(ino != NULL);
-  DBGprintf(("FATfs: put_inode(%p):%lo ['%.8s.%.3s']\n", ino,
-		INODE_NR(ino), ino->i_Name, ino->i_Extension));
-  assert(ino->i_ref > 0);
+  assert(rip != NULL);
+  DBGprintf(("FATfs: put_inode(%p):%lo ['%.8s.%.3s']\n", rip,
+		INODE_NR(rip), rip->i_Name, rip->i_Extension));
+  assert(rip->i_ref > 0);
 
-  ino->i_ref--;
+  rip->i_ref--;
 
   /* If there are still references to this inode, we're done here. */
-  if (ino->i_ref > 0)
+  if (rip->i_ref > 0)
 	return;
 
 /* free_cluster_chain */
@@ -349,11 +388,11 @@ struct inode *ino;
 
   /* Close any file handle associated with this inode. */
 /*
-  put_handle(ino);
+  put_handle(rip);
  */
 
   /* Only add the inode to the free list if there are also no links to it. */
-  if (HAS_CHILDREN(ino))
+  if (HAS_CHILDREN(rip))
 	return;
 
   /* INUSE -> CACHED, DELETED -> FREE */
@@ -363,18 +402,18 @@ struct inode *ino;
   /* Add the inode to the head or tail of the free list, depending on whether
    * it is also deleted (and therefore can never be reused as is).
    */
-  if (ino->i_parent == NULL)
-	TAILQ_INSERT_HEAD(&free_list, ino, i_free);
+  if (rip->i_parent == NULL)
+	TAILQ_INSERT_HEAD(&free_list, rip, i_free);
   else
-	TAILQ_INSERT_TAIL(&free_list, ino, i_free);
+	TAILQ_INSERT_TAIL(&free_list, rip, i_free);
 }
 
 /*===========================================================================*
  *				link_inode				     *
  *===========================================================================*/
-PUBLIC void link_inode(parent, ino)
+PUBLIC void link_inode(parent, rip)
 struct inode *parent;
-struct inode *ino;
+struct inode *rip;
 {
 /* Link an inode to a parent. If both reference and link count were zero
  * before, remove the inode from the free list.
@@ -385,16 +424,15 @@ struct inode *ino;
   if (parent->i_ref == 0 && !HAS_CHILDREN(parent))
 	TAILQ_REMOVE(&free_list, parent, i_free);
 
-  LIST_INSERT_HEAD(&parent->i_child, ino, i_next);
+  LIST_INSERT_HEAD(&parent->i_child, rip, i_next);
 
-  ino->i_parent = parent;
+  rip->i_parent = parent;
 }
 
 /*===========================================================================*
  *				unlink_inode				     *
  *===========================================================================*/
-PUBLIC void unlink_inode(ino)
-struct inode *ino;
+PUBLIC void unlink_inode(struct inode *rip)
 {
 /* Unlink an inode from its parent. If both reference and link count have
  * reached zero, mark the inode as cached or free.
@@ -402,9 +440,9 @@ struct inode *ino;
  */
   struct inode *parent;
 
-  parent = ino->i_parent;
+  parent = rip->i_parent;
 
-  LIST_REMOVE(ino, i_next);
+  LIST_REMOVE(rip, i_next);
   
   if (parent->i_ref == 0 && !HAS_CHILDREN(parent)) {
 	if (parent->i_parent == NULL)
@@ -413,17 +451,17 @@ struct inode *ino;
 		TAILQ_INSERT_TAIL(&free_list, parent, i_free);
   }
 
-  ino->i_parent = NULL;
+  rip->i_parent = NULL;
 }
 
 /*===========================================================================*
  *				get_free_inode				     *
  *===========================================================================*/
-PUBLIC struct inode *get_free_inode()
+PUBLIC struct inode *get_free_inode(void)
 {
 /* Return a free inode object (with reference count 1), if available.
  */
-  struct inode *ino;
+  struct inode *rip;
 
   /* [CACHED -> FREE,] FREE -> DELETED */
 
@@ -434,11 +472,11 @@ PUBLIC struct inode *get_free_inode()
 	return NULL;
   }
 
-  ino = TAILQ_FIRST(&free_list);
-  TAILQ_REMOVE(&free_list, ino, i_free);
+  rip = TAILQ_FIRST(&free_list);
+  TAILQ_REMOVE(&free_list, rip, i_free);
 
-  assert(ino->i_ref == 0);
-  assert(!HAS_CHILDREN(ino));
+  assert(rip->i_ref == 0);
+  assert(!HAS_CHILDREN(rip));
 
 #if 0
   /* If this was a cached inode, free it first. */
@@ -446,13 +484,13 @@ PUBLIC struct inode *get_free_inode()
 	del_direntry(ino);
 #endif
 
-  assert(ino->i_parent == NULL);
+  assert(rip->i_parent == NULL);
 
   /* Initialize a subset of its fields */
-  ino->i_gen++;
-  ino->i_ref = 1;
+  rip->i_gen++;
+  rip->i_ref = 1;
 
-  return ino;
+  return rip;
 }
 
 /*===========================================================================*

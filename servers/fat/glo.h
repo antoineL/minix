@@ -51,7 +51,7 @@ EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 				 */
 
 /* Buffer cache. */
-EXTERN int nr_bufs;
+EXTERN int num_bufs;
 EXTERN int bufs_in_use;		/* # bufs currently in use (not on free list)*/
 EXTERN unsigned block_size;
 EXTERN int may_use_vmcache;	/* secondary cache using VM */

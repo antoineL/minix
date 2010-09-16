@@ -214,20 +214,28 @@ struct fatcache {
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
-  struct inode *i_parent;		/* parent inode pointer */
-  LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
-  LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
   LIST_ENTRY(inode) i_hash;		/* hashtable chain entry */
-  unsigned short i_index;		/* inode number for quick reference */
+  ino_t i_num;				/* inode number for quick reference */
+  unsigned short i_index;
   unsigned short i_gen;			/* inode generation number */
   unsigned short i_ref;			/* VFS reference count */
   unsigned short i_flags;		/* any combination of I_* flags */
+#if 0
   union {
 	TAILQ_ENTRY(inode) u_free;	/* free list chain entry */
 	struct direntryref u_dirref;	/* coordinates of this entry */
   } i_u;
 #define i_free		i_u.u_free
 #define i_dirref	i_u.u_dirref
+#else
+  TAILQ_ENTRY(inode) i_free;		/* free list chain entry */
+  struct direntryref i_dirref;		/* coordinates of this entry */
+#endif
+
+/* FIXME */
+  struct inode *i_parent;		/* parent inode pointer */
+  LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
+  LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
 
   struct fat_direntry i_direntry;	/* actual data of entry */
 /* Shorthand macros used to reference fields in the direntry */
@@ -248,7 +256,8 @@ struct inode {
 };
 
 
-#define I_DIR		0x01		/* this inode represents a directory */
+#define I_DIR		0x01		/* this inode is a directory */
+#define I_ROOTDIR	0x02		/* this inode is the root directory */
 
 #define I_MOUNTPOINT	0x0010		/* this inode is a mount point */
 
@@ -260,6 +269,7 @@ struct inode {
 					 * was unlinked, but is still used
 					 */
 #define I_DIRSIZED	0x2000		/* size is not estimated */
+#define I_DIRNOTSIZED	0x4000		/* size is pure guess */
 
 /*
  *  Values for the de_flag field of the denode.
@@ -268,7 +278,7 @@ struct inode {
 #define	DELOCKED	0x0001		/* directory entry is locked	*/
 #define	DEWANT		0x0002		/* someone wants this de	*/
 #define	DERENAME	0x0004		/* de is being renamed		*/
-#define	DEUPD		0x0008		/* file has been modified	*/
+	#define	DEUPD		0x0008		/* file has been modified	*/
 #define	DESHLOCK	0x0010		/* file has shared lock		*/
 #define	DEEXLOCK	0x0020		/* file has exclusive lock	*/
 #define	DELWAIT		0x0040		/* someone waiting on file lock	*/
@@ -276,6 +286,8 @@ struct inode {
 					 *  to disk			*/
 
 #define IS_DIR(i)	((i)->i_flags & I_DIR)
+#define IS_ROOT(i)	((i)->i_flags & I_ROOTDIR)
+
 #define HAS_CHILDREN(i)	(!LIST_EMPTY(& (i)->i_child))
 
 #define MODE_TO_DIRFLAG(m)	(S_ISDIR(m) ? I_DIR : 0)

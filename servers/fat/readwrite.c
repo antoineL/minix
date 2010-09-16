@@ -540,7 +540,7 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
  * Warning: this code is not reentrant (use static local variables, without mutex)
  */
 /* Minimum number of blocks to prefetch. */
-# define BLOCKS_MINIMUM		(nr_bufs < 50 ? 18 : 32)
+# define BLOCKS_MINIMUM		(num_bufs < 50 ? 18 : 32)
   int block_spec, scale, read_q_size;
   unsigned int blocks_ahead, fragment;
   block_t block, blocks_left;
@@ -552,14 +552,14 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
   static unsigned int readqsize = 0;
   static struct buf **read_q;
 
-  if(readqsize != nr_bufs) {
+  if(readqsize != num_bufs) {
 	if(readqsize > 0) {
 		assert(read_q != NULL);
 		free(read_q);
 	}
-	if(!(read_q = malloc(sizeof(read_q[0])*nr_bufs)))
+	if(!(read_q = malloc(sizeof(read_q[0])*num_bufs)))
 		panic("couldn't allocate read_q");
-	readqsize = nr_bufs;
+	readqsize = num_bufs;
   }
 
 /*
@@ -641,7 +641,8 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
 	if (--blocks_ahead == 0) break;
 
 	/* Don't trash the cache, leave 4 free. */
-	if (bufs_in_use >= nr_bufs - 4) break;
+/* FIXME: beware of the FAT12 cache... const.h? */
+	if (bufs_in_use >= num_bufs - 4) break;
 
 	block++;
 

@@ -82,10 +82,16 @@ FIXME!
 	/* Number of file serial numbers available to non-privileged process*/
   st.f_fsid = dev;		/* File system ID */
   st.f_flag = (read_only ? ST_RDONLY : 0); /* Bit mask of f_flag values. */
-/* FIXME... consider LFN (255, perhaps topped with NAME_MAX) or not (12)*/
-  st.f_namemax = NAME_MAX;	/* Maximum filename length */
 
   st.f_flag |= ST_NOSUID;	/* FAT does not handle set-uid bits */
+
+/* FIXME... consider LFN (255) or not (12), according to options.
+ * But should we return FAT_NAME_MAX (=255) here? or topped with NAME_MAX?
+ */
+  st.f_namemax = NAME_MAX;	/* Maximum filename length */
+#ifdef ST_NOTRUNC
+  st.f_flag |= ST_NOTRUNC;	/* We accept dealing with longer names. */
+#endif
 
   /* Copy the struct to user space. */
   r = sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0, (vir_bytes) &st,

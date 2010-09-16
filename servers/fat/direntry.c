@@ -26,6 +26,13 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+/* EOVERFLOW is the official POSIX answer when we find a name too long to be
+ * sent back to the user process; but it was only recently put in MINIX.
+ */
+#ifndef EOVERFLOW
+#define EOVERFLOW	ENAMETOOLONG	/* replace by something vaguely close... */
+#endif
+
 void rehash_inode(struct inode *node);
 
 FORWARD _PROTOTYPE( struct inode *enter_as_inode,
@@ -180,6 +187,21 @@ DBGprintf(("calc.len = %d\n", len));
 /* FIXME: lcase */
 		}
 		assert(len > 0);
+		if (len > NAME_MAX) {
+			/* we discovered a name longer than what MINIX
+			 * can handle; it would be a violation of
+			 * POSIX to return a larger name (and a potential
+			 * cause of failure in user code);
+			 * truncating is not a better option, since it
+			 * is likely to cause problems later, like
+			 * duplicate filenames.
+			 * So we end the request with an error.
+			 */
+			/* put_inode(rip); */
+			put_block(bp);
+			return(EOVERFLOW);
+		}
+
 		
 		/* Compute record length */
 		reclen = offsetof(struct dirent, d_name) + len + 1;
@@ -333,15 +355,30 @@ FIXME: need the struct direntryref (*?)
   rip->i_direntry = *dp;
 /* FIXME FAT32 */
   rip->i_clust = get_le16(dp->deStartCluster);
-/*
-  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
- */
-  rehash_inode(rip);
   rip->i_mode = get_mode(rip);
   rip->i_size = get_le32(dp->deFileSize);
+  if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
+	rip->i_flags |= I_DIR;
+	if (rip->i_size == 0) {
+	/* in the FAT file system, since directory entries are
+	 * replicated in many places around, the deFileSize field
+	 * is always stored as 0.
+	 * VFS and programs rely on the other hand on a non-zero
+	 * value, and will not even consider a 0-sized entry...
+	 *
+	 * We could enumerate the FAT chain to learn how long
+	 * the directory really is; right now we do not do that,
+	 * and just place a faked value of one cluster.
+	 */
+		rip->i_size == sb.bpcluster;
+		rip->i_flags |= I_DIRNOTSIZED;
+	}
+/* FIXME: Warn+fail is i_clust==0; need to clean the error protocolg338
+ */
+  }
+  rehash_inode(rip);
   memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
 /* more work needed here: i_mode, i_fc, dirref, IS_DIR=>SIZE_UNKNOWN */
-/* assert(IS_DIR => i_clust!=0) */
 
   DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld\n",
 		rip->i_Name, rip->i_Extension, rip->i_clust));

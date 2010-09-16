@@ -137,7 +137,9 @@ PRIVATE int reco_bootsector(
 PRIVATE int chk_bootsector(struct fat_bootsector *bs)
 {
   /* Sanity checks... */
+
   if (bs->bpbBytesPerSec[0]!=0 || bs->bpbBytesPerSec[1]!=2) {
+/* FIXME: bigger values should be allowed */
 	DBGprintf(("mounting failed: not using 512-byte sectors\n"));
 	return(EINVAL);
   }
@@ -170,6 +172,15 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   unsigned long bit;
 
   sb.bpblock = sb.bpsector = get_le16(bs->bpbBytesPerSec);
+  if (sb.bpblock < MIN_SECTOR_SIZE) {
+	DBGprintf(("mounting failed: sector size %lu too small\n",
+		(unsigned long) sb.bpsector));
+	return(EINVAL);
+  } else if (sb.bpblock > MAX_SECTOR_SIZE) {
+	DBGprintf(("mounting failed: sector size %lu too big\n",
+		(unsigned long) sb.bpsector));
+	return(EINVAL);
+  }
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
 	if (bit & sb.bpsector) {
@@ -363,7 +374,7 @@ PUBLIC int do_readsuper(void)
   off_t rootDirSize;
   static struct fat_bootsector *bs;  
 
-  STATICINIT(bs, SECTOR_SIZE);	/* allocated once, made contiguous */
+  STATICINIT(bs, MAX_SECTOR_SIZE);	/* allocated once, made contiguous */
 
   DBGprintf(("FATfs: readsuper (dev %x, flags %x)\n",
 	(dev_t) m_in.REQ_DEV, m_in.REQ_FLAGS));
@@ -417,9 +428,9 @@ PUBLIC int do_readsuper(void)
   }
 
   /* Fill in the boot sector. */
-  assert(sizeof *bs == SECTOR_SIZE);	/* paranoia */
-  r = seqblock_dev_io(DEV_READ_S, bs, cvu64(0), SECTOR_SIZE);
-  if (r != SECTOR_SIZE) 
+  assert(sizeof *bs >= 512);	/* paranoia */
+  r = seqblock_dev_io(DEV_READ_S, bs, cvu64(0), sizeof(*bs));
+  if (r != sizeof(*bs))
 	return(EINVAL);
 
 /* Now check the various fields and fill the superblock
@@ -445,18 +456,16 @@ PUBLIC int do_readsuper(void)
  *
  * The second best option (not implemented yet) is to check
  * if by chance, the FATs and the data blocks are aligned
- * on 4KB boundaries: this usually means we are using FAT32
+ * on 4KB boundaries: this practically means we are using FAT32
  * since most FAT12 and FAT16 file systems only have 1 reserved
- * sector at the beginning, hence everything is mis-aligned.
+ * sector at the beginning, and everything is mis-aligned.
  */
-#if 0
-/* Why MFS is doing such a test? */
-  if (sb.bpblock < _MIN_BLOCK_SIZE) 
+  if (sb.bpblock < MIN_BLOCK_SIZE) 
 	return(EINVAL);
-#endif
   if ((sb.bpblock % 512) != 0) 
 	return(EINVAL);
-  init_cache(NR_BUFS, sb.bpblock);
+/* FIXME: compute num_blocks with knowledge of global FS size... */
+  init_cache(NUM_BUFS, sb.bpblock);
 
 /* FIXME: if FAT12, read the FAT into specials (contiguous) buffers */
 
