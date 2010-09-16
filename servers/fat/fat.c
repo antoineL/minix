@@ -277,7 +277,11 @@ DBGprintf(("FATfs: bmap unable to get FAT block %ld\n", bn));
 /*
 		fc_setcache(rip, FC_LASTMAP, i, cn);
  */
-		return 0;
+#if 1
+		return ((cn-CLUST_FIRST) * sb.blkpcluster) + sb.clustBlk;
+#else
+		return ((cn-CLUST_FIRST) << (sb.cnshift-sb.bnshift)) + sb.clustBlk;
+#endif
 	}
 
 hiteof:

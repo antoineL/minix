@@ -93,7 +93,7 @@ PUBLIC int do_read(void)
 	if (b == NO_BLOCK) {
 		DBGprintf(("FATfs: in do_read, bmap returned NO_BLOCK...???\n"));
 		/* Reading from a nonexistent block.  Must read as all zeros.*/
-		bp = get_block(NO_DEV, NO_BLOCK, NORMAL);    /* get a buffer */
+		bp = get_block(NO_DEV, NO_BLOCK, NO_READ);    /* get a buffer */
 		zero_block(bp);
 	} else {
 		/* Read and read ahead if convenient. */

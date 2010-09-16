@@ -302,7 +302,8 @@ PUBLIC struct buf *get_block(
 	vmcache = 1;
 #endif
 
-  assert(req_dev == dev);	/* this cache only deals with a single dev */
+  /* this cache only deals with a single dev */
+  assert(req_dev == dev || (req_dev == NO_DEV && block == NO_BLOCK) );
   assert(block_size > 0);
 
 DBGprintf(("FATfs: get_block %ld ...", block));

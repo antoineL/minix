@@ -74,7 +74,7 @@ PUBLIC int do_getdents(void)
   size = (size_t) m_in.REQ_MEM_SIZE;
   pos = (off_t) m_in.REQ_SEEK_POS_LO;
 
-  DBGprintf(("FATfs: getdents in %lo, off %ld\n", m_in.REQ_INODE_NR, pos));
+  DBGprintf(("FATfs: getdents in %lo, off %ld, maxsize:%u\n", m_in.REQ_INODE_NR, pos, size));
 
 /* Check whether the position is properly aligned */
   if( (unsigned int) pos % DIR_ENTRY_SIZE)
@@ -90,12 +90,45 @@ PUBLIC int do_getdents(void)
   off = pos & (block_size-1);	/* Offset in block */
   block_pos = pos - off;
   done = FALSE;		/* Stop processing blocks when done is set */
+  r = OK;
 
   mybuf_off = 0;	/* Offset in getdents_buf */
   memset(getdents_buf, '\0', GETDENTS_BUFSIZ);	/* Avoid leaking any data */
   callerbuf_off = 0;	/* Offset in the user's buffer */
 
-/* CHECKME: with FAT, root dir does not have . and ..  Do we need to fake them? */
+  if (rip->i_flags & I_ROOTDIR && pos == 0) {
+  /* With FAT, the root directory does not have . and ..
+   * So we need to fake them...
+   */
+	/* Compute record length */
+	reclen = offsetof(struct dirent, d_name) + 1 + 1;
+	o = (reclen % sizeof(long));
+	if (o != 0)
+		reclen += sizeof(long) - o;
+		/* the buffer has been cleared before */
+
+	dep = (struct dirent *) &getdents_buf[mybuf_off];
+	dep->d_ino = 1;
+	dep->d_off = 0;
+	dep->d_reclen = (unsigned short) reclen;
+	strcpy(dep->d_name, ".");
+	mybuf_off += reclen;
+
+	/* Compute record length */
+	reclen = offsetof(struct dirent, d_name) + 2 + 1;
+	o = (reclen % sizeof(long));
+	if (o != 0)
+		reclen += sizeof(long) - o;
+		/* the buffer has been cleared before */
+
+	dep = (struct dirent *) &getdents_buf[mybuf_off];
+	dep->d_ino = 1;
+	dep->d_off = 0;
+	dep->d_reclen = (unsigned short) reclen;
+	strcpy(dep->d_name, "..");
+	mybuf_off += reclen;
+  }
+
 
 /* WORK NEEDED: with FAT, dir size are unknown */
   /* The default position for the next request is EOF. If the user's buffer
@@ -110,6 +143,7 @@ PUBLIC int do_getdents(void)
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 /* FIXME: update new_pos ? */
+		new_pos = block_pos;
 		done = TRUE;
 		break;
 	}
@@ -144,7 +178,7 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 		if (dp->d_direntry.deName[0] == SLOT_EMPTY) {
 			done = TRUE;
 /* FIXME: record the EOF? (+ i_flags) */
-/* FIXME: update new_pos ? */
+			new_pos = block_pos + ((char *) dp - (char *) bp->b_dir);
 			break;
 		}
 		/* is this slot out of use? */
@@ -168,35 +202,34 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 		fatdp = & dp->d_direntry;
 		{
 			cp = (char*) &fatdp->deName[8];
-DBGprintf(("cp[-8] = '%.8s' ", cp-8));
-			while (--cp > (char*)&fatdp->deName[1])
+/*DBGprintf(("cp[-8] = '%.8s' ", cp-8));*/
+			while (--cp >= (char*)&fatdp->deName[1])
 				if (*cp != ' ') break;
 			namelen = cp - (char*)fatdp->deName + 1;
 			assert(namelen > 0);
 			assert(namelen <= 8);
 	
 			cp = (char*) &fatdp->deExtension[3];
-DBGprintf(("cp[-3] = '%.3s' ", cp-3));
-			while (--cp > (char*)&fatdp->deExtension[0])
+/*DBGprintf(("cp[-3] = '%.3s' ", cp-3));*/
+			while (--cp >= (char*)&fatdp->deExtension[0])
 				if (*cp != ' ') break;
 			extlen = cp - (char*)fatdp->deExtension + 1;
 			assert(extlen >= 0);
 			assert(extlen <= 3);
 			len = namelen + (extlen ? 1 + extlen : 0);
-DBGprintf(("calc.len = %d\n", len));
+DBGprintf(("calc.len = %d+%d=%d\n", namelen, extlen, len));
 /* FIXME: lcase */
 		}
 		assert(len > 0);
 		if (len > NAME_MAX) {
-			/* we discovered a name longer than what MINIX
-			 * can handle; it would be a violation of
-			 * POSIX to return a larger name (and a potential
-			 * cause of failure in user code);
-			 * truncating is not a better option, since it
-			 * is likely to cause problems later, like
-			 * duplicate filenames.
-			 * So we end the request with an error.
-			 */
+		/* we discovered a name longer than what MINIX can handle;
+		 * it would be a violation of POSIX to return a larger name
+		 * and a potential cause of failure in user code;
+		 * truncating is not a better option, since it is likely
+		 * to cause problems later, like duplicate filenames.
+		 * So we end the request with an error.
+		 */
+/* CHECKME... */
 			/* put_inode(rip); */
 			put_block(bp);
 			return(EOVERFLOW);
@@ -211,7 +244,7 @@ DBGprintf(("calc.len = %d\n", len));
 			/* the buffer has been cleared before */
 
 		if (mybuf_off + reclen > GETDENTS_BUFSIZ) {
-DBGprintf(("flush: off=%d, reclen=%d, max=%u\n", mybuf_off, reclen, GETDENTS_BUFSIZ));
+DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", mybuf_off, callerbuf_off, reclen, GETDENTS_BUFSIZ));
 			/* flush my buffer */
 			r = sys_safecopyto(VFS_PROC_NR, gid,
 					   (vir_bytes) callerbuf_off, 
@@ -231,20 +264,25 @@ DBGprintf(("flush: off=%d, reclen=%d, max=%u\n", mybuf_off, reclen, GETDENTS_BUF
 		if(callerbuf_off + mybuf_off + reclen > size) {
 DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", callerbuf_off, mybuf_off, reclen, size));
 			/* The user has no space for one more record */
-			done = TRUE;
-			
+			if (callerbuf_off == 0 && mybuf_off == 0) {
+			/* The user's buffer is too small for 1 record */
+/* CHECKME: can we even directly  return(EINVAL);  ?*/
+				r = EINVAL;
+			} else {
 			/* Record the position of this entry, it is the
 			 * starting point of the next request (unless the
 			 * postion is modified with lseek).
 			 */
-			new_pos = ent_pos;
+				new_pos = ent_pos;
+			}
+			done = TRUE;
 			break;
 		}
 
 		dep = (struct dirent *) &getdents_buf[mybuf_off];
 /* FIXME FAT32 */
 		ino = get_le16(fatdp->deStartCluster);
-		if (ino = 0) {
+		if (ino == 0) {
 /* HACK HACK HACK
  * cannot give the "real" inode given when the file will be opened (lookup)
  * because we have no idea of the generation number...
@@ -265,7 +303,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 		{
 			cp = &dep->d_name[0];
 /* FIXME: lcase */
-DBGprintf(("FATfs: copying '%.*' to %.8p (buf+%d)", namelen, fatdp->deName, cp, cp-getdents_buf));
+DBGprintf(("FATfs: copying '%.*s' to %.8p (buf+%d)", namelen, fatdp->deName, cp, cp-getdents_buf));
 
 			memcpy(cp, fatdp->deName, namelen);
 			if (fatdp->deName[0] == SLOT_E5)
@@ -274,7 +312,7 @@ DBGprintf(("FATfs: copying '%.*' to %.8p (buf+%d)", namelen, fatdp->deName, cp, 
 			if (extlen) {
 				*cp++ = '.';
 /* FIXME: lcase */
-DBGprintf((", '%.*' to %.8p (buf+%d)", extlen, fatdp->deExtension, cp, cp-getdents_buf));
+DBGprintf((", '%.*s' to %.8p (buf+%d)", extlen, fatdp->deExtension, cp, cp-getdents_buf));
 				memcpy(cp, fatdp->deExtension, extlen);
 cp += extlen;
 			}
@@ -291,6 +329,7 @@ DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-
   }
 
   if(mybuf_off != 0) {
+DBGprintf(("flush final: off=%d->%d\n", mybuf_off, callerbuf_off));
 	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) callerbuf_off,
 			   (vir_bytes) getdents_buf, (size_t) mybuf_off, D);
 	if (r != OK) {
@@ -301,13 +340,11 @@ DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-
 	callerbuf_off += mybuf_off;
   }
 
-  if(done && callerbuf_off == 0)
-	r = EINVAL;		/* The user's buffer is too small */
-  else {
+  if(r == OK) {
 	m_out.RES_NBYTES = callerbuf_off;
 	m_out.RES_SEEK_POS_LO = new_pos;
 	rip->i_flags |= I_DIRTY | I_ACCESS;
-	r = OK;
+DBGprintf(("OK result: off=%d, next=%ld\n", callerbuf_off, new_pos));
   }
 
 /* CHECKME... */
@@ -355,6 +392,8 @@ FIXME: need the struct direntryref (*?)
   rip->i_direntry = *dp;
 /* FIXME FAT32 */
   rip->i_clust = get_le16(dp->deStartCluster);
+/* FIXME si 0 */
+  rip->i_num = rip->i_clust;
   rip->i_mode = get_mode(rip);
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
@@ -463,7 +502,8 @@ PRIVATE int nameto83(
 	/* more than 8 chars in name... */
 	return(ENAMETOOLONG);
   }
-  if (*p == '\0') {
+  next = *p;
+  if (next == '\0') {
 	/* initial filename was "foobar." (trailing dot)
 	 * DOS and Windows recognize it the same as "foobar"
 	 */
@@ -475,13 +515,7 @@ PRIVATE int nameto83(
   havelower = haveupper = prev = 0;
   for (q=&fatdp->deExtension[0]; q < &fatdp->deExtension[3]; ++q) {
 	if (next == '\0') {
-		if (prev == ' ') {
-			DBGprintf(("FATfs: warning: final space character "
-				"in an extension, will be dropped.\n"));
-		}
-		if (havelower && !haveupper)
-			fatdp->deLCase |= LCASE_EXTENSION;
-		return(OK);
+		break;
 	} else if (strchr(FAT_FORBIDDEN_CHARS, next) != NULL) {
 		/* some characters cannot enter in FAT filenames */
 		return(EINVAL);
@@ -492,6 +526,16 @@ PRIVATE int nameto83(
 	}
 	prev = next;
 	next = *++p;
+  }
+
+  if (next == '\0') {
+	if (prev == ' ') {
+		DBGprintf(("FATfs: warning: final space character "
+			"in an extension, will be dropped.\n"));
+	}
+	if (havelower && !haveupper)
+		fatdp->deLCase |= LCASE_EXTENSION;
+	return(OK);
   }
   /* more than 3 chars in extension... */
   return(ENAMETOOLONG);
