@@ -1,10 +1,4 @@
 /* Various types used by the FAT file system.
- * Some parts have their own, separated headers
- * which hold the type descriptions:
- *   fat.h	description of the ondisk structures
- *   super.h	file system fundamental values
- *   inode.h	inode structure (also hold dir.entry)
- *   cache.h	block buffers and cache system
  *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
@@ -40,6 +34,8 @@
  * Its size can be known with (struct statvfs)s.f_bsize
  * Clusters are numbered using cluster_t == zone_t,
  * from 2 up to sb.maxClust.
+ * Notice that the clusters are in the data area, which does
+ * not cover the whole file system area.
  *
  * The code should not assume that sectors are the same size
  * as blocks; in fact, it should be possible to independantly
@@ -80,7 +76,7 @@ struct buf {
   LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
   size_t b_bytes; 	        /* Number of bytes allocated in bp */
   block_t b_blocknr;            /* block number of its (minor) device */
-/* CHEKCME: is it still usefull? */
+/* CHECKME: is it still usefull? */
   dev_t b_dev;                  /* major | minor device where block resides */
   char b_dirt;                  /* CLEAN or DIRTY */
 #define CLEAN              0	/* disk and memory copies identical */
@@ -118,8 +114,9 @@ union blkdata_u {
 /* These defs make it possible to use to bp->b_data instead of bp->dp->b__data */
 #define b_data		dp->b__data
 #define b_dir		dp->b__dir
-#define b_fat16		dp->b__fat16
-#define b_fat32		dp->b__fat32
+/* beware: the following fields are stored in little-endian packed form */
+#define b_zfat16	dp->b__fat16
+#define b_zfat32	dp->b__fat32
 
 /* File system fundamental values used by the FAT file system server.
  * The unique instance of this structure is the global variable 'sb'.
@@ -142,6 +139,10 @@ struct superblock {
 				 *  amount to get a cluster rel number */
   off_t crelmask;		/* and a file offset with this mask
 				 *  to get cluster rel offset */
+  int cbshift;			/* shift a block number right this
+				 *  amount to get a cluster number */
+  int csshift;			/* shift a sector number right this
+				 *  amount to get a cluster number */
 
   sector_t resSec, resCnt,	/* reserved zone: sector nr (=0) and size */
 	fatSec,   fatsCnt,	/* FATs: starting sector nr and total size */
@@ -176,11 +177,15 @@ struct superblock {
   int depclust;			/* directory entries per cluster */
 };
 
-/* ...
+/* Coordinates of a directory entry.
+ * In addition to starting cluster number, inode are also tracked using
+ * the position of the entry within its parent directory;
+ * this allows quick access to the datas when they need to be updated.
+ * This also allows to rebuild the tree
  */
 struct direntryref {
-  cluster_t	de_clust;	/* cluster pointing the directory */
-  unsigned	de_entrypos;	/* position of the entry within */
+  cluster_t	dr_clust;	/* cluster pointing the directory */
+  unsigned	dr_entrypos;	/* position of the entry within */
 };
 
 /*
@@ -214,7 +219,8 @@ struct fatcache {
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
-  LIST_ENTRY(inode) i_hash;		/* hashtable chain entry */
+  LIST_ENTRY(inode) i_hashclust;	/* cluster hashtable chain entry */
+  LIST_ENTRY(inode) i_hashref;		/* dirref hashtable chain entry */
   ino_t i_num;				/* inode number for quick reference */
   unsigned short i_index;
   unsigned short i_gen;			/* inode generation number */

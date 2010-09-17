@@ -391,7 +391,7 @@ FIXME: changed interface...
   }
 
   /* The component has been found in the directory.  Get inode. */
-  get_inode(rip);
+  /* get_inode(rip); */	/* alread done before. */
 
   r = OK;		/* assume success without comments */
 
@@ -467,6 +467,7 @@ PRIVATE char *get_name(
 
   len = (size_t) (ep - cp);
 
+/* FIXME: no: we should return ENAMETOOLONG instead! */
   /* Truncate the amount to be copied if it exceeds NAME_MAX */
   if (len > NAME_MAX) len = NAME_MAX;
 

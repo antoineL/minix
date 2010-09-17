@@ -1,9 +1,10 @@
 /* This file contains the interface with the block device driver.
  *
  * The entry points into this file are:
+ *   do_newdriver	perform the NEWDRIVER file system request
+ *   label_to_driver	transform the 'fs_' label in driver endpoint
  *   dev_open		open the driver
  *   dev_close		close the driver
- *   do_newdriver	perform the NEWDRIVER file system request
  *   seqblock_dev_io	do I/O operations with the device
  *   scattered_dev_io	do I/O operations, targetting several buffers
  *
@@ -25,9 +26,11 @@
 #endif
 #include <minix/u64.h>
 #include <minix/com.h>
-#include <minix/sysutil.h>	/* panic */
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
+#include <minix/sysutil.h>	/* panic */
+
+#include <minix/ds.h>
 
 #ifndef EDEADEPT
 #define EDEADEPT EDEADSRCDST
@@ -39,6 +42,73 @@
 
 FORWARD _PROTOTYPE( int update_dev_status, (int task_status,
 		endpoint_t driver_e, message *mess_ptr) );
+
+/*===========================================================================*
+ *				do_new_driver   			     *
+ *===========================================================================*/
+PUBLIC int do_new_driver(void)
+{
+ /* New driver endpoint for this device */
+
+/* FIXME: handle this better... */
+  assert(dev == (dev_t) m_in.REQ_DEV);
+
+/* FIXME: if driver_e changes, need to close the old one (?)
+ * then open the new driver channel...
+ */
+  driver_e = (endpoint_t) m_in.REQ_DRIVER_E;
+
+/* need to dev_open it ??? */
+
+  return(OK);
+}
+
+/*===========================================================================*
+ *				label_to_driver   			     *
+ *===========================================================================*/
+PUBLIC int label_to_driver(cp_grant_id_t gid, size_t label_len)
+{
+/* Calls DS to learn the endpoint corresponding to our driver, which label
+ * is passed by VFS as a grant and size, stored in fs_dev_label.
+ */
+  int r;
+
+  if (label_len >= sizeof(fs_dev_label))
+	return(EINVAL);
+  memset(fs_dev_label, 0, sizeof(fs_dev_label));
+
+  r = sys_safecopyfrom(m_in.m_source, gid, (vir_bytes) 0,
+		       (vir_bytes) fs_dev_label, label_len, D);
+  if (r != OK) {
+	printf("FAT`%s:%d safecopyfrom failed: %d\n", __FILE__, __LINE__, r);
+	return(EINVAL);
+  }
+  if (strlen(fs_dev_label) > sizeof(fs_dev_label)-1)
+	/* label passed by VFS was not 0-terminated: abort.
+	 * note that all memset+strlen dance can be changed to use strnlen
+	 * memchr(,'\0',) can do the trick too, but is less clear
+	 */
+	return(EINVAL);
+
+#ifndef DS_DRIVER_UP
+  r = ds_retrieve_label_num(fs_dev_label, (unsigned long*)&driver_e);
+#else
+  r = ds_retrieve_label_endpt(fs_dev_label, &driver_e);
+#endif
+  if (r != OK) {
+	printf("FATfs %s:%d ds_retrieve_label_endpt failed for '%s': %d\n",
+		__FILE__, __LINE__, fs_dev_label, r);
+	return(EINVAL);
+  }
+
+  /* Open the device the file system lives on. */
+  if (dev_open(driver_e, dev, driver_e,
+	       read_only ? R_BIT : (R_BIT|W_BIT) ) != OK) {
+	return(EINVAL);
+  }
+
+  return(OK);
+}
 
 /*===========================================================================*
  *				dev_open				     *
@@ -85,21 +155,6 @@ PUBLIC void dev_close(endpoint_t driver_e, dev_t dev)
   r = sendrec(driver_e, &dev_mess);
 
   /* ignore the value given by dev_mess.REP_STATUS... */
-}
-
-/*===========================================================================*
- *				do_new_driver   			     *
- *===========================================================================*/
-PUBLIC int do_new_driver(void)
-{
- /* New driver endpoint for this device */
-
-  assert(dev == (dev_t) m_in.REQ_DEV);
-  driver_e = (endpoint_t) m_in.REQ_DRIVER_E;
-
-/* need to dev_open it ??? */
-
-  return(OK);
 }
 
 /*===========================================================================*

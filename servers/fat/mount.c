@@ -24,8 +24,6 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
-#include <minix/ds.h>
-
 FORWARD _PROTOTYPE( int reco_extbpb, (struct fat_extbpb*,char fstype[])	);
 FORWARD _PROTOTYPE( int reco_bootsector,
 		(struct fat_bootsector *, struct fat_extbpb *)		);
@@ -167,7 +165,8 @@ PRIVATE int chk_bootsector(struct fat_bootsector *bs)
  *===========================================================================*/
 PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 {
-  /* Fill the superblock */
+/* Fill the sb instance */
+/* FIXME: the blk/block stuff should be done later, when block size is fixed. */
   int i;
   unsigned long bit;
 
@@ -208,6 +207,8 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 		1<<(sb.cnshift-10)));
 	return(EINVAL);
   }
+  sb.cbshift = sb.csshift = sb.snshift - sb.cnshift;
+  assert(bs->bpbSecPerClust == (1<<sb.csshift));
   sb.bpcluster = sb.secpcluster * sb.bpsector;
   assert(sb.bpcluster == (1<<sb.cnshift)); /* paranoia */
   sb.crelmask = sb.bpcluster-1;
@@ -215,7 +216,7 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   assert(sizeof(struct fat_lfnentry) == 32);
   assert(DIR_ENTRY_SIZE == 32);
   sb.depsec = sb.depblk = sb.bpsector / DIR_ENTRY_SIZE;
-  sb.depclust = sb.depsec << sb.secpcluster;
+  sb.depclust = sb.depsec << sb.cnshift;
   return OK;
 }
 
@@ -368,8 +369,6 @@ PUBLIC int do_readsuper(void)
  */
   int r;
   struct inode *root_ip;
-  cp_grant_id_t label_gid;
-  size_t label_len;
   struct fat_extbpb *extbpbp;
   off_t rootDirSize;
   static struct fat_bootsector *bs;  
@@ -390,42 +389,7 @@ PUBLIC int do_readsuper(void)
   if (dev == NO_DEV)
 	panic("request for mounting FAT fs on NO_DEV");
 
-  label_gid = (cp_grant_id_t) m_in.REQ_GRANT;
-  label_len = (size_t) m_in.REQ_PATH_LEN;
-
-  if (label_len >= sizeof(fs_dev_label))
-	return(EINVAL);
-  memset(fs_dev_label, 0, sizeof(fs_dev_label));
-
-  r = sys_safecopyfrom(m_in.m_source, label_gid, (vir_bytes) 0,
-		       (vir_bytes) fs_dev_label, label_len, D);
-  if (r != OK) {
-	printf("FAT`%s:%d safecopyfrom failed: %d\n", __FILE__, __LINE__, r);
-	return(EINVAL);
-  }
-  if (strlen(fs_dev_label) > sizeof(fs_dev_label)-1)
-	/* label passed by VFS was not 0-terminated: abort.
-	 * note that all memset+strlen dance can be changed to use strnlen
-	 * memchr(,'\0',) can do the trick too, but is less clear
-	 */
-	return(EINVAL);
-
-#ifndef DS_DRIVER_UP
-  r = ds_retrieve_label_num(fs_dev_label, (unsigned long*)&driver_e);
-#else
-  r = ds_retrieve_label_endpt(fs_dev_label, &driver_e);
-#endif
-  if (r != OK) {
-	printf("FATfs %s:%d ds_retrieve_label_endpt failed for '%s': %d\n",
-		__FILE__, __LINE__, fs_dev_label, r);
-	return(EINVAL);
-  }
-
-  /* Open the device the file system lives on. */
-  if (dev_open(driver_e, dev, driver_e,
-	       read_only ? R_BIT : (R_BIT|W_BIT) ) != OK) {
-	return(EINVAL);
-  }
+  label_to_driver(m_in.REQ_GRANT, m_in.REQ_PATH_LEN);
 
   /* Fill in the boot sector. */
   assert(sizeof *bs >= 512);	/* paranoia */

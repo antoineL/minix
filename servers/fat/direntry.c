@@ -45,19 +45,19 @@ FORWARD _PROTOTYPE( int nameto83,
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
 
 #ifndef GETDENTS_BUFSIZ
-#define GETDENTS_BUFSIZ  (259+sizeof(struct dirent))
+#define GETDENTS_BUFSIZ  (usizeof(struct dirent) + NAME_MAX + usizeof(long))
 #endif
 PRIVATE char getdents_buf[GETDENTS_BUFSIZ];
 
 /*===========================================================================*
- *				do_getdents				   *
+ *				do_getdents				     *
  *===========================================================================*/
 PUBLIC int do_getdents(void)
 {
 /* ...
  */
   int o, r, done;
-  struct inode *rip, *newip;
+  struct inode *dirp, *newip;
   struct buf *bp;
   union direntry_u * dp;
   struct fat_direntry *fatdp;
@@ -69,6 +69,7 @@ PUBLIC int do_getdents(void)
   off_t pos, off, block_pos, new_pos, ent_pos;
   struct dirent *dep;
   char *cp;
+  unsigned char slot_mark;
 
   gid = (gid_t) m_in.REQ_GRANT;
   size = (size_t) m_in.REQ_MEM_SIZE;
@@ -84,7 +85,7 @@ PUBLIC int do_getdents(void)
  * We might work for a bit, reading blocks etc., so we will increase
  * the reference count of the inode (Check-me?)
  */
-  if( (rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
+  if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
 	return(EINVAL);
 
   off = pos & (block_size-1);	/* Offset in block */
@@ -96,7 +97,7 @@ PUBLIC int do_getdents(void)
   memset(getdents_buf, '\0', GETDENTS_BUFSIZ);	/* Avoid leaking any data */
   callerbuf_off = 0;	/* Offset in the user's buffer */
 
-  if (rip->i_flags & I_ROOTDIR && pos == 0) {
+  if (dirp->i_flags & I_ROOTDIR && pos == 0) {
   /* With FAT, the root directory does not have . and ..
    * So we need to fake them...
    */
@@ -130,16 +131,20 @@ PUBLIC int do_getdents(void)
   }
 
 
-/* WORK NEEDED: with FAT, dir size are unknown */
-  /* The default position for the next request is EOF. If the user's buffer
-   * fills up before EOF, new_pos will be modified. */
+/* FIXME: with FAT, dir size are unknown */
+/* The default position for the next request is EOF. If the user's buffer
+ * fills up before EOF, new_pos will be modified.
+ */
+/* We do not believe the size registered in the inode, since
+ * we are required to perform a full pass through all the entries anyway.
+ */
   new_pos = sb.maxFilesize;
 
 /*
-  for(; block_pos < rip->i_size; block_pos += block_size) {
+  for(; block_pos < dirp->i_size; block_pos += block_size) {
  */
   while (TRUE) {
-	b = bmap(rip, block_pos);	/* get block number */
+	b = bmap(dirp, block_pos);	/* get next block number */
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 /* FIXME: update new_pos ? */
@@ -147,42 +152,32 @@ PUBLIC int do_getdents(void)
 		done = TRUE;
 		break;
 	}
-	bp = get_block(dev, b, NORMAL);	/* get a dir block */
+/* FIXME else augmente new_pos ? */
+	bp = get_block(dev, b, NORMAL);	/* get the directory block */
 
 	assert(bp != NULL);
 
 	/* Search a directory block. */
+/* FIXME use i (direntry index), sb.depblk */
 	if (block_pos < pos)
-#if 1
 		dp = &bp->b_dir[off / DIR_ENTRY_SIZE];
-#elif 0
-		fatdp = &bp->b_dir[off / DIR_ENTRY_SIZE].d_direntry;
-#else
-		fatdp = (struct fat_direntry *) &bp->b_dir[off / DIR_ENTRY_SIZE].d_direntry;
-#endif
 	else
 		dp = &bp->b_dir[0];
 
-#if 1
 	for (; dp < &bp->b_dir[block_size / DIR_ENTRY_SIZE]; dp++) {
-#elif 0
-	for (; fatdp < &bp->b_dir[NR_DIR_ENTRIES(block_size)]; fatdp++) {
-#else
-	for (; fatdp < (struct fat_direntry *) &bp->b_dir[16]; fatdp++) {
-#endif
 
 DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 	dp->d_direntry.deName, dp->d_direntry.deExtension, dp->d_direntry.deName[0]));
 
 		/* is the EndOfDirectory mark found? */
-		if (dp->d_direntry.deName[0] == SLOT_EMPTY) {
+		if ( (slot_mark=dp->d_direntry.deName[0]) == SLOT_EMPTY) {
 			done = TRUE;
 /* FIXME: record the EOF? (+ i_flags) */
 			new_pos = block_pos + ((char *) dp - (char *) bp->b_dir);
 			break;
 		}
 		/* is this slot out of use? */
-		if (dp->d_direntry.deName[0] == SLOT_DELETED) {
+		if (slot_mark == SLOT_DELETED) {
 			continue;
 		}
 
@@ -199,6 +194,11 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 /* WORK NEEDED! */
 			continue;
 		}
+		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		/* skip any entry with volume attribute set */
+			continue;
+		}
+
 		fatdp = & dp->d_direntry;
 		{
 			cp = (char*) &fatdp->deName[8];
@@ -230,11 +230,11 @@ DBGprintf(("calc.len = %d+%d=%d\n", namelen, extlen, len));
 		 * So we end the request with an error.
 		 */
 /* CHECKME... */
-			/* put_inode(rip); */
+			/* put_inode(dirp); */
 			put_block(bp);
 			return(EOVERFLOW);
 		}
-
+/* FIXME check \0 or / => error */
 		
 		/* Compute record length */
 		reclen = offsetof(struct dirent, d_name) + len + 1;
@@ -251,7 +251,7 @@ DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", mybuf_off, callerbuf_off, r
 					   (vir_bytes) getdents_buf,
 					   (size_t) mybuf_off, D);
 			if (r != OK) {
-				/* put_inode(rip); */
+				/* put_inode(dirp); */
 				put_block(bp);
 				return(r);
 			}
@@ -271,7 +271,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 			} else {
 			/* Record the position of this entry, it is the
 			 * starting point of the next request (unless the
-			 * postion is modified with lseek).
+			 * position is modified with lseek).
 			 */
 				new_pos = ent_pos;
 			}
@@ -280,6 +280,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 		}
 
 		dep = (struct dirent *) &getdents_buf[mybuf_off];
+#if 1
 /* FIXME FAT32 */
 		ino = get_le16(fatdp->deStartCluster);
 		if (ino == 0) {
@@ -290,13 +291,26 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
  */
 			newip = enter_as_inode(fatdp, ent_pos);
 			if( newip == NULL ) {
-/* FIXME: do something clever... */
+/* FIXME: do something more clever... */
 				panic("FATfs: getdents cannot create some virtual inode\n");
 			} else
 				ino = INODE_NR(newip);
 			put_inode(newip);
 		}
 		dep->d_ino = ino;
+#else
+		newip = dirref_to_inode(dirp->i_clust, ent_pos);
+		if (newip == NULL) {
+			newip = enter_as_inode(fatdp, dirp->i_clust, ent_pos);
+			if( newip == NULL ) {
+/* FIXME: do something more clever... */
+				panic("FATfs: getdents cannot create some virtual inode\n");
+			} else
+				get_inode(newip);
+		}
+		dep->d_ino = INODE_NR(newip);
+		put_inode(newip);
+#endif
 		dep->d_off = ent_pos;
 		dep->d_reclen = (unsigned short) reclen;
 
@@ -306,7 +320,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 DBGprintf(("FATfs: copying '%.*s' to %.8p (buf+%d)", namelen, fatdp->deName, cp, cp-getdents_buf));
 
 			memcpy(cp, fatdp->deName, namelen);
-			if (fatdp->deName[0] == SLOT_E5)
+			if (slot_mark == SLOT_E5)
 				*cp = SLOT_DELETED;	/*DOS was hacked too*/
 			cp += namelen;
 			if (extlen) {
@@ -333,7 +347,7 @@ DBGprintf(("flush final: off=%d->%d\n", mybuf_off, callerbuf_off));
 	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) callerbuf_off,
 			   (vir_bytes) getdents_buf, (size_t) mybuf_off, D);
 	if (r != OK) {
-		/* put_inode(rip); */
+		/* put_inode(dirp); */
 		return(r);
 	}
 
@@ -343,12 +357,12 @@ DBGprintf(("flush final: off=%d->%d\n", mybuf_off, callerbuf_off));
   if(r == OK) {
 	m_out.RES_NBYTES = callerbuf_off;
 	m_out.RES_SEEK_POS_LO = new_pos;
-	rip->i_flags |= I_DIRTY | I_ACCESS;
+	dirp->i_flags |= I_DIRTY | I_ACCESS;
 DBGprintf(("OK result: off=%d, next=%ld\n", callerbuf_off, new_pos));
   }
 
 /* CHECKME... */
-  /* put_inode(rip); */		/* release the inode */
+  /* put_inode(dirp); */		/* release the inode */
   return(r);
 }
 
@@ -361,7 +375,8 @@ PRIVATE struct inode *enter_as_inode(
 {
 /* Enter the inode as specified by its directory entry.
 
-FIXME: need the struct direntryref (*?)
+FIXME: need the struct direntryref
+FIXME: refcount?
  */
   struct inode *rip;
   cluster_t cn;			/* cluster number */
@@ -386,14 +401,16 @@ FIXME: need the struct direntryref (*?)
   }
 #endif
 
-  /* get a new inode with ref. count = 1 */
+  /* get a fresh inode with ref. count = 1 */
   rip = get_free_inode();
   rip->i_flags = 0;
   rip->i_direntry = *dp;
 /* FIXME FAT32 */
   rip->i_clust = get_le16(dp->deStartCluster);
-/* FIXME si 0 */
+#if 0
+/* FIXME */
   rip->i_num = rip->i_clust;
+#endif
   rip->i_mode = get_mode(rip);
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
@@ -412,12 +429,12 @@ FIXME: need the struct direntryref (*?)
 		rip->i_size == sb.bpcluster;
 		rip->i_flags |= I_DIRNOTSIZED;
 	}
-/* FIXME: Warn+fail is i_clust==0; need to clean the error protocolg338
+/* FIXME: Warn+fail is i_clust==0; need to clean the error protocol
  */
   }
   rehash_inode(rip);
   memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
-/* more work needed here: i_mode, i_fc, dirref, IS_DIR=>SIZE_UNKNOWN */
+/* more work needed here: i_fc, dirref */
 
   DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld\n",
 		rip->i_Name, rip->i_Extension, rip->i_clust));
@@ -434,14 +451,14 @@ PRIVATE int nameto83(
 				 * with resulting LCase attribute also */
 {
 /* Transforms a filename (as part of a path) into the form suitable to be
- * used in FAT directory entries, named 8.3 because it could only count
- * 8 characters before the only dot, and 3 characters after it.
+ * used in FAT directory entries, named 8.3 because it could only have up
+ * to 8 characters before the (only) dot, and 3 characters after it.
  * This functions returns EINVAL if invalid characters were encountered,
  * and ENAMETOOLONG if it does not fit the 8.3 limits.
  */
   const unsigned char *p = (const unsigned char *)string;
   unsigned char *q;
-  int prev, next, havelower, haveupper;
+  int prev, next, haslower, hasupper;
 
   memset(fatdp->deName, ' ', 8+3);	/* fill with spaces */
   fatdp->deLCase &= ~ (LCASE_NAME|LCASE_EXTENSION);
@@ -466,7 +483,7 @@ PRIVATE int nameto83(
 	break;
   }
 
-  havelower = haveupper = prev = 0;
+  haslower = hasupper = prev = 0;
   for (q=&fatdp->deName[0]; q < &fatdp->deName[8]; ++q) {
 	if (next == '.' || next == '\0') {
 		if (prev == ' ') {
@@ -478,21 +495,22 @@ PRIVATE int nameto83(
 		/* some characters cannot enter in FAT filenames */
 		return(EINVAL);
 	} else {
-		haveupper |= isupper(next);
-		havelower |= islower(next);
+		hasupper |= isupper(next);
+		haslower |= islower(next);
 		*q = toupper(next);
 	}
 	prev = next;
 	next = *++p;
   }
+/* FIXME: move to caller when creating... */
 /* check q-d==3 &&
    static const char *dev3[] = {"CON", "AUX", "PRN", "NUL", "   "};
  * check q-d==4 && isdigit(q[-1])
    static const char *dev4[] = {"COM", "LPT" };
  */
-  if (havelower && !haveupper)
+  if (haslower && !hasupper)
 	fatdp->deLCase |= LCASE_NAME;
-/* FIXME: register the case havelower, which asks for LFN to store name... */
+/* FIXME: register the case haslower, which asks for LFN to store name... */
 
   if (*p == '\0') {
 	/* no extension */
@@ -509,10 +527,10 @@ PRIVATE int nameto83(
 	 */
 	DBGprintf(("FATfs: filename \"%s\" has a trailing dot...\n",
 			string));
-	return(OK);	/* (EINVAL); */
+	return(OK);	/* (EINVAL); */	/* FIXME: check what to do here */
   }
 
-  havelower = haveupper = prev = 0;
+  haslower = hasupper = prev = 0;
   for (q=&fatdp->deExtension[0]; q < &fatdp->deExtension[3]; ++q) {
 	if (next == '\0') {
 		break;
@@ -520,8 +538,8 @@ PRIVATE int nameto83(
 		/* some characters cannot enter in FAT filenames */
 		return(EINVAL);
 	} else {
-		haveupper |= isupper(next);
-		havelower |= islower(next);
+		hasupper |= isupper(next);
+		haslower |= islower(next);
 		*q = toupper(next);
 	}
 	prev = next;
@@ -533,7 +551,7 @@ PRIVATE int nameto83(
 		DBGprintf(("FATfs: warning: final space character "
 			"in an extension, will be dropped.\n"));
 	}
-	if (havelower && !haveupper)
+	if (haslower && !hasupper)
 		fatdp->deLCase |= LCASE_EXTENSION;
 	return(OK);
   }
@@ -559,6 +577,7 @@ PUBLIC int lookup_dir(
   off_t pos;
   block_t b;
   ino_t ino;
+  unsigned char slot_mark;
 
   /* If 'dirp' is not a pointer to a dir inode, error. */
   if ( (dirp->i_Attributes & ATTR_DIRECTORY) != ATTR_DIRECTORY)  {
@@ -578,9 +597,12 @@ PUBLIC int lookup_dir(
 	INODE_NR(dirp), string));
 
   memset(&direntry, '\0', sizeof direntry);	/* Avoid leaking any data */
-  if ( (r = nameto83(string, &direntry)) != OK)
+  if ( (r = nameto83(string, &direntry)) != OK) {
 /* WORK NEEDED: LFN... */
+	DBGprintf(("FATfs: lookup_dir for %s, "
+		"not OK for 8.3, return %d\n", string, r));
 	return(r);
+  }
 
   /* Step through the directory one block at a time. */
 /*
@@ -588,12 +610,12 @@ PUBLIC int lookup_dir(
  */
   pos = 0;
   while (TRUE) {
-	b = bmap(dirp, pos);	/* get block number */
+	b = bmap(dirp, pos);	/* get next block number */
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 		return(ENOENT);
 	}
-	bp = get_block(dev, b, NORMAL);	/* get a dir block */
+	bp = get_block(dev, b, NORMAL);	/* get the directory block */
 
 	assert(bp != NULL);
 
@@ -603,12 +625,12 @@ PUBLIC int lookup_dir(
 			dp++) {
 
 		/* is the EndOfDirectory mark found? */
-		if (dp->d_direntry.deName[0] == SLOT_EMPTY) {
+		if ( (slot_mark=dp->d_direntry.deName[0]) == SLOT_EMPTY) {
 			put_block(bp);
 			return(ENOENT);
 		}
 		/* is this slot out of use? */
-		if (dp->d_direntry.deName[0] == SLOT_DELETED) {
+		if (slot_mark == SLOT_DELETED) {
 			continue;
 		}
 
@@ -617,12 +639,17 @@ PUBLIC int lookup_dir(
 /* WORK NEEDED! */
 			continue;
 		}
+		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		/* skip any entry with volume attribute set */
+			continue;
+		}
 
 		if (strncmp((char*)dp->d_direntry.deName,
 			    (char*)direntry.deName, 8+3) == 0) {
 			/* we have a match on short name! */
 			r = OK;
 			assert(res_inop);
+/* FIXME uses coordinates... */
 /* FIXME FAT32 */
 			ino = get_le16(dp->d_direntry.deStartCluster);
 			if (ino && (*res_inop = find_inode(ino)) ) {
@@ -648,8 +675,8 @@ PUBLIC int lookup_dir(
   }
 
 /* Cannot happen!
- * Either we encounter the 0 (SLOT_EMPTY) marker,
- * or we exhausted the cluster chain.
+ * We should have exited when we encounter the 0 (SLOT_EMPTY) marker,
+ * or when we exhausted the cluster chain.
  */
   panic("FATfs: broke out of direntry!lookup loop\n");
 }
@@ -710,10 +737,10 @@ PUBLIC int add_direntry(
   match = 0;			/* set when a string match occurs */
 
   for (pos = 0; pos < ldirp->i_size; pos += /*FIXME ldirp->i_sp->s_block_size*/ 512 ) {
-	b = bmap(ldirp, pos);	/* get block number */
+	b = bmap(ldirp, pos);	/* get next block number */
 
 	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
-	bp = get_block(dev, b, NORMAL);	/* get a dir block */
+	bp = get_block(dev, b, NORMAL);	/* get the directory block */
 
 	assert(bp != NULL);
 
@@ -873,12 +900,12 @@ PUBLIC int is_empty_dir(
  */
   pos = 0;
   while (TRUE) {
-	b = bmap(dirp, pos);	/* get block number */
+	b = bmap(dirp, pos);	/* get next block number */
 	if (b == NO_BLOCK) {	/* no more data... */
 /* FIXME: record the EOF? (+ i_flags) */
 		return(OK);	/* it was empty! */
 	}
-	bp = get_block(dev, b, NORMAL);	/* get a dir block */
+	bp = get_block(dev, b, NORMAL);	/* get the directory block */
 
 	assert(bp != NULL);
 
@@ -903,13 +930,15 @@ PUBLIC int is_empty_dir(
  if ! root dir && pos = 0 && dp = [1] && dp->Name="..     " 
 	continue;
  */
-		/* is this entry for long names? */
-		if (dp->d_lfnentry.lfnAttributes == ATTR_LFN) {
-/* WORK NEEDED! */
+		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		/* skip any entry with volume attribute set;
+		 * this includes any LFN entries, which we are
+		 * not interested about at the moment
+		 */
 			continue;
 		}
 
-		/* we have a valid short name! */
+		/* everything else means we have an entry */
 		put_block(bp);
 		return(ENOTEMPTY);
 	}

@@ -6,6 +6,9 @@
  *   init_inodes	initialize the inode table, return the root inode
  *   fetch_inode	find an inode based on its VFS inode number
  *   find_inode		find an inode based on its cluster number
+ *   cluster_to_inode	find an inode based on its cluster number
+ *   dirref_to_inode	find an inode based on its coordinates of entry
+
  *   enter_inode	allocate a new inode corresponding to an entry
  *   get_inode		find or load an inode, increasing its reference count
  *   put_inode		decrease the reference count of an inode
@@ -21,28 +24,51 @@
  * Updated:
  */
 
-#include "inc.h"
-
-#include <stdio.h>
-#include <string.h>
-
-#ifdef	COMPAT316
-#include "compat.h"	/* MUST come before <minix/sysutil.h> */
-#endif
-#include <minix/sysutil.h>	/* panic */
+/* Inode numbers.
+ * There is a real challenge in the FAT file systems to get a number which
+ * represent inodes (or files, or directory entries).
+ * The most obvious candidate, the starting cluster number, cannot be used
+ * because all the empty files have 0 as starting cluster (including after
+ * a ftruncate(2) call).
+ * Since inode are in fact directory entries, a second candidate can be
+ * the coordinates of the entry, which are stored inside a struct direntryref.
+ * However the scheme will not work for unlink(2)ed files, which under MINIX
+ * can still be accessed, even if there is no directory entry any more;
+ * and it is defeated also by the rename(2) call, which may move entries
+ * along and as such will modify the coordinates of a given inode.
+ *
+ * So we synthetise a number which is passed back to VFS.
+ * In order to catch phasing errors, that number is built using bitmasks,
+ * combining the index in an array for quick reference, and a generation
+ * number which is hopefully not reused quickly.
+ * Some useful macros are defined in const.h.
+ */
 
 /* FIXME:
  * explain why inode, purpose etc.
- * explain why cannot use cluster numbers
- * explain why cannot use dirref
- * explain that files have only one entry (no hardlink)
- *   but directories may have many links... and we want only one inode!
  * explain that deleted entries should be kept around here _and_ in the
  * FAT chains, until the last open reference in VFS is closed,
  * and /then/ (which means in put_node) can be wiped from the disk copy...
  */
 
-/* FIXME: recover hash linking */
+/* Special files.
+ * In the FAT file system, there are only regular files and directories.
+ * There are no files representing character or block specials, unless
+ * some extension are used; several schemes exist, but none is universal
+ * enough to warrant its support here.
+ * There are no symlink (at file system level) either; again there are
+ * several scheme to circumvent this lacking, but nothing is universal.
+ * Because of all these shortcomings, we cannot allow the FAT file system
+ * to be used as root file system on MINIX.
+ *
+ * Links.
+ * In the FAT file system, regular files have one and only one directory
+ * entry; hence their link count is always 1, and cannot be incremented.
+ * Directories (except the root) have always at least one entry in its
+ * parent directory, plus the first entry named '.' in itself; in addition
+ * it has one more link for each subdirectory it may have, where the
+ * second entry named '..' will also have the same cluster number.
+ */
 
 /* The main portion of the inode array forms a fully linked tree, providing a
  * cached partial view of what the server believes is on the host system. Each
@@ -88,11 +114,24 @@
  * - A CACHED or FREE inode may be reused for other purposes at any time.
  */
 
+/* FIXME: recover hash linking */
+
+#include "inc.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#ifdef	COMPAT316
+#include "compat.h"	/* MUST come before <minix/sysutil.h> */
+#endif
+#include <minix/sysutil.h>	/* panic */
+
 PRIVATE struct inode inodes[NUM_INODES];
 
-PRIVATE TAILQ_HEAD(free_head, inode) free_list;
-/* inode hashtable */
-PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
+PRIVATE TAILQ_HEAD(free_head, inode) unused_inodes;
+/* inode hashtables */
+PRIVATE LIST_HEAD(hashc_lists, inode) hashcluster_inodes[NUM_HASH_SLOTS];
+PRIVATE LIST_HEAD(hashr_lists, inode) hashdirref_inodes[NUM_HASH_SLOTS];
 
 FORWARD _PROTOTYPE( void unhash_inode, (struct inode *node) 		);
 
@@ -101,21 +140,22 @@ FORWARD _PROTOTYPE( void unhash_inode, (struct inode *node) 		);
  *===========================================================================*/
 PUBLIC struct inode *init_inodes(int new_num_inodes)
 {
-/* Initialize inodes table. Return the root inode.
- */
+/* Initialize inodes table. Return the root inode. */
   struct inode *rip;
   int index;
 
   assert(new_num_inodes == NUM_INODES);
 
-  TAILQ_INIT(&free_list);
+  TAILQ_INIT(&unused_inodes);
 
   /* Initialize (as empty) all the hash queues. */
   for (index = 0; index < NUM_HASH_SLOTS; index++)
-	LIST_INIT(&hash_inodes[index]);
+	LIST_INIT(&hashcluster_inodes[index]);
+  for (index = 0; index < NUM_HASH_SLOTS; index++)
+	LIST_INIT(&hashdirref_inodes[index]);
 
-  DBGprintf(("FATfs: %d inodes (0-0%lo), %u bytes each, = %u b.\n",
-	NUM_INODES, NUM_INODES-1, sizeof(struct inode), sizeof(inodes)));
+  DBGprintf(("FATfs: %d inodes (0-0%o), %u bytes each, = %u b.\n",
+	NUM_INODES, NUM_INODES-1, usizeof(struct inode), usizeof(inodes)));
 
   /* Mark all inodes except the root inode as free. */
   for (index = 1; index < NUM_INODES; index++) {
@@ -123,9 +163,6 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 	rip->i_parent = NULL;
 	LIST_INIT(&rip->i_child);
 #if 0
-	ino->i_num = index + 1;
-	ino->i_gen = (unsigned short)-1; /* aesthetics */
-#elif 0
 	ino->i_index = index;
 	ino->i_gen = (index*index) & 0xff; /* some fancy small number */
 #else
@@ -134,19 +171,19 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 #endif
 	rip->i_ref = 0;
 	rip->i_flags = 0;
-	TAILQ_INSERT_TAIL(&free_list, rip, i_free);
+	rip->i_num = rip->i_clust = 0;
+/* FIXME: dirref... */
+	TAILQ_INSERT_TAIL(&unused_inodes, rip, i_free);
   }
 
   /* Initialize and return the root inode. */
   rip = &inodes[0];
   rip->i_parent = rip;		/* root inode is its own parent */
   LIST_INIT(&rip->i_child);
-#if 0
-  ino->i_num = ROOT_INODE_NR;
-  ino->i_gen = 0;		/* unused by root node */
-#elif 0
-  ino->i_index = 0;
-  ino->i_gen = ROOT_GEN_NR;	/* fixed for root node */
+#if 1
+  rip->i_num = ROOT_INODE_NR;
+  rip->i_index = 0;
+  rip->i_gen = ROOT_GEN_NR;	/* fixed for root node */
 #else
   rip->i_num = ROOT_INODE_NR;
   rip->i_index = 0;
@@ -157,8 +194,9 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
   rip->i_Attributes = ATTR_DIRECTORY;
   memset(rip->i_Name, ' ', 8);	/* root inode has empty name */
   memset(rip->i_Extension, ' ', 3);
-/* FIXME: FAT32 is different... */
+/* FIXME: FAT32 is different... attention rehash! */
   rip->i_clust = 1;		/* root inode is given a conventional number*/
+/* FIXME: dirref... */
 
   rehash_inode(rip);
 
@@ -168,69 +206,35 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 /*===========================================================================*
  *				fetch_inode				     *
  *===========================================================================*/
-PUBLIC struct inode *fetch_inode(ino_nr)
-ino_t ino_nr;
+PUBLIC struct inode *fetch_inode(ino_t ino_nr)
 {
-/* Return an inode based on its (perhaps synthetised) number, as known by VFS.
+/* Return an inode based on its (synthetised) number, as known by VFS.
  * Do not increase its reference count.
  */
   struct inode *rip;
   int index;
 
-#if 0
-  /* Inode 0 (= index -1) is not a valid inode number. */
-
+  /* Inode 0 is not a valid inode number. */
   index = INODE_INDEX(ino_nr);
-  if (index < 0) {
+  if (ino_nr <= 0 || index < 0 || index >= NUM_INODES) {
 	printf("FATfs: VFS passed invalid inode number!\n");
-
 	return NULL;
   }
 
   assert(index < NUM_INODES);
-
-  ino = &inodes[index];
+  rip = &inodes[index];
 
   /* Make sure the generation number matches. */
-  if (INODE_GEN(ino_nr) != ino->i_gen) {
+  if (INODE_GEN(ino_nr) != rip->i_gen) {
 	printf("FATfs: VFS passed outdated inode number!\n");
-
 	return NULL;
   }
-#else
-  /* Inode 0 (= index -1) is not a valid inode number. */
-  if (ino_nr <= 0) {
-	printf("FATfs: VFS passed invalid inode number!\n");
-	return NULL;
-  }
-  
-  if (IS_SYNTHETIC(ino_nr)) {
-	index = INODE_INDEX(ino_nr);
-	if (index < 0) {
-		printf("FATfs: VFS passed invalid inode number!\n");
-		return NULL;
-	}
-
-	assert(index < NUM_INODES);
-	
-	rip = &inodes[index];
-	
-	/* Make sure the generation number matches. */
-	if (INODE_GEN(ino_nr) != rip->i_gen) {
-		printf("FATfs: VFS passed outdated inode number!\n");
-		return NULL;
-	}
-  } else {
-	if ( (rip = find_inode(ino_nr)) == NULL) {
-		printf("FATfs: VFS passed unknown inode number!\n");
-		return NULL;
-	}
-  }
-#endif
 
   /* The VFS/FS protocol only uses referenced inodes. */
-  if (rip->i_ref == 0)
+  if (rip->i_ref == 0) {
 	printf("FATfs: VFS passed unused inode!\n");
+	/* go on anyway... */
+  }
 
   return rip;
 }
@@ -242,7 +246,7 @@ PUBLIC struct inode *find_inode(
   cluster_t cn			/* cluster number */
 )
 {
-/* Find the inode specified by its coordinates, the first cluster number.
+/* Find the inode specified by its first cluster number.
  * Do not increase its reference count.
  */
   struct inode *rip;
@@ -251,7 +255,7 @@ PUBLIC struct inode *find_inode(
   hashi = (int) (cn % NUM_HASH_SLOTS);
 
   /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
+  LIST_FOREACH(rip, &hashcluster_inodes[hashi], i_hashclust) {
       if (rip->i_ref > 0 && rip->i_clust == cn) {
           return(rip);
       }
@@ -285,7 +289,7 @@ FIXME: need the struct direntryref (*?)
   DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
 
   /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
+  LIST_FOREACH(rip, &hashcluster_inodes[hashi], i_hashclust) {
 	if (rip->i_ref > 0 && rip->i_clust == cn) {
 		++rip->i_ref;
 		return(rip);
@@ -296,7 +300,7 @@ FIXME: need the struct direntryref (*?)
   rip = get_free_inode();
   rip->i_direntry = *dp;
   rip->i_clust = cn;
-  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
+  LIST_INSERT_HEAD(&hashcluster_inodes[hashi], rip, i_hashclust);
 /* more work needed here: i_mode, i_size */
 
   DBGprintf(("FATfs: enter_inode create entry for ['%.8s.%.3s']\n",
@@ -325,7 +329,7 @@ PUBLIC void rehash_inode(struct inode *rip)
 #endif
   
   /* insert into hash table */
-  LIST_INSERT_HEAD(&hash_inodes[hashi], rip, i_hash);
+  LIST_INSERT_HEAD(&hashcluster_inodes[hashi], rip, i_hashclust);
 }
 
 /*===========================================================================*
@@ -334,7 +338,7 @@ PUBLIC void rehash_inode(struct inode *rip)
 PRIVATE void unhash_inode(struct inode *rip) 
 {
   /* remove from hash table */
-  LIST_REMOVE(rip, i_hash);
+  LIST_REMOVE(rip, i_hashclust);
 }
 
 /*===========================================================================*
@@ -353,7 +357,7 @@ PUBLIC void get_inode(struct inode *rip)
 
   /* If this is the first reference, remove the node from the free list. */
   if (rip->i_ref == 0 && !HAS_CHILDREN(rip))
-	TAILQ_REMOVE(&free_list, rip, i_free);
+	TAILQ_REMOVE(&unused_inodes, rip, i_free);
 
   rip->i_ref++;
 
@@ -403,9 +407,9 @@ PUBLIC void put_inode(struct inode *rip)
    * it is also deleted (and therefore can never be reused as is).
    */
   if (rip->i_parent == NULL)
-	TAILQ_INSERT_HEAD(&free_list, rip, i_free);
+	TAILQ_INSERT_HEAD(&unused_inodes, rip, i_free);
   else
-	TAILQ_INSERT_TAIL(&free_list, rip, i_free);
+	TAILQ_INSERT_TAIL(&unused_inodes, rip, i_free);
 }
 
 /*===========================================================================*
@@ -422,7 +426,7 @@ struct inode *rip;
 
   /* This can never happen, right? */
   if (parent->i_ref == 0 && !HAS_CHILDREN(parent))
-	TAILQ_REMOVE(&free_list, parent, i_free);
+	TAILQ_REMOVE(&unused_inodes, parent, i_free);
 
   LIST_INSERT_HEAD(&parent->i_child, rip, i_next);
 
@@ -446,9 +450,9 @@ PUBLIC void unlink_inode(struct inode *rip)
   
   if (parent->i_ref == 0 && !HAS_CHILDREN(parent)) {
 	if (parent->i_parent == NULL)
-		TAILQ_INSERT_HEAD(&free_list, parent, i_free);
+		TAILQ_INSERT_HEAD(&unused_inodes, parent, i_free);
 	else
-		TAILQ_INSERT_TAIL(&free_list, parent, i_free);
+		TAILQ_INSERT_TAIL(&unused_inodes, parent, i_free);
   }
 
   rip->i_parent = NULL;
@@ -466,14 +470,14 @@ PUBLIC struct inode *get_free_inode(void)
   /* [CACHED -> FREE,] FREE -> DELETED */
 
   /* If there are no inodes on the free list, we cannot satisfy the request. */
-  if (TAILQ_EMPTY(&free_list)) {
+  if (TAILQ_EMPTY(&unused_inodes)) {
 	printf("FATfs: out of inodes!\n");
 
 	return NULL;
   }
 
-  rip = TAILQ_FIRST(&free_list);
-  TAILQ_REMOVE(&free_list, rip, i_free);
+  rip = TAILQ_FIRST(&unused_inodes);
+  TAILQ_REMOVE(&unused_inodes, rip, i_free);
 
   assert(rip->i_ref == 0);
   assert(!HAS_CHILDREN(rip));
@@ -502,7 +506,7 @@ PUBLIC int have_free_inode(void)
  * this allows for easier error recovery in some places.
  */
 
-  return !TAILQ_EMPTY(&free_list);
+  return !TAILQ_EMPTY(&unused_inodes);
 }
 
 /*===========================================================================*

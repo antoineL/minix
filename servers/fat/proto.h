@@ -49,6 +49,7 @@ _PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
 			   int flags)					);
 _PROTOTYPE( void dev_close, (endpoint_t driver_e, dev_t dev)		);
 _PROTOTYPE( int do_new_driver, (void)					);
+_PROTOTYPE( int label_to_driver, (cp_grant_id_t, size_t label_len)	);
 _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
