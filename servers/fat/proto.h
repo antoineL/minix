@@ -60,7 +60,8 @@ _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
 
 /* inode.c */
-_PROTOTYPE( struct inode *enter_inode, (struct fat_direntry*, unsigned)	);
+_PROTOTYPE( struct inode *cluster_to_inode, (cluster_t)			);
+_PROTOTYPE( struct inode *dirref_to_inode, (cluster_t, unsigned)	);
 _PROTOTYPE( struct inode *fetch_inode, (ino_t ino_nr)			);
 _PROTOTYPE( struct inode *find_inode, (cluster_t)			);
 _PROTOTYPE( void flush_inodes, (void)					);

@@ -265,6 +265,56 @@ PUBLIC struct inode *find_inode(
 }
 
 /*===========================================================================*
+ *				cluster_to_inode       			     *
+ *===========================================================================*/
+PUBLIC struct inode * cluster_to_inode(cluster_t clust)
+{
+/* Find the inode specified by its first cluster number.
+ * Do not increase its reference count.
+ */
+  struct inode *rip;
+  int hashc;
+
+  hashc = (int) (clust % NUM_HASH_SLOTS);
+
+  /* Search inode in the hash table */
+  LIST_FOREACH(rip, &hashcluster_inodes[hashc], i_hashclust) {
+	if (rip->i_clust == clust) {
+		return(rip);
+	}
+  }
+  
+  return(NULL);
+}
+
+/*===========================================================================*
+ *				dirref_to_inode        			     *
+ *===========================================================================*/
+PUBLIC struct inode *dirref_to_inode(
+  cluster_t dirclust,		/* cluster number of the parent directory */
+  unsigned entrypos)		/* position within the parent directory */
+{
+/* Find the inode specified by the coordinates of its directory entry,
+ * the first cluster number of the directory and the position within it.
+ * Do not increase its reference count.
+ */
+  struct inode *rip;
+  int hashr;
+
+  hashr = (int) ((dirclust ^ entrypos) % NUM_HASH_SLOTS);
+
+  /* Search inode in the hash table */
+  LIST_FOREACH(rip, &hashdirref_inodes[hashr], i_hashref) {
+	if (rip->i_dirref.dr_clust == dirclust
+	 && rip->i_dirref.dr_entrypos == entrypos) {
+		return(rip);
+	}
+  }
+  
+  return(NULL);
+}
+
+/*===========================================================================*
  *				(x)enter_inode				     *
  *===========================================================================*/
 PUBLIC struct inode *xenter_inode(
@@ -314,22 +364,18 @@ FIXME: need the struct direntryref (*?)
  *===========================================================================*/
 PUBLIC void rehash_inode(struct inode *rip) 
 {
-  int hashi;
-#if 0
-  cluster_t cn;			/* cluster number */
+/* Insert into hash tables */
+  int hashc, hashr;
 
-#ifndef get_le16
-#define get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
-#endif
-/* FIXME FAT32 */
-  cn = get_le16(rip->iz_StartCluster);
-  hashi = (int) (cn % NUM_HASH_SLOTS);
-#else
-  hashi = (int) ((rip->i_num) % NUM_HASH_SLOTS);
-#endif
-  
-  /* insert into hash table */
-  LIST_INSERT_HEAD(&hashcluster_inodes[hashi], rip, i_hashclust);
+  if (rip->i_clust != 0) {
+	hashc = (int) (rip->i_clust % NUM_HASH_SLOTS);
+	LIST_INSERT_HEAD(&hashcluster_inodes[hashc], rip, i_hashclust);
+  }
+  if (rip->i_dirref.dr_clust != 0) {
+	hashr = (int) ((rip->i_dirref.dr_clust ^ rip->i_dirref.dr_entrypos)
+			% NUM_HASH_SLOTS);
+	LIST_INSERT_HEAD(&hashdirref_inodes[hashr], rip, i_hashref);
+  }
 }
 
 /*===========================================================================*
@@ -337,8 +383,16 @@ PUBLIC void rehash_inode(struct inode *rip)
  *===========================================================================*/
 PRIVATE void unhash_inode(struct inode *rip) 
 {
-  /* remove from hash table */
-  LIST_REMOVE(rip, i_hashclust);
+/* Remove from hash tables */
+
+  if (rip->i_clust != 0) {
+	LIST_REMOVE(rip, i_hashclust);
+	rip->i_clust = 0;
+  }
+  if (rip->i_dirref.dr_clust != 0) {
+	LIST_REMOVE(rip, i_hashref);
+	rip->i_dirref.dr_clust = 0;
+  }
 }
 
 /*===========================================================================*
@@ -482,8 +536,9 @@ PUBLIC struct inode *get_free_inode(void)
   assert(rip->i_ref == 0);
   assert(!HAS_CHILDREN(rip));
 
-#if 0
   /* If this was a cached inode, free it first. */
+  unhash_inode(rip);
+#if 0
   if (ino->i_parent != NULL)
 	del_direntry(ino);
 #endif
