@@ -63,7 +63,6 @@ _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 _PROTOTYPE( struct inode *cluster_to_inode, (cluster_t)			);
 _PROTOTYPE( struct inode *dirref_to_inode, (cluster_t, unsigned)	);
 _PROTOTYPE( struct inode *fetch_inode, (ino_t ino_nr)			);
-_PROTOTYPE( struct inode *find_inode, (cluster_t)			);
 _PROTOTYPE( void flush_inodes, (void)					);
 _PROTOTYPE( struct inode *get_free_inode, (void)			);
 _PROTOTYPE( void get_inode, (struct inode *ino)				);
@@ -72,6 +71,7 @@ _PROTOTYPE( int have_used_inode, (void)					);
 _PROTOTYPE( struct inode *init_inodes, (int inodes)			);
 _PROTOTYPE( void link_inode, (struct inode *parent, struct inode *ino)	);
 _PROTOTYPE( void put_inode, (struct inode *ino)				);
+_PROTOTYPE( void rehash_inode, (struct inode *ino)			);
 _PROTOTYPE( void unlink_inode, (struct inode *ino)			);
 
 /* lookup.c */

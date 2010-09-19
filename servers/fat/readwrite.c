@@ -48,7 +48,7 @@ PUBLIC int do_read(void)
   u64_t position64;
   off_t position, f_size, bytes_left;
   size_t nrbytes;
-  unsigned int off, cum_io, chunk, block_size;
+  unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -67,6 +67,9 @@ PUBLIC int do_read(void)
   nrbytes = (size_t) m_in.REQ_NBYTES;
   f_size = rip->i_size;
   
+  DBGprintf(("FATfs: read in %lo, %u bytes from %lx:%lx...\n",
+	INODE_NR(rip), nrbytes, 1[(unsigned long*)&position64], *(unsigned long*)&position64));
+
 #if 0
   rdwt_err = OK;		/* set to EIO if disk error occurs */
 #endif
@@ -75,15 +78,19 @@ PUBLIC int do_read(void)
   /* Split the transfer into chunks that don't span two blocks. */
   while (nrbytes > 0) {
 	off = rem64u(position64, block_size);
+DBGprintf(("off=%u position=%u position64=%u:%u\n", off, position, ex64hi(position64), ex64lo(position64)));
 #if 0
 	off = ((unsigned int) position) % block_size; /* offset in blk*/
+					& sb.brelmask
 	chunk = min(nrbytes, block_size - off);
 #else
 	chunk = nrbytes < (block_size-off) ? nrbytes : block_size - off;
 #endif
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, block_size, f_size));
 	bytes_left = f_size - position;
 	if (position >= f_size) break;	/* we are beyond EOF */
 	if (chunk > (unsigned int) bytes_left) chunk = bytes_left;
+DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
 
 	/* Read or write 'chunk' bytes. */
 	if (ex64hi(position64) != 0)
@@ -96,6 +103,7 @@ PUBLIC int do_read(void)
 		bp = get_block(NO_DEV, NO_BLOCK, NO_READ);    /* get a buffer */
 		zero_block(bp);
 	} else {
+DBGprintf(("read:: rahead(rip, b=%d, position64, nrbytes=%d)\n", b, nrbytes));
 		/* Read and read ahead if convenient. */
 		bp = rahead(rip, b, position64, nrbytes);
 	}
@@ -126,27 +134,24 @@ PUBLIC int do_read(void)
   m_out.RES_SEEK_POS_LO = ex64lo(position64); 
   m_out.RES_SEEK_POS_HI = ex64hi(position64); 
   
-#if 0
   /* Check to see if read-ahead is called for, and if so, set it up. */
-  if(rip->i_seek == NO_SEEK &&
-     (unsigned int) position % block_size == 0 &&
-     (regular || mode_word == I_DIRECTORY)) {
+  if ( (rip->i_flags & I_SEEK)==0
+	&& ((unsigned int)position & sb.brelmask) == 0
+     /* && (regular || mode_word == I_DIRECTORY) */ ) {
 	rdahed_inode = rip;
 	rdahedpos = position;
   } 
-  rip->i_seek = NO_SEEK;
-#endif  
+  rip->i_flags &= ~I_SEEK;
 
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
   if (rdwt_err == END_OF_FILE) r = OK;
+#endif
 
   if (r == OK) {
-	if (rw_flag == READING) rip->i_update |= ATIME;
-	if (rw_flag == WRITING) rip->i_update |= CTIME | MTIME;
-	rip->i_dirt = DIRTY;		/* inode is thus now dirty */
+/* FIXME: i_atime = UPDATED */
+	rip->i_flags |= I_ACCESSED|I_DIRTY;	/* inode is thus now dirty */
   }
-#endif
 
   m_out.RES_NBYTES = cum_io;
   
@@ -165,7 +170,7 @@ PUBLIC int do_bread(void)
   u64_t position64;
   off_t position, f_size, bytes_left;
   size_t nrbytes;
-  unsigned int off, cum_io, chunk, block_size;
+  unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -238,7 +243,7 @@ PUBLIC int do_bread(void)
 #if 0  
   /* Check to see if read-ahead is called for, and if so, set it up. */
 /*FIXME: should work... */
-  if((unsigned int) position % block_size == 0) {
+  if( ((unsigned int) position & sb.brelmask) == 0) {
 	rdahed_inode = rip;
 	rdahedpos = position;
   } 
@@ -266,7 +271,7 @@ PUBLIC int do_write(void)
   u64_t position64;
   off_t position, f_size, bytes_left;
   size_t nrbytes;
-  unsigned int off, cum_io, chunk, block_size;
+  unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -374,13 +379,15 @@ PUBLIC int do_write(void)
   m_out.RES_SEEK_POS_LO = ex64lo(position64); 
   m_out.RES_SEEK_POS_HI = ex64hi(position64); 
   
+  /* Update file size and access time. */
 #if 0
-  /* On write, update file size and access time. */
   if (regular || mode_word == I_DIRECTORY) {
 	if (position > f_size) rip->i_size = position;
   } 
-  rip->i_seek = NO_SEEK;
+#else
+  if (position > f_size) rip->i_size = position;
 #endif  
+  rip->i_flags &= ~I_SEEK;
 
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
@@ -392,6 +399,10 @@ PUBLIC int do_write(void)
 	rip->i_dirt = DIRTY;		/* inode is thus now dirty */
   }
 #endif
+  if (r == OK) {
+/* FIXME: i_mtime = UPDATED i_ctime = UPDATED */
+	rip->i_flags |= I_MTIME|I_DIRTY;	/* inode is thus now dirty */
+  }
 
   m_out.RES_NBYTES = cum_io;
   
@@ -410,7 +421,7 @@ PUBLIC int do_bwrite(void)
   u64_t position64;
   off_t position, f_size, bytes_left;
   size_t nrbytes;
-  unsigned int off, cum_io, chunk, block_size;
+  unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -497,7 +508,7 @@ PUBLIC int do_bwrite(void)
 }
 
 /*===========================================================================*
- *				read_ahead				   *
+ *				read_ahead				     *
  *===========================================================================*/
 PUBLIC void read_ahead(void)
 {
@@ -516,6 +527,7 @@ PUBLIC void read_ahead(void)
 #endif
   assert(rdahedpos > 0); /* So we can safely cast it to unsigned below */
 
+DBGprintf(("read_ahead:: rahead(rip, b=%d, cvul64( (unsigned long) rdahedpos=%ld), block_size=%d)\n", b, rdahedpos, block_size));
   bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), block_size);
   put_block(bp /*, PARTIAL_DATA_BLOCK */);
 }
@@ -598,13 +610,13 @@ unsigned bytes_ahead;		/* bytes beyond position for immediate use */
   position = sub64u(position, fragment);
   bytes_ahead += fragment;
 
-  blocks_ahead = (bytes_ahead + block_size - 1) / block_size;
+  blocks_ahead = (bytes_ahead + sb.brelmask) / block_size;
 
 #if 0
   if (block_spec && rip->i_size == 0) {
 	blocks_left = (block_t) NR_IOREQS;
   } else {
-	blocks_left = (block_t) (rip->i_size-ex64lo(position)+(block_size-1)) /
+	blocks_left = (block_t) (rip->i_size-ex64lo(position)+sb.brelmask) /
 								block_size;
 
 	/* Go for the first indirect block if we are in its neighborhood. */

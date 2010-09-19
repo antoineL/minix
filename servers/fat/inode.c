@@ -1,18 +1,15 @@
 /* This file deals with inode management.
- * The inode content is mostly abstract here; the part which deals with
- * the actual content is in direntry.c.
+ * The inode content is mostly abstract here;
+ * the part which deals with the actual content is in direntry.c.
  *
  * The entry points into this file are:
  *   init_inodes	initialize the inode table, return the root inode
  *   fetch_inode	find an inode based on its VFS inode number
- *   find_inode		find an inode based on its cluster number
  *   cluster_to_inode	find an inode based on its cluster number
  *   dirref_to_inode	find an inode based on its coordinates of entry
-
- *   enter_inode	allocate a new inode corresponding to an entry
- *   get_inode		find or load an inode, increasing its reference count
+ *   get_inode		use an inode, increasing its reference count
  *   put_inode		decrease the reference count of an inode
- *   rehash_inode	replace an inode into the hash queue
+ *   rehash_inode	replace an inode into the hash queues
  *   link_inode		link an inode as a directory entry to another inode
  *   unlink_inode	unlink an inode from its parent directory
  *   get_free_inode	return a free inode object
@@ -26,7 +23,7 @@
 
 /* Inode numbers.
  * There is a real challenge in the FAT file systems to get a number which
- * represent inodes (or files, or directory entries).
+ * represents inode (also known as file, or directory entry).
  * The most obvious candidate, the starting cluster number, cannot be used
  * because all the empty files have 0 as starting cluster (including after
  * a ftruncate(2) call).
@@ -114,8 +111,6 @@
  * - A CACHED or FREE inode may be reused for other purposes at any time.
  */
 
-/* FIXME: recover hash linking */
-
 #include "inc.h"
 
 #include <stdio.h>
@@ -129,6 +124,7 @@
 PRIVATE struct inode inodes[NUM_INODES];
 
 PRIVATE TAILQ_HEAD(free_head, inode) unused_inodes;
+
 /* inode hashtables */
 PRIVATE LIST_HEAD(hashc_lists, inode) hashcluster_inodes[NUM_HASH_SLOTS];
 PRIVATE LIST_HEAD(hashr_lists, inode) hashdirref_inodes[NUM_HASH_SLOTS];
@@ -315,67 +311,39 @@ PUBLIC struct inode *dirref_to_inode(
 }
 
 /*===========================================================================*
- *				(x)enter_inode				     *
- *===========================================================================*/
-PUBLIC struct inode *xenter_inode(
-  struct fat_direntry * dp,	/* (short name) entry */
-  unsigned entrypos)		/* position within the parent directory */
-{
-/* Enter the inode as specified by its directory entry.
-
-FIXME: need the struct direntryref (*?)
- */
-  struct inode *rip;
-  cluster_t cn;			/* cluster number */
-  int hashi;
-
-#ifndef get_le16
-#define get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
-#endif
-/* FIXME FAT32 */
-  cn = get_le16(dp->deStartCluster);
-  hashi = (int) (cn % NUM_HASH_SLOTS);
-
-  DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
-
-  /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hashcluster_inodes[hashi], i_hashclust) {
-	if (rip->i_ref > 0 && rip->i_clust == cn) {
-		++rip->i_ref;
-		return(rip);
-	}
-  }
-
-  /* get a new inode with ref. count = 1 */
-  rip = get_free_inode();
-  rip->i_direntry = *dp;
-  rip->i_clust = cn;
-  LIST_INSERT_HEAD(&hashcluster_inodes[hashi], rip, i_hashclust);
-/* more work needed here: i_mode, i_size */
-
-  DBGprintf(("FATfs: enter_inode create entry for ['%.8s.%.3s']\n",
-		rip->i_Name, rip->i_Extension));
-
-  return(rip);
-}
-
-/*===========================================================================*
- *				rehash_inode   			     *
+ *				rehash_inode  	 			     *
  *===========================================================================*/
 PUBLIC void rehash_inode(struct inode *rip) 
 {
-/* Insert into hash tables */
+/* Insert into hash tables. Should be done after a new entry is read from
+ * the disk; should also be done when the starting cluster is changed
+ * (from or to 0), and when the dirref changes (unlink or rename).
+ */
+  int flags;
   int hashc, hashr;
 
+  assert(rip);
+  flags = rip->i_flags;
+
+  if (flags & I_HASHED_CLUST)
+	LIST_REMOVE(rip, i_hashclust);
   if (rip->i_clust != 0) {
 	hashc = (int) (rip->i_clust % NUM_HASH_SLOTS);
 	LIST_INSERT_HEAD(&hashcluster_inodes[hashc], rip, i_hashclust);
-  }
+	flags |= I_HASHED_CLUST;
+  } else
+	flags &= ~I_HASHED_CLUST;
+
+  if (flags & I_HASHED_DIRREF)
+	LIST_REMOVE(rip, i_hashref);
   if (rip->i_dirref.dr_clust != 0) {
-	hashr = (int) ((rip->i_dirref.dr_clust ^ rip->i_dirref.dr_entrypos)
-			% NUM_HASH_SLOTS);
+	hashr = (int) ((rip->i_parent_clust ^ rip->i_entrypos) % NUM_HASH_SLOTS);
 	LIST_INSERT_HEAD(&hashdirref_inodes[hashr], rip, i_hashref);
-  }
+	flags |= I_HASHED_DIRREF;
+  } else
+	flags &= ~I_HASHED_DIRREF;
+
+  rip->i_flags = flags;
 }
 
 /*===========================================================================*
@@ -383,16 +351,18 @@ PUBLIC void rehash_inode(struct inode *rip)
  *===========================================================================*/
 PRIVATE void unhash_inode(struct inode *rip) 
 {
-/* Remove from hash tables */
+/* Remove from hash tables. To be done when inode goes out of cache. */
 
-  if (rip->i_clust != 0) {
+  assert(rip);
+  if (rip->i_flags & I_HASHED_CLUST) {
 	LIST_REMOVE(rip, i_hashclust);
-	rip->i_clust = 0;
+	/* rip->i_clust = 0; */
   }
-  if (rip->i_dirref.dr_clust != 0) {
+  if (rip->i_flags & I_HASHED_DIRREF) {
 	LIST_REMOVE(rip, i_hashref);
-	rip->i_dirref.dr_clust = 0;
+	/* rip->i_dirref.dr_clust = 0; */
   }
+  rip->i_flags &= ~(I_HASHED_CLUST|I_HASHED_DIRREF);  /* clear flags */
 }
 
 /*===========================================================================*
@@ -541,8 +511,15 @@ PUBLIC struct inode *get_free_inode(void)
 #if 0
   if (ino->i_parent != NULL)
 	del_direntry(ino);
+#else
+  if (rip->i_parent != NULL) {
+	/* there can be a tree of children inode linked to this...
+	 * we simulate only the easy case here, but obviously
+	 * this is ugly (and perhaps wrong). FIXME!
+	 */
+	unlink_inode(rip);
+  }
 #endif
-
   assert(rip->i_parent == NULL);
 
   /* Initialize a subset of its fields */

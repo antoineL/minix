@@ -219,31 +219,21 @@ struct fatcache {
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
-  LIST_ENTRY(inode) i_hashclust;	/* cluster hashtable chain entry */
-  LIST_ENTRY(inode) i_hashref;		/* dirref hashtable chain entry */
-  ino_t i_num;				/* inode number for quick reference */
-  unsigned short i_index;
-  unsigned short i_gen;			/* inode generation number */
-  unsigned short i_ref;			/* VFS reference count */
-  unsigned short i_flags;		/* any combination of I_* flags */
-#if 0
-  union {
-	TAILQ_ENTRY(inode) u_free;	/* free list chain entry */
-	struct direntryref u_dirref;	/* coordinates of this entry */
-  } i_u;
-#define i_free		i_u.u_free
-#define i_dirref	i_u.u_dirref
-#else
-  TAILQ_ENTRY(inode) i_free;		/* free list chain entry */
-  struct direntryref i_dirref;		/* coordinates of this entry */
-#endif
+  LIST_ENTRY(inode) i_hashclust; /* cluster hashtable chain entry */
+  LIST_ENTRY(inode) i_hashref;	/* dirref hashtable chain entry */
+  unsigned short i_index;	/* inode index for quick reference */
+  unsigned short i_gen;		/* inode generation number */
+  unsigned short i_ref;		/* VFS reference count */
+  unsigned short i_flags;	/* any combination of I_* flags */
+  TAILQ_ENTRY(inode) i_free;	/* free list chain entry */
 
 /* FIXME */
+  ino_t i_num;				/* inode number for quick reference */
   struct inode *i_parent;		/* parent inode pointer */
   LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
   LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
 
-  struct fat_direntry i_direntry;	/* actual data of entry */
+  struct fat_direntry i_direntry; /* actual data of entry */
 /* Shorthand macros used to reference fields in the direntry */
 #define	i_Name		i_direntry.deName
 #define	i_Extension	i_direntry.deExtension
@@ -258,28 +248,51 @@ struct inode {
   off_t i_size;			/* current file size in bytes */
   cluster_t i_clust;		/* number of first cluster of data */
 
+  struct direntryref i_dirref;	/* coordinates of this entry */
+#define	i_parent_clust	i_dirref.dr_clust /* cluster pointing the directory */
+#define	i_entrypos	i_dirref.dr_entrypos /* position of the entry within*/
+
+  /* cached values for timestamps: */
+  time_t i_btime;		/* when was file created (birth) */
+  time_t i_mtime;		/* when was file data last changed */
+  time_t i_atime;		/* when was file data last accessed */
+  time_t i_ctime;		/* when was inode itself changed */
+
   struct fatcache i_fc[FC_SIZE];	/* fat cache */
 };
 
-
-#define I_DIR		0x01		/* this inode is a directory */
-#define I_ROOTDIR	0x02		/* this inode is the root directory */
+/* Inode flags: i_flags is the |-ing of all relevant flags */
+#define I_DIR		0x0001		/* this inode is a directory */
+#define I_ROOTDIR	0x0002		/* this inode is the root directory */
+#define I_DIRSIZED	0x0004		/* size is not estimated */
+#define I_DIRNOTSIZED	0x0008		/* size is pure guess */
 
 #define I_MOUNTPOINT	0x0010		/* this inode is a mount point */
+#define I_ORPHAN	0x0020		/* the path leading to this inode
+					 * was unlinked, but is still used
+					 */
 
 #define I_SEEK		0x0100		/* last operation incured a seek */
 #define I_MTIME		0x0200		/* touched, should update MTime */
-#define I_ACCESS	0x0400		/* file was accessed */
+#define I_ACCESSED	0x0400		/* file was accessed */
 #define I_DIRTY		0x0800		/* on-disk copy differs */
-#define I_ORPHAN	0x1000		/* the path leading to this inode
-					 * was unlinked, but is still used
+
+#define I_HASHED_CLUST	0x1000		/* linked-in in cluster hastable */
+#define I_HASHED_DIRREF	0x2000		/* linked-in in dirref hastable */
+
+/* Placeholders for cached timestamps: */
+#define	TIME_UNKNOWN	(time_t)0	/* nothing known about the value */
+#define	TIME_NOT_CACHED	(time_t)1	/* compute from on-disk value */
+#define	TIME_UPDATED	(time_t)2	/* inode was updated and is dirty;
+					 * value to be retrieved from clock
 					 */
-#define I_DIRSIZED	0x2000		/* size is not estimated */
-#define I_DIRNOTSIZED	0x4000		/* size is pure guess */
 
 /*
  *  Values for the de_flag field of the denode.
  */
+#define NO_SEEK            0	/* i_seek = NO_SEEK if last op was not SEEK */
+#define ISEEK              1	/* i_seek = ISEEK if last op was SEEK */
+
 #define I_HANDLE	0x02		/* this inode has an open handle */
 #define	DELOCKED	0x0001		/* directory entry is locked	*/
 #define	DEWANT		0x0002		/* someone wants this de	*/

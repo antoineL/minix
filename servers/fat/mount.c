@@ -207,7 +207,7 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 		1<<(sb.cnshift-10)));
 	return(EINVAL);
   }
-  sb.cbshift = sb.csshift = sb.snshift - sb.cnshift;
+  sb.cbshift = sb.csshift = sb.cnshift - sb.snshift;
   assert(bs->bpbSecPerClust == (1<<sb.csshift));
   sb.bpcluster = sb.secpcluster * sb.bpsector;
   assert(sb.bpcluster == (1<<sb.cnshift)); /* paranoia */

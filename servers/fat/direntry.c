@@ -33,10 +33,8 @@
 #define EOVERFLOW	ENAMETOOLONG	/* replace by something vaguely close... */
 #endif
 
-void rehash_inode(struct inode *node);
-
 FORWARD _PROTOTYPE( struct inode *enter_as_inode,
-		(struct fat_direntry*, unsigned)			);
+		(struct fat_direntry*, struct inode* dirp, unsigned)	);
 FORWARD _PROTOTYPE( int nameto83,
 		(char string[NAME_MAX+1], struct fat_direntry *)	);
 
@@ -54,9 +52,8 @@ PRIVATE char getdents_buf[GETDENTS_BUFSIZ];
  *===========================================================================*/
 PUBLIC int do_getdents(void)
 {
-/* ...
- */
-  int o, r, done;
+/* Return as much Directory ENTries as possible in the user buffer. */
+  int r, i, o, done;
   struct inode *dirp, *newip;
   struct buf *bp;
   union direntry_u * dp;
@@ -88,7 +85,7 @@ PUBLIC int do_getdents(void)
   if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
 	return(EINVAL);
 
-  off = pos & (block_size-1);	/* Offset in block */
+  off = pos & sb.brelmask;	/* Offset in block */
   block_pos = pos - off;
   done = FALSE;		/* Stop processing blocks when done is set */
   r = OK;
@@ -97,6 +94,7 @@ PUBLIC int do_getdents(void)
   memset(getdents_buf, '\0', GETDENTS_BUFSIZ);	/* Avoid leaking any data */
   callerbuf_off = 0;	/* Offset in the user's buffer */
 
+#ifdef FAKE_DOT_ON_ROOT
   if (dirp->i_flags & I_ROOTDIR && pos == 0) {
   /* With FAT, the root directory does not have . and ..
    * So we need to fake them...
@@ -129,7 +127,7 @@ PUBLIC int do_getdents(void)
 	strcpy(dep->d_name, "..");
 	mybuf_off += reclen;
   }
-
+#endif /*FAKE_DOT_ON_ROOT*/
 
 /* FIXME: with FAT, dir size are unknown */
 /* The default position for the next request is EOF. If the user's buffer
@@ -158,13 +156,22 @@ PUBLIC int do_getdents(void)
 	assert(bp != NULL);
 
 	/* Search a directory block. */
-/* FIXME use i (direntry index), sb.depblk */
+#if 0
 	if (block_pos < pos)
 		dp = &bp->b_dir[off / DIR_ENTRY_SIZE];
 	else
 		dp = &bp->b_dir[0];
 
 	for (; dp < &bp->b_dir[block_size / DIR_ENTRY_SIZE]; dp++) {
+#else
+	if (block_pos < pos)
+		i = off / DIR_ENTRY_SIZE;
+	else
+		i = 0;
+
+	for (dp = &bp->b_dir[i]; i < sb.depblk; ++i, ++dp) {
+/* FIXME ajoute ent_pos+=DIR_ENTRY_SIZE */
+#endif
 
 DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 	dp->d_direntry.deName, dp->d_direntry.deExtension, dp->d_direntry.deName[0]));
@@ -281,6 +288,14 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 
 		dep = (struct dirent *) &getdents_buf[mybuf_off];
 #if 1
+		newip = enter_as_inode(fatdp, dirp, ent_pos);
+		if( newip == NULL ) {
+/* FIXME: do something more clever... */
+			panic("FATfs: getdents cannot create some virtual inode\n");
+		}
+		dep->d_ino = INODE_NR(newip);
+		put_inode(newip);
+#elif 0
 /* FIXME FAT32 */
 		ino = get_le16(fatdp->deStartCluster);
 		if (ino == 0) {
@@ -289,7 +304,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
  * because we have no idea of the generation number...
  * So we enter it anyway in the inode array, hoping it will survive...
  */
-			newip = enter_as_inode(fatdp, ent_pos);
+			newip = enter_as_inode(fatdp, dirp, ent_pos);
 			if( newip == NULL ) {
 /* FIXME: do something more clever... */
 				panic("FATfs: getdents cannot create some virtual inode\n");
@@ -301,7 +316,7 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 #else
 		newip = dirref_to_inode(dirp->i_clust, ent_pos);
 		if (newip == NULL) {
-			newip = enter_as_inode(fatdp, dirp->i_clust, ent_pos);
+			newip = enter_as_inode(fatdp, dirp, ent_pos);
 			if( newip == NULL ) {
 /* FIXME: do something more clever... */
 				panic("FATfs: getdents cannot create some virtual inode\n");
@@ -357,7 +372,7 @@ DBGprintf(("flush final: off=%d->%d\n", mybuf_off, callerbuf_off));
   if(r == OK) {
 	m_out.RES_NBYTES = callerbuf_off;
 	m_out.RES_SEEK_POS_LO = new_pos;
-	dirp->i_flags |= I_DIRTY | I_ACCESS;
+	dirp->i_flags |= I_DIRTY | I_ACCESSED;
 DBGprintf(("OK result: off=%d, next=%ld\n", callerbuf_off, new_pos));
   }
 
@@ -371,46 +386,59 @@ DBGprintf(("OK result: off=%d, next=%ld\n", callerbuf_off, new_pos));
  *===========================================================================*/
 PRIVATE struct inode *enter_as_inode(
   struct fat_direntry * dp,	/* (short name) entry */
+  struct inode * dirp,		/* parent directory */
   unsigned entrypos)		/* position within the parent directory */
 {
 /* Enter the inode as specified by its directory entry.
+ * Return the inode with its reference count incremented.
 
 FIXME: need the struct direntryref
+->i_clust
 FIXME: refcount?
  */
   struct inode *rip;
-  cluster_t cn;			/* cluster number */
-/*
-  int hashi;
- */
+  cluster_t clust;
 
-  cn = get_le16(dp->deStartCluster);
-/*
-  hashi = (int) (cn % NUM_HASH_SLOTS);
- */
 #if 0
   DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
+#endif
 
-/* should not happen... */
-  /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hash_inodes[hashi], i_hash) {
-	if (rip->i_ref > 0 && rip->i_clust == cn) {
-		++rip->i_ref;
+/* FIXME FAT32 */
+  clust = get_le16(dp->deStartCluster);
+
+  if (clust) {
+	if ( (rip = cluster_to_inode(clust)) != NULL ) {
+	/* found in inode cache */
+		get_inode(rip);
+		return(rip);
+	}
+  } else /*clust==0*/ {
+	if (dp->deAttributes & ATTR_DIRECTORY && dirp->i_flags&I_ROOTDIR ) {
+	/* FAT quirks: the .. entry of 1st-level subdirectories
+	 * (which points to the root directory) has 0 as starting cluster!
+	 */
+		if (memcmp(dp->deName, NAME_DOT_DOT, 8+3) != 0) {
+  DBGprintf(("FATfs: enter_inode ['%.8s.%.3s'], clust=%d, BUGGY\n", dp->deName, dp->deExtension, clust));
+			goto buggy_cluster0;
+		}
+		get_inode(dirp);
+		return(dirp);
+	}
+	if ( (rip = dirref_to_inode(INODE_NR(dirp), entrypos)) != NULL ) {
+	/* found in inode cache (alternative way) */
+		get_inode(rip);
 		return(rip);
 	}
   }
-#endif
 
+buggy_cluster0:
   /* get a fresh inode with ref. count = 1 */
   rip = get_free_inode();
   rip->i_flags = 0;
   rip->i_direntry = *dp;
-/* FIXME FAT32 */
-  rip->i_clust = get_le16(dp->deStartCluster);
-#if 0
-/* FIXME */
-  rip->i_num = rip->i_clust;
-#endif
+  rip->i_clust = clust;
+  rip->i_parent_clust = dirp->i_clust;
+  rip->i_entrypos = entrypos;
   rip->i_mode = get_mode(rip);
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
@@ -432,12 +460,16 @@ FIXME: refcount?
 /* FIXME: Warn+fail is i_clust==0; need to clean the error protocol
  */
   }
-  rehash_inode(rip);
-  memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
-/* more work needed here: i_fc, dirref */
 
-  DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld\n",
-		rip->i_Name, rip->i_Extension, rip->i_clust));
+  rehash_inode(rip);
+#if 1
+  link_inode(dirp, rip);
+#endif
+  memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
+/* more work needed here: i_fc */
+
+  DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld gives %lo\n",
+		rip->i_Name, rip->i_Extension, rip->i_clust, INODE_NR(rip)));
   
   return(rip);
 }
@@ -465,8 +497,15 @@ PRIVATE int nameto83(
 
   switch (next = *p) {
   case '.':
+	if (p[1] == '\0') {
+		memcpy(fatdp->deName, NAME_DOT, 8+3);
+		return(OK);
+	} else if (p[1] == '.' && p[2] == '\0') {
+		memcpy(fatdp->deName, NAME_DOT_DOT, 8+3);
+		return(OK);
+	} else
 	/* cannot store a filename starting with . */
-	return(EINVAL);
+		return(EINVAL);
   case '\0':
 	/* filename staring with NUL ? */
 	DBGprintf(("FATfs: passed filename starting with \\0\n"));
@@ -649,21 +688,36 @@ PUBLIC int lookup_dir(
 			/* we have a match on short name! */
 			r = OK;
 			assert(res_inop);
+#if 0
 /* FIXME uses coordinates... */
 /* FIXME FAT32 */
 			ino = get_le16(dp->d_direntry.deStartCluster);
-			if (ino && (*res_inop = find_inode(ino)) ) {
+			if (ino && (*res_inop = cluster_to_inode(ino)) ) {
 				/* found in inode cache */
+				get_inode(*res_inop);
+			} else if (ino==0
+				&& (*res_inop = dirref_to_inode(INODE_NR(dirp),
+				    pos + ((char*)dp - (char*)&bp->b_dir[0]) )) ) {
+				/* found in inode cache (alternative way) */
 				get_inode(*res_inop);
 			} else {
 /* WORK NEEDED! */
-				*res_inop = enter_as_inode(&dp->d_direntry,
+				*res_inop = enter_as_inode(&dp->d_direntry, dirp,
 					pos + ((char*)dp - (char*)&bp->b_dir[0]) );
 				if( *res_inop == NULL ) {
 /* FIXME: do something clever... */
 					panic("FATfs: lookup cannot create inode\n");
 				}
 			}
+#else
+			*res_inop = enter_as_inode(&dp->d_direntry, dirp,
+					pos + ((char*)dp - (char*)&bp->b_dir[0]) );
+			if( *res_inop == NULL ) {
+/* FIXME: do something clever... */
+				panic("FATfs: lookup cannot create inode\n");
+			}
+#endif
+			/* inode have its reference count incremented. */
 			put_block(bp);
 			return(r);
 		}

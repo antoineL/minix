@@ -244,8 +244,8 @@ PUBLIC int do_stat(void)
 	if (HAS_CHILDREN(rip)) stat.st_nlink++;
   }
 
-  DBGprintf(("FATfs: stat ino=%lo, mode=%o, size=%ld...\n",
-	ino_nr, stat.st_mode, stat.st_size));
+  DBGprintf(("FATfs: stat ino=%lo, @%d, ['%.8s.%.3s'], mode=%o, size=%ld...\n",
+	ino_nr, rip->i_index, rip->i_Name, rip->i_Extension, stat.st_mode, stat.st_size));
 
   return sys_safecopyto(m_in.m_source, m_in.REQ_GRANT, 0,
 	(vir_bytes) &stat, sizeof(stat), D);
