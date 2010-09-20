@@ -5,6 +5,8 @@
  *   do_mountpoint	perform the MOUNTPOINT file system call
  *   do_lookup		perform the LOOKUP file system request
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
@@ -22,11 +24,17 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+/* Private global variables: */
 PRIVATE char user_path[PATH_MAX+1];  /* pathname to be processed */
 
-/*
+/* Private functions:
+ *   get_mask		?
+ */
+/* useful only with symlinks... dropped ATM
 FORWARD _PROTOTYPE( int ltraverse, (struct inode *rip, char *suffix)	);
  */
+
+FORWARD _PROTOTYPE( int get_mask, (vfs_ucred_t *)			);
 FORWARD _PROTOTYPE( int parse_path, (ino_t dir, ino_t root, int flags,
 	struct inode **res_inop, size_t *offsetp, int *symlinkp)	);
 
@@ -200,14 +208,16 @@ PUBLIC int do_lookup(void)
 	put_inode(rip); /* Only return a reference to the final object */
   }
 
+  DBGprintf(("lookup returns ino=%lo size:%ld mode:%.4o\n",
+	m_out.RES_INODE_NR, m_out.RES_FILE_SIZE_LO, m_out.RES_MODE));
+
   return(r);
 }
 
 /*===========================================================================*
  *				get_mask				 *
  *===========================================================================*/
-PRIVATE int get_mask(
-  vfs_ucred_t *ucred)		/* credentials of the caller */
+PRIVATE int get_mask(vfs_ucred_t *ucred)	/* credentials of the caller */
 {
   /* Given the caller's credentials, precompute a search access mask to test
    * against directory modes.
@@ -336,7 +346,11 @@ DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
 	 * If we're leaving a mountpoint, skip directory permission checks.
 	 */
 	dir_ip = rip;
+#if 0
 	r = advance(dir_ip, &rip, leaving_mount ? dot2 : component, CHK_PERM);
+#else
+	r = advance(dir_ip, &rip, leaving_mount ? ".." : component, CHK_PERM);
+#endif
 	if(r == ELEAVEMOUNT || r == EENTERMOUNT)
 		r = OK;
 

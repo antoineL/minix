@@ -5,9 +5,9 @@
  *
  *
  * Auteur: Antoine Leca, septembre 2010.
- * The basis for this file is the PCFS package targetting
- * 386BSD 0.1, published in comp.unix.bsd on October 1992
- * by Paul Popelka; his work is to be rewarded.
+ * The basis for this file is the PCFS package targetting 386BSD 0.1,
+ * published in comp.unix.bsd on October 1992 by Paul Popelka;
+ * his work is to be rewarded; see also the notice below.
  * Updated:
  */
 /*
@@ -37,17 +37,18 @@
 #endif
 #include <minix/sysutil.h>	/* panic */
 
-#if 0
-#include "fat.h"
-#include "super.h"
-#include "inode.h"
-#endif
+/* Private functions:
+ *   get_mask		?
+ */
+/* useful only with symlinks... dropped ATM
+FORWARD _PROTOTYPE( int ltraverse, (struct inode *rip, char *suffix)	);
+ */
 
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
 
-_PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
+_PROTOTYPE( block_t Wbmap, (struct inode *rip, off_t position)		);
 
 /*===========================================================================*
  *				xxx					     *
@@ -146,13 +147,11 @@ pcbmap(dep, findcn, bnp, cnp)
 DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 	INODE_NR(rip), position, findcn, boff, cn));
 
-/*
- *  The "file" that makes up the root directory is contiguous,
- *  permanently allocated, of fixed size, and is not made up
- *  of clusters.  If the cluster number is beyond the end of
- *  the root directory, then return the number of clusters in
- *  the file.
+/* The "file" that makes up the root directory is contiguous,
+ * permanently allocated, of fixed size, and is not made up
+ * of clusters.
  */
+/* FIXME: move that constant to const.h (and update inode.c!init_inodes) */
 	if (cn == /*PCFSROOT*/ 1 ) {
 		if (rip->i_Attributes & ATTR_DIRECTORY) {
 			if (findbn > sb.rootBlk) {

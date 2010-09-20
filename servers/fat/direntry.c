@@ -8,6 +8,10 @@
  *   del_direntry	delete a entry from a given directory/inode
  *   is_empty_dir	return OK if only . and .. in dir else ENOTEMPTY
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
+ * Auteur: Antoine Leca, septembre 2010.
+ * Updated:
  */
  
 #include "inc.h"
@@ -33,6 +37,19 @@
 #define EOVERFLOW	ENAMETOOLONG	/* replace by something vaguely close... */
 #endif
 
+/* FIXME: goto const.h */
+#ifndef GETDENTS_BUFSIZ
+#define GETDENTS_BUFSIZ  (usizeof(struct dirent) + NAME_MAX + usizeof(long))
+#endif
+
+/* Private global variables: */
+  /* working buffer to accumulate to-be-returned direcoty entries */
+PRIVATE char getdents_buf[GETDENTS_BUFSIZ];
+
+/* Private functions:
+ *   enter_as_inode	?
+ *   nameto83		?
+ */
 FORWARD _PROTOTYPE( struct inode *enter_as_inode,
 		(struct fat_direntry*, struct inode* dirp, unsigned)	);
 FORWARD _PROTOTYPE( int nameto83,
@@ -41,11 +58,6 @@ FORWARD _PROTOTYPE( int nameto83,
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
-
-#ifndef GETDENTS_BUFSIZ
-#define GETDENTS_BUFSIZ  (usizeof(struct dirent) + NAME_MAX + usizeof(long))
-#endif
-PRIVATE char getdents_buf[GETDENTS_BUFSIZ];
 
 /*===========================================================================*
  *				do_getdents				     *
@@ -418,6 +430,7 @@ FIXME: refcount?
 	 * (which points to the root directory) has 0 as starting cluster!
 	 */
 		if (memcmp(dp->deName, NAME_DOT_DOT, 8+3) != 0) {
+			/* something is wrong... */
   DBGprintf(("FATfs: enter_inode ['%.8s.%.3s'], clust=%d, BUGGY\n", dp->deName, dp->deExtension, clust));
 			goto buggy_cluster0;
 		}
@@ -439,10 +452,9 @@ buggy_cluster0:
   rip->i_clust = clust;
   rip->i_parent_clust = dirp->i_clust;
   rip->i_entrypos = entrypos;
-  rip->i_mode = get_mode(rip);
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
-	rip->i_flags |= I_DIR;
+	rip->i_flags |= I_DIR;	/* before call to get_mode */
 	if (rip->i_size == 0) {
 	/* in the FAT file system, since directory entries are
 	 * replicated in many places around, the deFileSize field
@@ -460,6 +472,10 @@ buggy_cluster0:
 /* FIXME: Warn+fail is i_clust==0; need to clean the error protocol
  */
   }
+/* FIXME: else should check clust==0
+ * (or we have potential problems down the road...)
+ */
+  rip->i_mode = get_mode(rip);
 
   rehash_inode(rip);
 #if 1

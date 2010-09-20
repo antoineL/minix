@@ -60,9 +60,4 @@ EXTERN int may_use_vmcache;	/* secondary cache using VM */
 
 /* Inodes array is private to inode.c */
 
-/* shared gloabls...
- * should go away on later refinements!... FIXME!
- */
-EXTERN char dot1[2];		/* used for search_dir to bypass the access */
-EXTERN char dot2[3];		/* permissions for . and .. */
 #endif

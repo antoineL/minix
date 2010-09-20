@@ -6,16 +6,26 @@
  *   do_chmod		perform the CHMOD file system request
  *   do_utime		perform the UTIME file system request
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
 
 #include "inc.h"
 
+#include <string.h>
 #include <sys/stat.h>
 
 #include <minix/safecopies.h>
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
+
+/* Private functions:
+ *   get_mask		?
+ */
+/* useful only with symlinks... dropped ATM
+FORWARD _PROTOTYPE( int ltraverse, (struct inode *rip, char *suffix)	);
+ */
 
 /*===========================================================================*
  *				get_mode				     *
@@ -197,6 +207,9 @@ PRIVATE time_t dos2unixtime(
 PUBLIC int do_stat(void)
 {
 /* Retrieve inode statistics.
+ * FIXME: use+update i_?time members
+ * FIXME: POSIX: The stat() function shall update any time-related fields
+ * (as described in XBD File Times Update ), before writing
  */
   int r;
   struct stat stat;

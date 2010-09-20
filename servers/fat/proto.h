@@ -6,6 +6,15 @@
 #ifndef FAT_PROTO_H_
 #define FAT_PROTO_H_
 
+#ifdef       COMPAT316
+/* In revision 6339 (March 4, hence posterior to 3.1.6),
+ * type cp_grant_id_t was moved from <minix/safecopies.h>
+ * (which is not included always) to <minix/type.h> (which is).
+ * So if compatibility matters, we include the former here.
+ */
+#include <minix/safecopies.h>
+#endif
+
 /* cache.c */
 _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
@@ -45,11 +54,10 @@ _PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
 
 /* driver.c */
-_PROTOTYPE( int dev_open, (endpoint_t driver_e, dev_t dev, int proc,
-			   int flags)					);
+_PROTOTYPE( int dev_open, (endpoint_t, dev_t, int proc, int flags)	);
 _PROTOTYPE( void dev_close, (endpoint_t driver_e, dev_t dev)		);
 _PROTOTYPE( int do_new_driver, (void)					);
-_PROTOTYPE( int label_to_driver, (cp_grant_id_t, size_t label_len)	);
+_PROTOTYPE( int label_to_driver, (cp_grant_id_t gid, size_t label_len)	);
 _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 

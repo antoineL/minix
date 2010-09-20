@@ -1,5 +1,6 @@
-/* Main loop for the FAT file system.
- * It waits for a request, handles it, and then send a response.
+/* Main loop for the FAT file system. Initialize the server;
+ * then waits for a request, handles it, and then send a response.
+ * Then returns to the preceding line, until killed by signal.
  *
  * Also contains the SEF infrastructure.
  *
@@ -31,21 +32,7 @@
 
 #include "optset.h"
 
-#if 0
-#include <string.h>
-#include <limits.h>
-#include <stdint.h>
-
-#include <unistd.h>	/* getprocnr */
-#include <sys/stat.h>
-
-#include <sys/queue.h>
-
-#include <minix/safecopies.h>
-#include <minix/syslib.h>
-#endif
-
-/* Private global variables: */
+/* Private read-only global variables: */
 PRIVATE struct optset optset_table[] = {
   { "uid",      OPT_INT,    &use_uid,         10                 },
   { "gid",      OPT_INT,    &use_gid,         10                 },
@@ -57,7 +44,7 @@ PRIVATE struct optset optset_table[] = {
   { "exec",     OPT_BOOL,   &prevent_exec,    TRUE               },
   { "noexec",   OPT_BOOL,   &prevent_exec,    FALSE              },
 
-+ TODO:
++ FIXME: TODO:
   lfn_state
 EXTERN uint8_t default_lcase;	map the 8.3 name to lowercase?  default=24?
 
@@ -109,7 +96,11 @@ PRIVATE char* vfs_req_name[] = {
 };
 #endif
 
-/* Private SEF functions and variables: */
+/* Private SEF functions:
+ *   sef_local_startup	?
+ *   sef_cb_init_fresh	?
+ *   sef_cb_signal_handler ?
+ */
 FORWARD _PROTOTYPE( void sef_local_startup, (void) );
 FORWARD _PROTOTYPE( int sef_cb_init_fresh, (int type, sef_init_info_t *info) );
 FORWARD _PROTOTYPE( void sef_cb_signal_handler, (int signo) );
@@ -149,11 +140,6 @@ PUBLIC int main(int argc, char *argv[])
 		panic("FATfs: sef_receive failed: %d", r);
 
 	error = OK;
-#if 0
-/* look into lookup.c about credentials to see what is future of this stuff */
-	caller_uid = -1;	/* To trap errors */
-	caller_gid = -1;
-#endif
 	who_e = m_in.m_source;
 	req_nr = m_in.m_type;
 
@@ -174,7 +160,7 @@ PUBLIC int main(int argc, char *argv[])
 		req_nr -= VFS_BASE;
 
 #ifdef TRACEREQNM
-		DBGprintf(("FATfs: req %d:%s\n", req_nr,
+		DBGprintf(("FATfs: req %d:%s... ", req_nr,
 vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:0]));
 #endif
 
@@ -185,9 +171,7 @@ vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:
 			error = no_sys();
 
 #ifdef TRACEREQNM
-		DBGprintf(("FATfs: req %d:%s results %d\n", req_nr,
-vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:0],
-				error));
+		DBGprintf(("req %d results %d\n", req_nr, error));
 #endif
 	}
 	else error = EINVAL;	/* protocol error */
@@ -207,8 +191,8 @@ vfs_req_name[(unsigned)req_nr<sizeof vfs_req_name/sizeof vfs_req_name[0]?req_nr:
  *===========================================================================*/
 PRIVATE void sef_local_startup()
 {
-/* ...
- */
+/* SEF local startup (done once). */
+
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);	/* see below */
 
@@ -232,16 +216,13 @@ PRIVATE void sef_local_startup()
  *===========================================================================*/
 PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 {
-/* ...
- */
+/* Called-back function when initialized for the first time. */
    int i, r;
 
   /* SELF_E will contain the id of this process */
   SELF_E = getprocnr();
 
-/* FIXME: WTF? */
-/*    hash_init(); */			/* Init the table with the ids */
-   setenv("TZ","",1);		/* Used to calculate the time */
+  setenv("TZ","",1);		/* Used to calculate local times */
 
   m_out.m_type = FS_READY;
   if ((r = send(VFS_PROC_NR, &m_out)) != OK) {
@@ -256,8 +237,8 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
  *===========================================================================*/
 PRIVATE void sef_cb_signal_handler(int signo)
 {
-/* ...
- */
+/* Called-back function when a signal is received. */
+
   /* Only check for termination signal, ignore anything else. */
   if (signo != SIGTERM) return;
 
@@ -275,6 +256,7 @@ PRIVATE void sef_cb_signal_handler(int signo)
 PUBLIC int do_nothing(void)
 {
 /* handle requests that do nothing and succeed. */
+
   return(OK);			/* Trivially succeeds */
 }
 

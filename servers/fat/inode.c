@@ -17,6 +17,8 @@
  *   have_used_inode	check whether any inode is still in use
  *   flush_inodes	flush all dirty inodes
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
@@ -121,14 +123,20 @@
 #endif
 #include <minix/sysutil.h>	/* panic */
 
+/* Private global variables: */
+  /* inode array */
 PRIVATE struct inode inodes[NUM_INODES];
 
+  /* list of "free" inodes, in least-recent-used ascending order */
 PRIVATE TAILQ_HEAD(free_head, inode) unused_inodes;
 
-/* inode hashtables */
+  /* inode hashtables */
 PRIVATE LIST_HEAD(hashc_lists, inode) hashcluster_inodes[NUM_HASH_SLOTS];
 PRIVATE LIST_HEAD(hashr_lists, inode) hashdirref_inodes[NUM_HASH_SLOTS];
 
+/* Private functions:
+ *   unhash_inode	?
+ */
 FORWARD _PROTOTYPE( void unhash_inode, (struct inode *node) 		);
 
 /*===========================================================================*

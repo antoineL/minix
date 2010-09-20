@@ -9,6 +9,8 @@
  *   do_inhibread	perform the INHIBREAD file system request
  *   read_ahead		xxx
  *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ *
  * Auteur: Antoine Leca, aout 2010.
  * Updated:
  */
@@ -27,14 +29,17 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
-/*
- */
+/* Private global variables: */
+  /* position to read ahead */
+PRIVATE off_t rdahedpos;
+  /* pointer to inode to read ahead */
+PRIVATE struct inode *rdahed_inode;
 
+/* Private functions:
+ *   rahead		?
+ */
 FORWARD _PROTOTYPE( struct buf *rahead, (struct inode *rip, block_t baseblock,
 			u64_t position, unsigned bytes_ahead)		);
-
-PRIVATE off_t rdahedpos;         /* position to read ahead */
-PRIVATE struct inode *rdahed_inode;      /* pointer to inode to read ahead */
 
 /*===========================================================================*
  *				do_read					   *

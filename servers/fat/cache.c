@@ -20,12 +20,6 @@
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
- * Private functions:
-	_PROTOTYPE( void flushall, (dev_t dev)					);
- *   invalidate:  remove all the cache blocks on some device
- *   rm_lru:
- *   rw_block:    read or write a block from the disk itself
- *
  * Auteur: Antoine Leca, aout 2010. From ../mfs/cache.c
  * Updated:
  */
@@ -54,22 +48,32 @@
 /* FIXME: work needed on the detection/reporting of error... */
 #define END_OF_FILE   (-104)	/* eof detected */
 
-/* CHECKME... */
+/* CHECKME/FIXME: documentation! */
 #define BUFHASH(b) ((b) % num_bufs)
 
-FORWARD _PROTOTYPE( void invalidate, (dev_t) );
-FORWARD _PROTOTYPE( void flushall, (dev_t) );
-FORWARD _PROTOTYPE( void rw_block, (struct buf *, int) );
-FORWARD _PROTOTYPE( void rm_lru, (struct buf *bp) );
-
-PRIVATE struct buf *buf; /* dynamically-allocated array of buf descriptors */
-PRIVATE TAILQ_HEAD(lruhead, buf) lru; /* least recently used free block list */
-PRIVATE LIST_HEAD(bufhashhead, buf) *buf_hash; /* the buffer hash table */
+/* Private global variables: */
+  /* dynamically-allocated array of buf descriptors */
+PRIVATE struct buf *buf;
+  /* least recently used free block list */
+PRIVATE TAILQ_HEAD(lruhead, buf) lru;
+  /* the buffer hash table (dynamically-allocated) */
+PRIVATE LIST_HEAD(bufhashhead, buf) *buf_hash;
 
 #ifdef USE_VMCACHE
 /*FIXME: some text to describe the interaction with the level 2 VM cache... */
 PRIVATE int vmcache_avail = -1; /* 0 if not available, >0 if available. */
 #endif
+
+/* Private functions:
+	_PROTOTYPE( void flushall, (dev_t dev)					);
+ *   invalidate:  remove all the cache blocks on some device
+ *   rm_lru:
+ *   rw_block:    read or write a block from the disk itself
+ */
+FORWARD _PROTOTYPE( void invalidate, (dev_t) );
+FORWARD _PROTOTYPE( void flushall, (dev_t) );
+FORWARD _PROTOTYPE( void rw_block, (struct buf *, int) );
+FORWARD _PROTOTYPE( void rm_lru, (struct buf *bp) );
 
 /*===========================================================================*
  *				init_cache                                   *
@@ -342,8 +346,9 @@ DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
 		if(!bp) {
 			panic("no buffer available");
 		}
-DBGprintf(("... so will try %p ...", bp));
+DBGprintf(("cannot alloc, so will try %p ...", bp));
 	} else {
+DBGprintf(("allocated...", bp->dp));
 		bp->b_bytes = block_size;
 	}
   }
@@ -354,7 +359,7 @@ DBGprintf(("... so will try %p ...", bp));
   assert(bp->b_count == 0);
 
   rm_lru(bp);
-DBGprintf(("allocated @ %.8p...", bp->dp));
+DBGprintf(("@ %.8p...", bp->dp));
 
   /* Remove the block that was just taken from its hash chain. */
   b = BUFHASH(bp->b_blocknr);

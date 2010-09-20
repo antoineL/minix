@@ -39,7 +39,6 @@
 /* Private functions:
  *   update_dev_status	update the driver status based on its answer 
  */
-
 FORWARD _PROTOTYPE( int update_dev_status, (int task_status,
 		endpoint_t driver_e, message *mess_ptr) );
 

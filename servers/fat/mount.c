@@ -24,6 +24,9 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
+/* Private functions:
+ *   reco_extbpb	?
+ */
 FORWARD _PROTOTYPE( int reco_extbpb, (struct fat_extbpb*,char fstype[])	);
 FORWARD _PROTOTYPE( int reco_bootsector,
 		(struct fat_bootsector *, struct fat_extbpb *)		);

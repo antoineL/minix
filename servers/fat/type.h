@@ -281,11 +281,13 @@ struct inode {
 #define I_HASHED_DIRREF	0x2000		/* linked-in in dirref hastable */
 
 /* Placeholders for cached timestamps: */
-#define	TIME_UNKNOWN	(time_t)0	/* nothing known about the value */
+#define	TIME_UNDETERM	(time_t)0	/* the value is undeterminate */
 #define	TIME_NOT_CACHED	(time_t)1	/* compute from on-disk value */
 #define	TIME_UPDATED	(time_t)2	/* inode was updated and is dirty;
 					 * value to be retrieved from clock
 					 */
+#define	TIME_UNKNOWN	(time_t)3	/* nothing known about the value */
+	/* Upper values are real timestamps which can be used directly */
 
 /*
  *  Values for the de_flag field of the denode.
