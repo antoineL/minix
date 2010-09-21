@@ -142,7 +142,7 @@ pcbmap(dep, findcn, bnp, cnp)
 	cn = rip->i_clust;
 	findbn = position >> sb.bnshift;
 	findcn = position >> sb.cnshift;
-	boff = (position & (sb.bpcluster-1)) >> sb.bnshift;
+	boff = (position & sb.crelmask) >> sb.bnshift;
 
 DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 	INODE_NR(rip), position, findcn, boff, cn));
@@ -151,8 +151,7 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
  * permanently allocated, of fixed size, and is not made up
  * of clusters.
  */
-/* FIXME: move that constant to const.h (and update inode.c!init_inodes) */
-	if (cn == /*PCFSROOT*/ 1 ) {
+	if (cn == CLUST_CONVROOT ) {
 		if (rip->i_Attributes & ATTR_DIRECTORY) {
 			if (findbn > sb.rootBlk) {
 				return /*E2BIG*/ NO_BLOCK;
@@ -169,6 +168,10 @@ DBGprintf(("FATfs: bmap returns %ld\n", sb.rootBlk + findbn));
 /*
  *  Handle all other files or directories the normal way.
  */
+
+
+/* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
+
 	if (sb.fatmask == FAT12_MASK) {	/* 12 bit fat	*/
 		for (; i < findcn; i++) {
 			if (ATEOF(cn, FAT12_MASK)) {

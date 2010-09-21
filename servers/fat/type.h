@@ -306,6 +306,8 @@ struct inode {
 #define	DEMOD		0x0080		/* denode wants to be written back
 					 *  to disk			*/
 
+#define	CLUST_CONVROOT	1	/* fixed root is given a conventional number*/
+
 #define IS_DIR(i)	((i)->i_flags & I_DIR)
 #define IS_ROOT(i)	((i)->i_flags & I_ROOTDIR)
 

@@ -198,11 +198,7 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
   rip->i_Attributes = ATTR_DIRECTORY;
   memset(rip->i_Name, ' ', 8);	/* root inode has empty name */
   memset(rip->i_Extension, ' ', 3);
-/* FIXME: FAT32 is different... attention rehash! */
-  rip->i_clust = 1;		/* root inode is given a conventional number*/
 /* FIXME: dirref... */
-
-  rehash_inode(rip);
 
   return(rip);
 }

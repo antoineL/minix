@@ -29,7 +29,7 @@
  */
 FORWARD _PROTOTYPE( int reco_extbpb, (struct fat_extbpb*,char fstype[])	);
 FORWARD _PROTOTYPE( int reco_bootsector,
-		(struct fat_bootsector *, struct fat_extbpb *)		);
+		(struct fat_bootsector *, struct fat_extbpb * *)	);
 FORWARD _PROTOTYPE( int chk_bootsector, (struct fat_bootsector *)	);
 FORWARD _PROTOTYPE( int find_basic_sizes, (struct fat_bootsector *)	);
 FORWARD _PROTOTYPE( int find_sector_counts,
@@ -63,9 +63,8 @@ PRIVATE int reco_extbpb(
  *				reco_bootsector				     *
  *===========================================================================*/
 PRIVATE int reco_bootsector(
-  struct fat_bootsector *bs,
-  struct fat_extbpb *extbpbp
-  )		/* of this proposed type ?*/
+  struct fat_bootsector *bs,	/* is this structure a valid boot sector */
+  struct fat_extbpb * *extbpbpp) /* where to put the extension if found */
 {
   if (memcmp(bs->bsBootSectSig, BOOTSIG, sizeof bs->bsBootSectSig)) {
 /* <FUTURE_IMPROVEMENT>
@@ -83,31 +82,46 @@ PRIVATE int reco_bootsector(
 	DBGprintf(("mounting failed: "
 		"missing jmp instruction at start: %.2X %.2X %.2X\n",
 		bs->bsJump[0], bs->bsJump[1], bs->bsJump[2]));
+/* FIXME: should we really abort here?
+ * Right now it is a security measure to avoid consider rogue data
+ * incorrectly; however, it is entirelly possible to have working
+ * FAT file systems without those bytes set this way;
+ * as such, it should probably be possible to override it.
+ */
 	return(EINVAL);
   }
 
   sb.fatmask = 0;
-  extbpbp = NULL;
+  *extbpbpp = NULL;
   /* Try to recognize an extended BPB; first tries FAT32 ones */
-  if (reco_extbpb(&(bs->u.f32bpb.ExtBPB32), FAT32_FSTYPE)) {
-	extbpbp = &bs->u.f32bpb.ExtBPB32;
+  if (reco_extbpb(& bs->u.f32bpb.ExtBPB32, FAT32_FSTYPE)) {
+	*extbpbpp = & bs->u.f32bpb.ExtBPB32;
 	sb.fatmask = FAT32_MASK;
-  } else if (reco_extbpb(&bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
-	extbpbp = &bs->u.f32bpb.ExtBPB32;
+	return(OK);
+  }
+  if (reco_extbpb(& bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
+	*extbpbpp = & bs->u.f32bpb.ExtBPB32;
+	return(OK);
   }
   /* it didn't work; then try FAT12/FAT16, at a different place */
-  else   if (reco_extbpb(&bs->u.ExtBPB, FAT16_FSTYPE)) {
-	extbpbp = &bs->u.ExtBPB;
+  if (reco_extbpb(& bs->u.ExtBPB, FAT16_FSTYPE)) {
+	*extbpbpp = & bs->u.ExtBPB;
 	sb.fatmask = FAT16_MASK;
-  } else if (reco_extbpb(&bs->u.ExtBPB, FAT12_FSTYPE)) {
-	extbpbp = &bs->u.ExtBPB;
+	return(OK);
+  }
+  if (reco_extbpb(& bs->u.ExtBPB, FAT12_FSTYPE)) {
+	*extbpbpp = & bs->u.ExtBPB;
 	sb.fatmask = FAT12_MASK;
-  } else if (reco_extbpb(&bs->u.ExtBPB, FAT_FSTYPE)) {
-	extbpbp = &bs->u.ExtBPB;
-  } else if (bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG
+	return(OK);
+  }
+  if (reco_extbpb(& bs->u.ExtBPB, FAT_FSTYPE)) {
+	*extbpbpp = & bs->u.ExtBPB;
+	return(OK);
+  }
+  if (bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG
           || bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG_ALT ) {
 	/* we found a signature for an extended BPB at the
-	 * right place for a FAT32 file system, but the file
+	 * right place for a FAT file system, but the file
 	 * system identifier is unknown...
 	 * more robust handling would be to check isprint(exFileSysType[])
 	 */
@@ -129,7 +143,7 @@ PRIVATE int reco_bootsector(
 	return(EINVAL);
  */
   }
-  return OK;
+  return(OK);
 }
 
 /*===========================================================================*
@@ -234,8 +248,10 @@ PRIVATE int find_sector_counts(
 
   sb.nFATs = bs->bpbFATs;
 
-  sb.resCnt   = sb.resSiz   = get_le16(bs->bpbResSectors);
+  sb.resCnt = sb.resSiz = get_le16(bs->bpbResSectors);
   if ( (sb.secpfat = get_le16(bs->bpbFATsecs)) == 0) {
+/* FIXME: beware of FAT12/16 FS with bpbFATsecs == 0... will probably go rocket */
+	/* note: extbpbp==NULL is on the safe side anyway */
 	if (extbpbp != &bs->u.f32bpb.ExtBPB32)
 		DBGprintf(("warning: mounting FAT32 without extended BPB\n"));
 	sb.secpfat = get_le32(bs->u.f32bpb.bpbBigFATsecs);
@@ -249,10 +265,19 @@ PRIVATE int find_sector_counts(
   sb.rootEntries = get_le16(bs->bpbRootDirEnts);
   sb.rootCnt = sb.rootSiz = (sb.rootEntries+sb.depsec-1) / sb.depsec;
 #if 0
+/* FIXME: rewrite (FAT32MASK) or move later */
   if (extbpbp == &bs->u.f32bpb.ExtBPB32) {
-	DBGprintf(("warning: FAT32 with fixed root directory!?\n"));
+	DBGprintf(("warning: FAT32-style extended BPB with fixed root directory!?\n"));
 	/* return(EINVAL); */
   }
+
+/* A bad case is if a FAT16 fs was written (minimally) over a preexisting FAT32,
+ * in a way such that the FAT32 extended BPB is still there...
+ * Our logic above detects the FAT32 BPB, but then with the number we should consider
+ * it as FAT16... but we will disregard the possible FAT16 extended BPB...
+ * (note that FAT16 ext.BPB lays until 0x3D, while FAT32 ext. BPB starts at 0x40)
+ * A "warn-me" case can be when byte 0x26 (& bs->u.ExtBPB) contains 0x29 (EXBOOTSIG)
+ */
 #endif
   if ( (sb.totalSecs = get_le16(bs->bpbSectors)) == 0) {
 	sb.totalSecs = get_le32(bs->bpbHugeSectors);
@@ -404,7 +429,7 @@ PUBLIC int do_readsuper(void)
  * structure which will keep them available for future use.
  */
   extbpbp = NULL;
-  if ( (r = reco_bootsector(bs, extbpbp)) != OK
+  if ( (r = reco_bootsector(bs, &extbpbp)) != OK
     || (r = chk_bootsector(bs)) != OK
     || (r = find_basic_sizes(bs)) != OK
     || (r = find_sector_counts(bs, extbpbp)) != OK
@@ -414,6 +439,7 @@ PUBLIC int do_readsuper(void)
 /*FIXME sb.rootCluster et le reste des checks FAT32 (vers0 etc) */
 
   sb.freeClustValid = sb.freeClust = sb.nextClust = 0;
+  rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
 /* Check the size of the block as used in the cache system.
  * The easy way is to stick on sectors, since everything is
@@ -438,17 +464,40 @@ PUBLIC int do_readsuper(void)
 
   root_ip = init_inodes(NUM_INODES);
 
-/* FIXME if FAT32... */
-  rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
+/* FIXME: use sb.rootCluster */
+  if (rootDirSize) {
+	/* the fixed root directory exists */
+	rip->i_clust = CLUST_CONVROOT;	/* conventionally 1 */
+	assert(rootDirSize <= 0xffffffff);
+	root_ip->i_size = rootDirSize;
+	root_ip->i_flags |= I_DIRSIZED;
+  } else {
+	/* better be FAT32 and have long BPB... */
+	assert(extbpbp == &bs->u.f32bpb.ExtBPB32);
+	/* FIXME: better have checked !=0 */
+	rip->i_clust = get_le32(bs->u.f32bpb.bpbRootClust);
 
-  assert(rootDirSize <= 0xffffffff);
-  root_ip->i_size = rootDirSize;
-  root_ip->i_flags |= I_DIRSIZED;
+	/* We do not know the size of the root directory...
+	 * We could enumerate the FAT chain to learn how long
+	 * the directory really is; right now we do not do that,
+	 * and just place a faked value of one cluster.
+	 */
+	root_ip->i_size == sb.bpcluster;
+	root_ip->i_flags |= I_DIRNOTSIZED;
+  }
   root_ip->i_mode = get_mode(root_ip);
-/* FIXME: cluster number, etc. */
-/* Future work: may fetch the volume name (either extBPB or root dir) */
 
-/* FIXME: fake entries . and .. in root dir */
+/* FIXME: fake entries . and .. in root dir; will fix
+  root_ip->i_entrypos = ???
+ */
+/* FIXME above... */
+  sb.rootCluster =
+  root_ip->i_parent_clust = rip->i_clust;
+  root_ip->i_entrypos = 0;
+
+  rehash_inode(root_ip);
+
+/* Future work: may fetch the volume name (either extBPB or root dir) */
 
   m_out.RES_INODE_NR = INODE_NR(root_ip);
   m_out.RES_MODE = root_ip->i_mode;

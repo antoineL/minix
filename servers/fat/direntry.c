@@ -119,7 +119,7 @@ PUBLIC int do_getdents(void)
 		/* the buffer has been cleared before */
 
 	dep = (struct dirent *) &getdents_buf[mybuf_off];
-	dep->d_ino = 1;
+	dep->d_ino = ROOT_INODE_NR;
 	dep->d_off = 0;
 	dep->d_reclen = (unsigned short) reclen;
 	strcpy(dep->d_name, ".");
@@ -133,7 +133,7 @@ PUBLIC int do_getdents(void)
 		/* the buffer has been cleared before */
 
 	dep = (struct dirent *) &getdents_buf[mybuf_off];
-	dep->d_ino = 1;
+	dep->d_ino = ROOT_INODE_NR;
 	dep->d_off = 0;
 	dep->d_reclen = (unsigned short) reclen;
 	strcpy(dep->d_name, "..");
@@ -424,7 +424,7 @@ FIXME: refcount?
 		get_inode(rip);
 		return(rip);
 	}
-  } else /*clust==0*/ {
+  } else /*clust==CLUST_NONE || clust==CLUST_ROOT*/ {
 	if (dp->deAttributes & ATTR_DIRECTORY && dirp->i_flags&I_ROOTDIR ) {
 	/* FAT quirks: the .. entry of 1st-level subdirectories
 	 * (which points to the root directory) has 0 as starting cluster!

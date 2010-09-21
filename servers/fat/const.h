@@ -91,12 +91,4 @@
 #define ROOT_GEN_NR	04007
 #define ROOT_INODE_NR	(ROOT_GEN_NR << NUM_INODE_BITS)
 
-#if 0
-#define IS_ROOT(i)	((i)->i_num == ROOT_INODE_NR)
-#elif 0
-#define IS_ROOT(i)	((i)->i_index == (ROOT_INODE_NR & 0xffff))
-#else
-/* FIXME: move to type.h, and use a flag (for FAT32)... */
-#endif
-
 #endif
