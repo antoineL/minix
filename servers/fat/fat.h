@@ -286,31 +286,8 @@ struct fat_lfnentry {
 #define FAT32_CLEAN	0x08000000	/* do not need fsck at mounting */
 #define FAT32_NOHARDERR	0x04000000	/* do not need to search badblock */
 
-/*
- *  This is the format of the contents of the deTime
- *  field in the direntry structure.
- */
-struct DOStime {
-	unsigned /*short*/
-			dt_2seconds:5,	/* seconds divided by 2		*/
-			dt_minutes:6,	/* minutes			*/
-			dt_hours:5;	/* hours			*/
-};
-
-/*
- *  This is the format of the contents of the deDate
- *  field in the direntry structure.
- */
-struct DOSdate {
-	unsigned /*short*/
-			dd_day:5,	/* day of month			*/
-			dd_month:4,	/* month			*/
-			dd_year:7;	/* years since 1980		*/
-};
-
-/*
- * This is the format of the contents of the deTime field in the direntry
- * structure.
+/* This is the format of the contents of the deTime field in the
+ * fat_direntry structure.
  * We don't use bitfields because we don't know how compilers for
  * arbitrary machines will lay them out.
  */
@@ -321,9 +298,8 @@ struct DOSdate {
 #define DT_HOURS_MASK		0xF800	/* hours */
 #define DT_HOURS_SHIFT		11
 
-/*
- * This is the format of the contents of the deDate field in the direntry
- * structure.
+/* This is the format of the contents of the deDate field in the
+ * fat_direntry structure.
  */
 #define DD_DAY_MASK		0x001F	/* day of month */
 #define DD_DAY_SHIFT		0

@@ -159,6 +159,7 @@ struct superblock {
   int nFATs;			/* number of FATs */
   int secpfat;			/* sectors per FAT (each one) */
   int blkpfat;			/* blocks per FAT */
+  int nibbles;			/* count of nibble (half-byte) per FAT entry*/
   unsigned fatmask;		/* FATxx_MASK; gives the kind of FAT */
   unsigned eofmask;		/* CLUSTMASK_EOFxx, accordingly */
 

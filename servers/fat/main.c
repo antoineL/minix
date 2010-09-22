@@ -38,21 +38,13 @@ PRIVATE struct optset optset_table[] = {
   { "gid",      OPT_INT,    &use_gid,         10                 },
   { "fmask",    OPT_INT,    &use_file_mask,   8                  },
   { "dmask",    OPT_INT,    &use_dir_mask,    8                  },
-/*
+#ifdef MORE_OPTIONS
+/* FIXME: TODO! Also look in glo.h for even more unimplemented options. */
   { "atime",    OPT_BOOL,   &keep_atime,      TRUE               },
   { "noatime",  OPT_BOOL,   &keep_atime,      FALSE              },
   { "exec",     OPT_BOOL,   &prevent_exec,    TRUE               },
   { "noexec",   OPT_BOOL,   &prevent_exec,    FALSE              },
-
-+ FIXME: TODO:
-  lfn_state
-EXTERN uint8_t default_lcase;	map the 8.3 name to lowercase?  default=24?
-
-	use_hidden_mask		 remove this rwx bits when HIDDEN
-	use_system_mask		 remove this rwx bits when SYSTEM
-	use_system_uid		 use this uid as owner of SYSTEM files
-	use_system_gid		 use this gid as owner of SYSTEM files
- */
+#endif
   { "debug",    OPT_BOOL,   &verbose,         TRUE               },
   { NULL                                                         }
 };
@@ -124,7 +116,10 @@ PUBLIC int main(int argc, char *argv[])
   /* Defaults for options */
   use_uid = use_gid = 0;
   use_file_mask = use_dir_mask = 0755; /* we cannot use umask(2) */
+#ifdef MORE_OPTIONS
+/* FIXME: TODO! Also look in glo.h for even more unimplemented options. */
   keep_atime = FALSE;
+#endif
   /* If we have been given an options string, parse options from there. */
   for (i = 1; i < argc - 1; i++)
 	if (!strcmp(argv[i], "-o"))

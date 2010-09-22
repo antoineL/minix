@@ -36,6 +36,7 @@ FORWARD _PROTOTYPE( int find_sector_counts,
 		(struct fat_bootsector *, struct fat_extbpb *)		);
 FORWARD _PROTOTYPE( int chk_fatsize,
 		(struct fat_bootsector *, struct fat_extbpb *)		);
+FORWARD _PROTOTYPE( int calc_block_size, (void)				);
 
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
@@ -311,8 +312,7 @@ PRIVATE int chk_fatsize(
   struct fat_extbpb *extbpbp)
 {
   /* Final check about FAT sizes */
-  int nibble_per_clust;	/* nibble (half-octet) per cluster: 3, 4 or 8 */
-  sector_t slack;	/* number of useless sector in each FAT */
+  sector_t slack;	/* number of useless sector(s) in each FAT */
 
   sb.maxClust = (sb.clustCnt / sb.secpcluster) + 1;
 #define COMPUTE_SLACK(usedFATsize)	\
@@ -336,7 +336,7 @@ PRIVATE int chk_fatsize(
 			(long)sb.secpfat, (long) sb.maxClust));
 		return(EINVAL);
 	}
-	nibble_per_clust = 3;
+	sb.nibbles = 3;
 	slack = COMPUTE_SLACK((sb.maxClust*3+2)/2);
 /* PLUS virtual methods... +++ */
   }
@@ -350,7 +350,7 @@ PRIVATE int chk_fatsize(
 			(long)sb.secpfat, (long) sb.maxClust));
 		return(EINVAL);
 	}
-	nibble_per_clust = 4;
+	sb.nibbles = 4;
 	slack = COMPUTE_SLACK(sb.maxClust*2);
   }
   else if (FS_IS_FAT12(sb.maxClust)) {
@@ -363,7 +363,7 @@ PRIVATE int chk_fatsize(
 			(long)sb.secpfat, (long) sb.maxClust));
 		return(EINVAL);
 	}
-	nibble_per_clust = 8;
+	sb.nibbles = 8;
 	slack = COMPUTE_SLACK(sb.maxClust*4);
   }
   assert(sb.fatmask != 0);
@@ -376,6 +376,133 @@ PRIVATE int chk_fatsize(
   DBGprintf(("FATfs: FATs are %ld sectors, slack=%ld\n",
 		(long)sb.secpfat, (long)slack));
 
+  return OK;
+}
+
+/*===========================================================================*
+ *				calc_block_size				     *
+ *===========================================================================*/
+PRIVATE int calc_block_size(void)
+{
+/* Compute the best possible size of the block as used in the cache system.
+ * Fill all the related ("Blk", "Siz", etc.) fieds of sb accordingly.
+ *
+ * The easiest way is to stick on sectors, since everything is computed
+ * as sector count in a FAT file system. However it pratically prevents
+ * to use the VM-based level2 cache (on i386), which is based on 4K-pages.
+ *
+ * The second best option is to check if by chance, the FATs and the data
+ * blocks are aligned on 4KB boundaries: this practically means we were
+ * using FAT32, since most FAT12 and FAT16 file systems only have 1 reserved
+ * sector at the beginning, and everything then is mis-aligned.
+ *
+ * A third option (not implemented) is to choose the bigger size such as
+ * the data area is still aligned, and to compensate the misalignement
+ * the FAT area and the root directory when computing block numbers;
+ * this means additional complexity when updating, when flushing...
+ */
+  unsigned bsize;		/* proposed block size */
+  int shift;			/* shift a sector number right this amount
+				 * to get a block number. Positive or negative
+				 */
+  int relmask;			/* these bits in a sector number will
+				 * be merged into a unique block
+				 */
+  int i;
+  unsigned long bit;
+
+  bsize = sb.bpsector;
+  shift = 0;
+  /* First, reduce bsize to fit the maximum manageable size for cache. */
+  while (bsize > MAX_BLOCK_SIZE) {
+	bsize /= 2;
+	shift--;
+	/* note that assuming bsize is a power-of-two,
+	 * we shall not enter the while() loop below.
+	 */
+  }
+
+  relmask = 0;
+  /* Now try to increase the size while keeping everything block-aligned */
+  while (bsize < MAX_BLOCK_SIZE && bsize < sb.bpcluster) {
+	/* If possible, we will try to double bsize. */
+
+	 /* Compute the resulting relmask, and see what would happen */
+	relmask = relmask*2 + 1;
+
+	/* The FAT should begin on a block boundary */
+	if (sb.fatSec & relmask)
+		break;
+	/* Each FAT should be an integral number of blocks.
+	 *   This one could be dropped easilly, but will require
+	 *   special handling to update the (unaligned) FAT mirror(s).
+	 */
+	if ( sb.secpfat & relmask)
+		break;
+	/* The root directory, if any, should begin on a block boundary */
+	if (sb.rootCnt && sb.rootSec & relmask)
+		break;
+	/* The root directory should be an integer count of blocks */
+	if (sb.rootCnt & relmask)
+		break;
+	/* The data area should begin on a block boundary */
+	if (sb.clustSec & relmask)
+		break;
+	/* note that we do not require the total number of sectors
+	 * to be an integral multiple; this is because anything after
+	 * the last full block would be an incomplete cluster, so
+	 * unavailable for allocation as part of the FAT file system.
+	 * (it is still a problem for bread/bwrite, though).
+	 */
+
+	/* OK, all tests are positive, double the block_size */
+	bsize *= 2;
+	shift++;
+	assert(bsize <= MAX_BLOCK_SIZE && bsize <= sb.bpcluster);
+  }
+
+  if (bsize < MIN_BLOCK_SIZE) {
+	DBGprintf(("mounting failed: block size %u too small\n", bsize));
+	return(EINVAL);
+  }
+
+  sb.bpblock = bsize;
+  bit = 1;
+  for (i=0; i<16; bit<<=1,++i) {
+	if (bit & sb.bpsector) {
+		if (bit ^ sb.bpsector) {
+			DBGprintf(("mounting failed: "
+				"block size must be power of 2\n"));
+			return(EINVAL);
+		}
+		sb.bnshift = i;
+		break;
+	}
+  }
+  assert(sb.bnshift == sb.snshift + shift);
+  sb.brelmask = sb.bpsector-1;
+  sb.blkpcluster = sb.secpcluster >>shift;
+
+  sb.cbshift = sb.csshift + shift;
+  assert(sb.cbshift == sb.cnshift - sb.bnshift);
+  assert(sb.blkpcluster == (1<<sb.cbshift));
+  sb.depblk = sb.bpsector / DIR_ENTRY_SIZE;
+
+  sb.resBlk = sb.resSec;
+  sb.resSiz = sb.fatBlk = sb.resCnt >>shift;
+  sb.blkpfat = sb.secpfat >>shift;
+/* Because of possible unalignment of mirror FAT, do not do
+ * sb.fatsSiz = sb.nFATs * sb.blkpfat;
+ */
+  sb.fatsSiz = sb.fatsCnt >>shift;
+  sb.rootBlk = sb.fatBlk + sb.fatsSiz;
+  assert(sb.rootBlk == sb.rootSec >>shift);
+  sb.rootSiz = sb.rootCnt >>shift;
+  sb.clustBlk = sb.rootBlk + sb.rootSiz;
+  assert(sb.clustBlk == sb.clustSec >>shift);
+
+  sb.totalSiz = sb.totalSecs >>shift;
+  sb.clustSiz = sb.clustCnt >>shift;
   return OK;
 }
 
@@ -441,22 +568,18 @@ PUBLIC int do_readsuper(void)
   sb.freeClustValid = sb.freeClust = sb.nextClust = 0;
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
-/* Check the size of the block as used in the cache system.
- * The easy way is to stick on sectors, since everything is
- * computed as sector count in a FAT file system. However it
- * pratically prevents to use the VM-based level2 cache,
- * (on i386), which is based on 4K-pages.
- *
- * The second best option (not implemented yet) is to check
- * if by chance, the FATs and the data blocks are aligned
- * on 4KB boundaries: this practically means we are using FAT32
- * since most FAT12 and FAT16 file systems only have 1 reserved
- * sector at the beginning, and everything is mis-aligned.
- */
+/* Compute block_sizes */
+{
+struct superblock sb0 = sb;
+  if ( (r = calc_block_size()) != OK )
+	return(r);
+assert(memcmp(&sb,&sb0,sizeof sb) == 0);
+}
   if (sb.bpblock < MIN_BLOCK_SIZE) 
 	return(EINVAL);
   if ((sb.bpblock % 512) != 0) 
 	return(EINVAL);
+
 /* FIXME: compute num_blocks with knowledge of global FS size... */
   init_cache(NUM_BUFS, sb.bpblock);
 
@@ -467,7 +590,7 @@ PUBLIC int do_readsuper(void)
 /* FIXME: use sb.rootCluster */
   if (rootDirSize) {
 	/* the fixed root directory exists */
-	rip->i_clust = CLUST_CONVROOT;	/* conventionally 1 */
+	root_ip->i_clust = CLUST_CONVROOT;	/* conventionally 1 */
 	assert(rootDirSize <= 0xffffffff);
 	root_ip->i_size = rootDirSize;
 	root_ip->i_flags |= I_DIRSIZED;
@@ -475,7 +598,7 @@ PUBLIC int do_readsuper(void)
 	/* better be FAT32 and have long BPB... */
 	assert(extbpbp == &bs->u.f32bpb.ExtBPB32);
 	/* FIXME: better have checked !=0 */
-	rip->i_clust = get_le32(bs->u.f32bpb.bpbRootClust);
+	root_ip->i_clust = get_le32(bs->u.f32bpb.bpbRootClust);
 
 	/* We do not know the size of the root directory...
 	 * We could enumerate the FAT chain to learn how long
@@ -492,7 +615,7 @@ PUBLIC int do_readsuper(void)
  */
 /* FIXME above... */
   sb.rootCluster =
-  root_ip->i_parent_clust = rip->i_clust;
+  root_ip->i_parent_clust = root_ip->i_clust;
   root_ip->i_entrypos = 0;
 
   rehash_inode(root_ip);

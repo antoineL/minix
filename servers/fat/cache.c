@@ -259,7 +259,7 @@ PRIVATE void invalidate(
 PUBLIC struct buf *get_block(
   register dev_t req_dev,	/* on which device is the block? */
   register block_t block,	/* which block is wanted? */
-  enum get_block_arg_e only_search /* if NO_READ or PREFETCH, don't read */
+  enum get_blk_arg_e only_search /* if NO_READ or PREFETCH, don't read */
 )
 {
 /* REPHRASE-ME */

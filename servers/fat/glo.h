@@ -21,19 +21,22 @@ EXTERN uid_t use_uid;		/* use this uid as owner of files */
 EXTERN gid_t use_gid;		/* use this gid as owner of files */
 EXTERN mode_t use_file_mask;	/* show files with this mode */
 EXTERN mode_t use_dir_mask;	/* show directories with this mode */
-EXTERN uint8_t default_lcase;	/* map the 8.3 name to lowercase? */
-/* TODO:
-	use_hidden_mask		 remove this rwx bits when HIDDEN
-	use_system_mask		 remove this rwx bits when SYSTEM
-	use_system_uid		 use this uid as owner of SYSTEM files
-	use_system_gid		 use this gid as owner of SYSTEM files
- */
 
 EXTERN int verbose;		/* emit comments on the console; debugging */
 
-/* not yet implemented: */
+#ifdef MORE_OPTIONS
+/* The following options are not currently implemented: */
 EXTERN int keep_atime;		/* do not update atime and access bits */
+EXTERN int dont_calc_freespace;	/* avoid costly operation (full FAT lookup)*/
+EXTERN int prevent_exec;	/* prevent files to be executed (chmod a-x)*/
+EXTERN int mark_unclean;	/* mark filesystem as unclean while mounted*/
+EXTERN uint8_t default_lcase;	/* map the 8.3 name to lowercase? */
 EXTERN enum { LFN_IGNORE, LFN_LOOK, LFN_USE } lfn_state;
+EXTERN mode_t use_hidden_mask;	/* remove this rwx bits when HIDDEN */
+EXTERN mode_t use_system_mask;	/* remove this rwx bits when SYSTEM */
+EXTERN uid_t use_system_uid;	/* use this uid as owner of SYSTEM files */
+EXTERN gid_t use_system_gid;	/* use this gid as owner of SYSTEM files */
+#endif
 
 /* Service internals */
 EXTERN enum { NAKED, MOUNTED, UNMOUNTED } state;

@@ -42,7 +42,7 @@
  * block numbering.
  */
 #ifndef	NUM_BUFS
-#define	NUM_BUFS	100 
+#define	NUM_BUFS	200 
 #endif
 
 /* Size of buffers in the cache. */
@@ -50,7 +50,7 @@
 #define MIN_BLOCK_SIZE	512
 #endif
 #ifndef MAX_BLOCK_SIZE
-#define MAX_BLOCK_SIZE	8192	/* not the real size */
+#define MAX_BLOCK_SIZE	4096	/* also the preferred size, if possible */
 #endif
 
 /* Number of inodes.

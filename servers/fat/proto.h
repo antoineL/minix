@@ -18,12 +18,12 @@
 /* cache.c */
 _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
-enum get_block_arg_e {
+enum get_blk_arg_e {
 	NORMAL,		/* forces get_block to do disk read */
 	NO_READ,	/* prevents get_block from doing disk read */
 	PREFETCH	/* tells get_block not to read or mark dev */
 };
-_PROTOTYPE( struct buf *get_block, (dev_t, block_t blocknr, enum get_block_arg_e)	);
+_PROTOTYPE( struct buf *get_block, (dev_t, block_t, enum get_blk_arg_e)	);
 _PROTOTYPE( void init_cache, (int bufs, unsigned int blocksize)		);
 /*
 _PROTOTYPE( void put_block, (struct buf *bp, int block_type)		);
@@ -34,21 +34,11 @@ _PROTOTYPE( void rw_scattered, (dev_t dev,
 _PROTOTYPE( void zero_block, (struct buf *bp)				);
 
 /* direntry.c */
-_PROTOTYPE( int do_getdents, (void)					);
-enum search_dir_arg_e {
-	LOOK_UP,	/* tells search_dir to lookup string */
-	ENTER,		/* tells search_dir to make dir entry */
-	DELETE,		/* tells search_dir to delete entry */
-	IS_EMPTY	/* tells search_dir to ret. OK or ENOTEMPTY */  
-};
-_PROTOTYPE( int search_dir, (struct inode *ldir_ptr, 
-	char string [NAME_MAX], ino_t *numb,
-	enum search_dir_arg_e flag, int check_permissions)		);	
-
 _PROTOTYPE( int add_direntry, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
 _PROTOTYPE( int del_direntry, (struct inode *dir_ptr,
 				struct inode *ent_ptr)			);
+_PROTOTYPE( int do_getdents, (void)					);
 _PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
 _PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
@@ -123,4 +113,10 @@ _PROTOTYPE( int do_utime, (void)					);
 /* statfs.c */
 _PROTOTYPE( int do_fstatfs, (void)					);
 _PROTOTYPE( int do_statvfs, (void)					);
+
+/* utility.c */
+_PROTOTYPE( time_t dos2unixtime, (uint8_t dosdate[2],uint8_t dostime[2]));
+_PROTOTYPE( void unix2dostime, (time_t,
+			uint8_t deDate[2], uint8_t deTime[2])		);
+
 #endif

@@ -36,7 +36,8 @@ PUBLIC mode_t get_mode(struct inode *rip)
  */
   int mode;
 
-  mode = S_IRUSR | S_IXUSR | (rip->i_Attributes&ATTR_READONLY ? 0 : S_IWUSR);
+  mode = S_IRUSR | S_IXUSR
+       | (rip->i_Attributes&ATTR_READONLY || read_only ? 0 : S_IWUSR);
   mode = mode | (mode >> 3) | (mode >> 6);
 
   if (IS_DIR(rip))
@@ -44,161 +45,7 @@ PUBLIC mode_t get_mode(struct inode *rip)
   else
 	mode = S_IFREG | (mode & use_file_mask);
 
-  if (read_only)
-	mode &= ~(S_IWUSR|S_IWGRP|S_IWOTH);
-
   return(mode);
-}
-
-
-/*===========================================================================*
- *				dos2unixtime				     *
- *===========================================================================*/
-
-#if 0
-/*
- *  This is the format of the contents of the deTime
- *  field in the direntry structure.
- */
-struct DOStime {
-	unsigned short
-			dt_2seconds:5,	/* seconds divided by 2		*/
-			dt_minutes:6,	/* minutes			*/
-			dt_hours:5;	/* hours			*/
-};
-
-/*
- *  This is the format of the contents of the deDate
- *  field in the direntry structure.
- */
-struct DOSdate {
-	unsigned short
-			dd_day:5,	/* day of month			*/
-			dd_month:4,	/* month			*/
-			dd_year:7;	/* years since 1980		*/
-};
-
-union dostime {
-	struct DOStime dts;
-	unsigned short dti;
-};
-
-union dosdate {
-	struct DOSdate dds;
-	unsigned short ddi;
-};
-#endif
-
-/*
- *  Days in each month in a regular year.
- */
-unsigned short regyear[] = {
-	31,	28,	31,	30,	31,	30,
-	31,	31,	30,	31,	30,	31
-};
-
-/*
- *  Days in each month in a leap year.
- */
-unsigned short leapyear[] = {
-	31,	29,	31,	30,	31,	30,
-	31,	31,	30,	31,	30,	31
-};
-
-/*
- *  The number of seconds between Jan 1, 1970 and
- *  Jan 1, 1980.
- *  In that interval there were 8 regular years and
- *  2 leap years.
- */
-#define	SECONDSTO1980	(((8 * 365) + (2 * 366)) * (24 * 60 * 60))
-
-/*union dosdate*/ unsigned short lastdosdate;
-unsigned long lastseconds;
-
-PRIVATE time_t dos2unixtime(
-	unsigned short * ddp,
-	unsigned short * dtp)
-{
-/*
- *  Convert from dos' idea of time to unix'.
- *  This will probably only be called from the
- *  stat(), and fstat() system calls
- *  and so probably need not be too efficient.
- */
-	unsigned long seconds;
-	unsigned long dosmonth;
-	unsigned long month;
-	unsigned long yr;
-	unsigned long days;
-	unsigned short *months;
-
-  if (*ddp == 0) return 0;	/* return the Epoch if uninitialized */
-
-  if (dtp) {
-	seconds = ((*dtp & DT_2SECONDS_MASK) >> DT_2SECONDS_SHIFT) * 2
-	    + ((*dtp & DT_MINUTES_MASK) >> DT_MINUTES_SHIFT) * 60
-	    + ((*dtp & DT_HOURS_MASK) >> DT_HOURS_SHIFT) * 3600;
-/*
-	seconds = (dtp->dts.dt_2seconds << 1) +
-		  (dtp->dts.dt_minutes * 60) +
-		  (dtp->dts.dt_hours * 60 * 60);
- */
-  } else seconds = 0;
-
-/*
- *  If the year, month, and day from the last conversion
- *  are the same then use the saved value.
- */
-	if (lastdosdate != *ddp) {
-		lastdosdate = *ddp;
-		days = 0;
-#if 0
-		for (yr = 0; yr < ddp->dds.dd_year; yr++) {
-#else
-		for (yr = 0; yr < (*ddp & DD_YEAR_MASK) >> DD_YEAR_SHIFT; yr++) {
-#endif
-			days += yr & 0x03 ? 365 : 366;
-		}
-		months = yr & 0x03 ? regyear : leapyear;
-/*
- *  Prevent going from 0 to 0xffffffff in the following
- *  loop.
- */
-#if 0
-		if (ddp->dds.dd_month == 0) {
-			printf("dos2unixtime(): month value out of range (%d)\n",
-				ddp->dds.dd_month);
-			ddp->dds.dd_month = 1;
-		}
-		for (month = 0; month < ddp->dds.dd_month-1; month++) {
-			days += months[month];
-		}
-#else
-		dosmonth = (*ddp & DD_MONTH_MASK) >> DD_MONTH_SHIFT;
-		if (dosmonth == 0) {
-			printf("dos2unixtime(): month value out of range (%d)\n",
-				dosmonth);
-			dosmonth = 1;
-		}
-		for (month = 0; month < dosmonth; month++) {
-			days += months[month];
-		}
-#endif
-#if 0
-		days += ddp->dds.dd_day - 1;
-#else
-		days += ((*ddp & DD_DAY_MASK) >> DD_DAY_SHIFT) - 1;
-#endif
-		lastseconds = (days * 24 * 60 * 60) + SECONDSTO1980;
-	}
-#if 0
-	tvp->tv_sec = seconds + lastseconds + (tz.tz_minuteswest * 60)
-		/* -+ daylight savings time correction */;
-	tvp->tv_usec = 0;
-#else
-  return seconds + lastseconds /* -+ daylight savings time correction */ ;
-#endif
 }
 
 /*===========================================================================*
@@ -212,15 +59,17 @@ PUBLIC int do_stat(void)
  * (as described in XBD File Times Update ), before writing
  */
   int r;
-  struct stat stat;
-  ino_t ino_nr;
   struct inode *rip;
+  struct fat_direntry *dp;
+  ino_t ino_nr;
+  struct stat stat;
 
   ino_nr = m_in.REQ_INODE_NR;
 
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(ino_nr)) == NULL)
 	return(EINVAL);
+  dp = & rip->i_direntry;
 
   memset(&stat, '\0', sizeof stat);	/* Avoid leaking any data */
   stat.st_dev = dev;
@@ -230,29 +79,57 @@ PUBLIC int do_stat(void)
   stat.st_gid = use_gid;
   stat.st_rdev = NO_DEV;
 #if 0
-  stat.st_size = ex64hi(attr.a_size) ? ULONG_MAX : ex64lo(attr.a_size);
-#elif 0
+  stat.st_size = ex64hi(rip->i_size) ? ULONG_MAX : ex64lo(rip->i_size);
+#elif 1
   stat.st_size = rip->i_size;
 #else
   stat.st_size = IS_DIR(rip) ? 65535 : rip->i_size;
 #endif
-  stat.st_atime = dos2unixtime( (unsigned short *) &rip->i_direntry.deADate, NULL) ;
-  stat.st_mtime = dos2unixtime( (unsigned short *) &rip->i_direntry.deMDate, (unsigned short *) &rip->i_direntry.deMTime);
-  stat.st_ctime = stat.st_mtime; /* no better idea with FAT */
 
+  if (rip->i_btime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deBDate/deBTime field... */
+/* FIXME: need to deal with deBHundredth; require struct timespec */
+	rip->i_btime = TIME_UNKNOWN;
+  }
+  if (rip->i_mtime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deADate field...
+	if (rip->i_atime == TIME_UPDATED)
+		unix2dostime( ??? , dp->deADate, NULL);
+ */
+	rip->i_atime = dos2unixtime( dp->deADate, NULL) ;
+  }
+  if (rip->i_atime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deMDate/deMTime field...
+	if (rip->i_mtime == TIME_UPDATED)
+		unix2dostime( ??? , dp->deMDate, dp->deMTime);
+ */
+	rip->i_mtime = dos2unixtime(dp->deMDate, dp->deMTime) ;
+  }
+  if (rip->i_ctime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now()... */
+	rip->i_ctime = rip->i_mtime; /* no better idea with FAT */
+  }
+  stat.st_atime = rip->i_atime;
+  stat.st_mtime = rip->i_mtime;
+  stat.st_ctime = rip->i_ctime;
+
+#if 1
+  stat.st_nlink = rip->i_flags & I_ORPHAN ? 0 : 1;
+#elif 0
+  stat.st_nlink = 0;
+  if (rip->i_parent != NULL) stat.st_nlink++;
+#elif 0
+  stat.st_nlink = 0;
+  if (rip->i_parent_clust != 0) stat.st_nlink++;
+#else
+  stat.st_nlink = 0;
+  stat.st_nlink++;
+#endif
+  if (IS_DIR(rip)) {
   /* We could make this more accurate by iterating over directory inodes'
    * children, counting how many of those are directories as well.
    * It's just not worth it.
    */
-  stat.st_nlink = 0;
-#if 0
-  if (rip->i_parent != NULL) stat.st_nlink++;
-#elif 0
-  if (rip->i_dirref.dr_clust != 0) stat.st_nlink++;
-#else
-  stat.st_nlink++;
-#endif
-  if (IS_DIR(rip)) {
 	stat.st_nlink++;
 	if (HAS_CHILDREN(rip)) stat.st_nlink++;
   }
@@ -272,14 +149,9 @@ PUBLIC int do_chmod(void)
 /* Change file mode.
  */
   struct inode *rip;
-#if 0
-  char path[PATH_MAX];
-  struct hgfs_attr attr;
-#endif
   int r;
 
-  if (read_only)
-	return(EROFS);
+  if (read_only) return(EROFS);	/* paranoia */
 
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
@@ -320,17 +192,28 @@ PUBLIC int do_chown(void)
   struct inode *rip;
   int r;
 
-  if (read_only)
-	return(EROFS);
+  if (read_only) return(EROFS);	/* paranoia */
 
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
 
-  if (m_in.REQ_UID != use_uid || m_in.REQ_GID != use_gid)
-	return(EPERM);
+  if (m_in.REQ_UID != use_uid && m_in.REQ_UID != (uid_t)-1
+   || m_in.REQ_GID != use_gid && m_in.REQ_GID != (gid_t)-1) {
+	/* This will not work; however the "correct" error code,
+	 * (EINVAL or EPERM) depends on whoever tries (root or not).
+	 * And the VFS protocol does not says who is the caller...
+	 * An intent to change uid to root is only allowed to
+	 * succeed for a root process, so gives EINVAL then.
+	 * Any other change is given EPERM, assuming non-root.
+	 */
+	return(m_in.REQ_UID ? EINVAL : EPERM);
+  }
 
-/* FIXME: just i_mode also does the trick... */
+  rip->i_ctime = TIME_UPDATED;
+  rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
+
+/* FIXME: just i_mode may also do the trick... */
   m_out.RES_MODE = get_mode(rip);
 
   return(OK);
@@ -344,28 +227,30 @@ PUBLIC int do_utime(void)
 /* Set file times.
  */
   struct inode *rip;
-#if 0
-  char path[PATH_MAX];
-  struct hgfs_attr attr;
-#endif
+  struct fat_direntry *dp;
   int r;
 
-  if (read_only)
-	return(EROFS);
+  if (read_only) return(EROFS);	/* paranoia */
 
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
+  dp = & rip->i_direntry;
 
-#if 0
-  if ((r = verify_inode(ino, path, NULL)) != OK)
-	return r;
+  rip->i_atime = m_in.REQ_ACTIME;
+  if (rip->i_atime < TIME_UNKNOWN)
+	rip->i_atime = TIME_UNKNOWN;
+  unix2dostime(rip->i_atime, dp->deADate, NULL);
 
-  attr.a_mask = HGFS_ATTR_ATIME | HGFS_ATTR_MTIME;
-  attr.a_atime = m_in.REQ_ACTIME;
-  attr.a_mtime = m_in.REQ_MODTIME;
+  rip->i_mtime = m_in.REQ_MODTIME;
+  if (rip->i_mtime < TIME_UNKNOWN)
+	rip->i_mtime = TIME_UNKNOWN;
+  unix2dostime(rip->i_mtime, dp->deMDate, dp->deMTime);
 
-  return hgfs_setattr(path, &attr);
-#endif
+/* FIXME: use Now(), else next call to do_stat() will reset it to i_mtime... */
+  rip->i_ctime = TIME_UPDATED;
+
+  rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
+
   return EINVAL;
 }
