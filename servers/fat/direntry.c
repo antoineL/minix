@@ -148,6 +148,10 @@ PUBLIC int do_getdents(void)
 /* We do not believe the size registered in the inode, since
  * we are required to perform a full pass through all the entries anyway.
  */
+/* FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
+ * we should NOT rely on the same logic (enlarging if needed),
+ * and TRUST sb.rootEntries!
+ */
   new_pos = sb.maxFilesize;
 
 /*
@@ -409,14 +413,17 @@ FIXME: need the struct direntryref
 FIXME: refcount?
  */
   struct inode *rip;
-  cluster_t clust;
+  cluster_t parent_clust, clust;
 
 #if 0
   DBGprintf(("FATfs: enter_inode ['%.8s.%.3s']\n", dp->deName, dp->deExtension));
 #endif
 
-/* FIXME FAT32 */
+  parent_clust = dirp->i_clust;
   clust = get_le16(dp->deStartCluster);
+  if (sb.fatmask == FAT32_MASK)
+	clust |= get_le16(dp->deStartClusterHi) >> 16;
+#if 0
 
   if (clust) {
 	if ( (rip = cluster_to_inode(clust)) != NULL ) {
@@ -445,13 +452,39 @@ FIXME: refcount?
   }
 
 buggy_cluster0:
+#else
+#if 0
+/* FIXME: check this, and also other case of directories */
+  if (dp->deAttributes & ATTR_DIRECTORY && dirp->i_flags&I_ROOTDIR ) {
+  /* FAT quirks: the .. entry of 1st-level subdirectories
+   * (which points to the root directory) has 0 as starting cluster!
+   */
+	if (memcmp(dp->deName, NAME_DOT_DOT, 8+3) != 0) {
+		/* something is wrong... */
+DBGprintf(("FATfs: enter_inode ['%.8s.%.3s'], clust=%d, BUGGY\n", dp->deName, dp->deExtension, clust));
+		goto buggy_cluster0;
+	}
+	get_inode(dirp);
+	return(dirp);
+}
+/* FIXME: check case of entrypos=0 and root dir... */
+#endif
+  if ( (rip = dirref_to_inode(parent_clust, entrypos)) != NULL ) {
+  /* found in inode cache */
+	get_inode(rip);
+	return(rip);
+  }
+#endif
+
   /* get a fresh inode with ref. count = 1 */
   rip = get_free_inode();
   rip->i_flags = 0;
   rip->i_direntry = *dp;
+/* FIXME: not init'd !!! */
   rip->i_clust = clust;
   rip->i_parent_clust = dirp->i_clust;
   rip->i_entrypos = entrypos;
+/* FIXME: real cluster abscn... */
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
 	rip->i_flags |= I_DIR;	/* before call to get_mode */
@@ -663,6 +696,10 @@ PUBLIC int lookup_dir(
 /*
   for (; pos < dirp->i_size; pos += block_size) {
  */
+/* FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
+ * we should NOT rely on the same logic (enlarging if needed),
+ * and TRUST sb.rootEntries!
+ */
   pos = 0;
   while (TRUE) {
 	b = bmap(dirp, pos);	/* get next block number */
@@ -704,36 +741,13 @@ PUBLIC int lookup_dir(
 			/* we have a match on short name! */
 			r = OK;
 			assert(res_inop);
-#if 0
-/* FIXME uses coordinates... */
-/* FIXME FAT32 */
-			ino = get_le16(dp->d_direntry.deStartCluster);
-			if (ino && (*res_inop = cluster_to_inode(ino)) ) {
-				/* found in inode cache */
-				get_inode(*res_inop);
-			} else if (ino==0
-				&& (*res_inop = dirref_to_inode(INODE_NR(dirp),
-				    pos + ((char*)dp - (char*)&bp->b_dir[0]) )) ) {
-				/* found in inode cache (alternative way) */
-				get_inode(*res_inop);
-			} else {
-/* WORK NEEDED! */
-				*res_inop = enter_as_inode(&dp->d_direntry, dirp,
-					pos + ((char*)dp - (char*)&bp->b_dir[0]) );
-				if( *res_inop == NULL ) {
-/* FIXME: do something clever... */
-					panic("FATfs: lookup cannot create inode\n");
-				}
-			}
-#else
 			*res_inop = enter_as_inode(&dp->d_direntry, dirp,
 					pos + ((char*)dp - (char*)&bp->b_dir[0]) );
 			if( *res_inop == NULL ) {
 /* FIXME: do something clever... */
 				panic("FATfs: lookup cannot create inode\n");
 			}
-#endif
-			/* inode have its reference count incremented. */
+			/* inode had its reference count incremented. */
 			put_block(bp);
 			return(r);
 		}
@@ -806,6 +820,10 @@ PUBLIC int add_direntry(
   e_hit = FALSE;
   match = 0;			/* set when a string match occurs */
 
+/* FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
+ * we should NOT rely on the logic "enlarging if needed",
+ * and TRUST sb.rootEntries!
+ */
   for (pos = 0; pos < ldirp->i_size; pos += /*FIXME ldirp->i_sp->s_block_size*/ 512 ) {
 	b = bmap(ldirp, pos);	/* get next block number */
 

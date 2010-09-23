@@ -52,6 +52,7 @@ EXTERN dev_t dev;		/* device the file system is mounted on */
 EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 				 * by this FS proc.
 				 */
+EXTERN int hard_errors;		/* count of hardware errors signalled so far */
 
 /* Buffer cache. */
 EXTERN int num_bufs;

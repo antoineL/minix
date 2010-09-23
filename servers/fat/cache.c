@@ -115,7 +115,7 @@ PUBLIC void init_cache(int new_num_bufs, unsigned int blocksize)
   num_bufs = new_num_bufs;
   block_size = blocksize;
 
-  DBGprintf(("FATfs: %d blocks, %u+%u bytes each, = %lu b.(virtual)\n",
+  DBGprintf(("FATfs: %d blocks, %u+%u bytes each, = %lu bytes\n",
 	num_bufs, (unsigned)block_size, usizeof(struct buf),
 	(unsigned long)(block_size+sizeof(buf[0])) * num_bufs));
 

@@ -1,4 +1,4 @@
-# Makefile for FAT fs
+# Makefile for FAT file system server
 
 CPPFLAGS+= -DDEBUG
 NR_BUFS= 100

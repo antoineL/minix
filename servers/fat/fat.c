@@ -61,22 +61,22 @@ fc_lookup(
 	struct inode *rip,
 	/*unsigned long*/ cluster_t findcn,
 	/*unsigned long*/ cluster_t * frcnp,
-	/*unsigned long*/ block_t * bnp)
+	/*unsigned long*/ cluster_t * abscnp)
 {
 	int i;
-	unsigned long cn;
+	unsigned long frcn;
 	struct fatcache *closest = 0;
 
 	for (i = 0; i < FC_SIZE; i++) {
-		cn = rip->i_fc[i].fc_frcn;
-		if (cn != FCE_EMPTY  &&  cn <= findcn) {
-			if (closest == 0  ||  cn > closest->fc_frcn)
+		frcn = rip->i_fc[i].fc_frcn;
+		if (frcn != FCE_EMPTY  &&  frcn <= findcn) {
+			if (closest == 0  ||  frcn > closest->fc_frcn)
 				closest = &rip->i_fc[i];
 		}
 	}
 	if (closest) {
 		*frcnp  = closest->fc_frcn;
-		*bnp = closest->fc_bn;
+		*abscnp = closest->fc_abscn;
 	}
 }
 
@@ -123,8 +123,7 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
   }
 
 /* Rummage around in the fat cache, maybe we can avoid tromping
- * thru every fat entry for the file. And, keep track of how far
- * off the cache was from where we wanted to be.
+ * thru every fat entry for the file.
  */
 /*  fc_lookup(dep, findcn, &i, &cn); */
 
@@ -162,8 +161,15 @@ fc_lookup(
 	for (; i < findcn; i++) {
 /* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
 		if (ATEOF(cn, sb.eofmask)) {
+#if 1
+			goto hiteof;
+#else
 			break;
+#endif
 		}
+		/* Note this cannot overflow, even with FAT32:
+		 * cn is less than 1<<28, and nibbles is 8
+		 */
 		byteoffset = cn * sb.nibbles / 2;
 		bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
 		bo = byteoffset & sb.brelmask;
@@ -223,7 +229,7 @@ fc_lookup(
 /* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
 	}
 
-#if 0
+#if 1
 	if (!ATEOF(cn, sb.eofmask)) {
 		if (bp0)
 			put_block(bp0);
@@ -247,7 +253,7 @@ hiteof:
 		put_block(bp0);
 	/* update last file cluster entry in the fat cache */
 /*
-FIXME: beware LASTMAP/LASTFC...
+FIXME: beware LASTMAP/LASTFC, i/i-1, cn/prevcn...
 		fc_setcache(rip, FC_LASTMAP, i, cn);
 	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
  */

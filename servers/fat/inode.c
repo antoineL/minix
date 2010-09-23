@@ -30,7 +30,8 @@
  * because all the empty files have 0 as starting cluster (including after
  * a ftruncate(2) call).
  * Since inode are in fact directory entries, a second candidate can be
- * the coordinates of the entry, which are stored inside a struct direntryref.
+ * the coordinates of the entry, represented by the parent directory and
+ * the position of the entry within that parent directory.
  * However the scheme will not work for unlink(2)ed files, which under MINIX
  * can still be accessed, even if there is no directory entry any more;
  * and it is defeated also by the rename(2) call, which may move entries
@@ -48,25 +49,6 @@
  * explain that deleted entries should be kept around here _and_ in the
  * FAT chains, until the last open reference in VFS is closed,
  * and /then/ (which means in put_node) can be wiped from the disk copy...
- */
-
-/* Special files.
- * In the FAT file system, there are only regular files and directories.
- * There are no files representing character or block specials, unless
- * some extension are used; several schemes exist, but none is universal
- * enough to warrant its support here.
- * There are no symlink (at file system level) either; again there are
- * several scheme to circumvent this lacking, but nothing is universal.
- * Because of all these shortcomings, we cannot allow the FAT file system
- * to be used as root file system on MINIX.
- *
- * Links.
- * In the FAT file system, regular files have one and only one directory
- * entry; hence their link count is always 1, and cannot be incremented.
- * Directories (except the root) have always at least one entry in its
- * parent directory, plus the first entry named '.' in itself; in addition
- * it has one more link for each subdirectory it may have, where the
- * second entry named '..' will also have the same cluster number.
  */
 
 /* The main portion of the inode array forms a fully linked tree, providing a
@@ -132,7 +114,7 @@ PRIVATE TAILQ_HEAD(free_head, inode) unused_inodes;
 
   /* inode hashtables */
 PRIVATE LIST_HEAD(hashc_lists, inode) hashcluster_inodes[NUM_HASH_SLOTS];
-PRIVATE LIST_HEAD(hashr_lists, inode) hashdirref_inodes[NUM_HASH_SLOTS];
+PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
 
 /* Private functions:
  *   unhash_inode	?
@@ -152,11 +134,11 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 
   TAILQ_INIT(&unused_inodes);
 
-  /* Initialize (as empty) all the hash queues. */
+  /* Initialize (as empty) the hash queue. */
+  for (index = 0; index < NUM_HASH_SLOTS; index++)
+	LIST_INIT(&hash_inodes[index]);
   for (index = 0; index < NUM_HASH_SLOTS; index++)
 	LIST_INIT(&hashcluster_inodes[index]);
-  for (index = 0; index < NUM_HASH_SLOTS; index++)
-	LIST_INIT(&hashdirref_inodes[index]);
 
   DBGprintf(("FATfs: %d inodes (0-0%o), %u bytes each, = %u b.\n",
 	NUM_INODES, NUM_INODES-1, usizeof(struct inode), usizeof(inodes)));
@@ -175,8 +157,7 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 #endif
 	rip->i_ref = 0;
 	rip->i_flags = 0;
-	rip->i_num = rip->i_clust = 0;
-/* FIXME: dirref... */
+	rip->i_clust = rip->i_parent_clust = rip->i_entrypos = 0;
 	TAILQ_INSERT_TAIL(&unused_inodes, rip, i_free);
   }
 
@@ -185,7 +166,6 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
   rip->i_parent = rip;		/* root inode is its own parent */
   LIST_INIT(&rip->i_child);
 #if 1
-  rip->i_num = ROOT_INODE_NR;
   rip->i_index = 0;
   rip->i_gen = ROOT_GEN_NR;	/* fixed for root node */
 #else
@@ -299,14 +279,14 @@ PUBLIC struct inode *dirref_to_inode(
  * Do not increase its reference count.
  */
   struct inode *rip;
-  int hashr;
+  int hash;
 
-  hashr = (int) ((dirclust ^ entrypos) % NUM_HASH_SLOTS);
+  hash = (int) ((dirclust ^ entrypos) % NUM_HASH_SLOTS);
 
   /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hashdirref_inodes[hashr], i_hashref) {
-	if (rip->i_dirref.dr_clust == dirclust
-	 && rip->i_dirref.dr_entrypos == entrypos) {
+  LIST_FOREACH(rip, &hash_inodes[hash], i_hash) {
+	if (rip->i_parent_clust == dirclust
+	 && rip->i_entrypos == entrypos) {
 		return(rip);
 	}
   }
@@ -320,11 +300,10 @@ PUBLIC struct inode *dirref_to_inode(
 PUBLIC void rehash_inode(struct inode *rip) 
 {
 /* Insert into hash tables. Should be done after a new entry is read from
- * the disk; should also be done when the starting cluster is changed
- * (from or to 0), and when the dirref changes (unlink or rename).
+ * the disk; should also be done when the dirref changes (unlink or rename).
  */
   int flags;
-  int hashc, hashr;
+  int hash, hashc;
 
   assert(rip);
   flags = rip->i_flags;
@@ -338,14 +317,14 @@ PUBLIC void rehash_inode(struct inode *rip)
   } else
 	flags &= ~I_HASHED_CLUST;
 
-  if (flags & I_HASHED_DIRREF)
-	LIST_REMOVE(rip, i_hashref);
-  if (rip->i_dirref.dr_clust != 0) {
-	hashr = (int) ((rip->i_parent_clust ^ rip->i_entrypos) % NUM_HASH_SLOTS);
-	LIST_INSERT_HEAD(&hashdirref_inodes[hashr], rip, i_hashref);
-	flags |= I_HASHED_DIRREF;
+  if (flags & I_HASHED)
+	LIST_REMOVE(rip, i_hash);
+  if (rip->i_parent_clust != 0) {
+	hash = (int) ((rip->i_parent_clust ^ rip->i_entrypos) % NUM_HASH_SLOTS);
+	LIST_INSERT_HEAD(&hash_inodes[hash], rip, i_hash);
+	flags |= I_HASHED;
   } else
-	flags &= ~I_HASHED_DIRREF;
+	flags &= ~I_HASHED;
 
   rip->i_flags = flags;
 }
@@ -362,11 +341,11 @@ PRIVATE void unhash_inode(struct inode *rip)
 	LIST_REMOVE(rip, i_hashclust);
 	/* rip->i_clust = 0; */
   }
-  if (rip->i_flags & I_HASHED_DIRREF) {
-	LIST_REMOVE(rip, i_hashref);
+  if (rip->i_flags & I_HASHED) {
+	LIST_REMOVE(rip, i_hash);
 	/* rip->i_dirref.dr_clust = 0; */
   }
-  rip->i_flags &= ~(I_HASHED_CLUST|I_HASHED_DIRREF);  /* clear flags */
+  rip->i_flags &= ~(I_HASHED_CLUST|I_HASHED);  /* clear flags */
 }
 
 /*===========================================================================*
@@ -388,9 +367,8 @@ PUBLIC void get_inode(struct inode *rip)
 	TAILQ_REMOVE(&unused_inodes, rip, i_free);
 
   rip->i_ref++;
-
   if (rip->i_ref == 0)
-	panic("inode reference count wrapped");
+	panic("inode reference (use) count wrapped");
 }
 
 /*===========================================================================*
@@ -398,7 +376,10 @@ PUBLIC void get_inode(struct inode *rip)
  *===========================================================================*/
 PUBLIC void put_inode(struct inode *rip)
 {
-/* Decrease an inode's reference count. If this count has reached zero, close
+/* Decrease an inode's reference count.
+
+FIXME: rewrite
+ * If this count has reached zero, close
  * the inode's file handle, if any. If both reference and link count have
  * reached zero, mark the inode as cached or free.
  */

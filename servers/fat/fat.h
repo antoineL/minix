@@ -86,7 +86,7 @@ struct fat_bootsector {
 /* Here lies the "extended BPB" structures for FAT12/16 files sytems
  * created after 1988 (DOS 4).
  * However FAT32 file systems need more informationss and have
- * overwritten that extended BPB: as a result the extension
+ * overwritten that extended BPB: as a result the "extension"
  * can be placed at two different positions...
  */
   union {
@@ -175,7 +175,7 @@ struct fat_direntry {
   uint8_t deBTime[2];		/* "birth" (creation) time */
   uint8_t deBDate[2];		/* "birth" (creation) date */
   uint8_t deADate[2];		/* access date; note: no time */
-  uint8_t deHighClust[2];	/* high bytes of cluster number (FAT32) */
+  uint8_t deStartClusterHi[2];	/* high bytes of cluster number (FAT32) */
 	/* also used by OS/2 to store extended attribute access index */
   uint8_t deMTime[2];		/* last update time */
   uint8_t deMDate[2];		/* last update date */
@@ -286,20 +286,10 @@ struct fat_lfnentry {
 #define FAT32_CLEAN	0x08000000	/* do not need fsck at mounting */
 #define FAT32_NOHARDERR	0x04000000	/* do not need to search badblock */
 
-/* This is the format of the contents of the deTime field in the
+/* This is the format of the contents of the deDate field in the
  * fat_direntry structure.
  * We don't use bitfields because we don't know how compilers for
  * arbitrary machines will lay them out.
- */
-#define DT_2SECONDS_MASK	0x001F	/* seconds divided by 2 */
-#define DT_2SECONDS_SHIFT	0
-#define DT_MINUTES_MASK		0x07E0	/* minutes */
-#define DT_MINUTES_SHIFT	5
-#define DT_HOURS_MASK		0xF800	/* hours */
-#define DT_HOURS_SHIFT		11
-
-/* This is the format of the contents of the deDate field in the
- * fat_direntry structure.
  */
 #define DD_DAY_MASK		0x001F	/* day of month */
 #define DD_DAY_SHIFT		0
@@ -307,5 +297,15 @@ struct fat_lfnentry {
 #define DD_MONTH_SHIFT		5
 #define DD_YEAR_MASK		0xFE00	/* year - 1980 */
 #define DD_YEAR_SHIFT		9
+
+/* This is the format of the contents of the deTime field in the
+ * fat_direntry structure.
+ */
+#define DT_2SECONDS_MASK	0x001F	/* seconds divided by 2 */
+#define DT_2SECONDS_SHIFT	0
+#define DT_MINUTES_MASK		0x07E0	/* minutes */
+#define DT_MINUTES_SHIFT	5
+#define DT_HOURS_MASK		0xF800	/* hours */
+#define DT_HOURS_SHIFT		11
 
 #endif

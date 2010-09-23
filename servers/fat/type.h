@@ -37,7 +37,7 @@
  * Notice that the clusters are in the data area, which does
  * not cover the whole file system area.
  *
- * The code should not assume that sectors are the same size
+ * The code does not assume that sectors are the same size
  * as blocks; in fact, it should be possible to independantly
  * modifiy the cache system: for example, to take advantage of
  * a central cache with a direct relationship with the VM
@@ -50,73 +50,66 @@
 typedef	u32_t	sector_t;
 typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
 
-/* Buffer (block) cache.
- * To acquire a block, a routine calls get_block(), telling which block
- * it wants. The block is then regarded as "in use" and has its 'b_ref'
- * field incremented. All the blocks that are not in use are chained
- * together in an LRU list, implemented as a tail-queue, with '_FIRST'
- * pointing to the least recently used block, and '_TAIL' to the most
- * recently used block. Usage for LRU is measured by the time the
- * put_block() is done. If a block is modified, the modifying routine must
- * set b_dirt to DIRTY, so the block will eventually be rewritten to the disk.
+/* Directory entries.
+ * Directory entries also play the role of the inode for files:
+ * in addition to the name, they hold the size, the timestamps
+ * of last modification, etc. Missing are the members for
+ * permissions, uid/gid, or count of hard links, since there are
+ * no such things on MS-DOS; the only data block addressed is the
+ * first one (indexed by its cluster number); the other data
+ * first will be found via the FAT itself, which is a linked list
+ * of "next cluster numbers".
  *
-WORK NEEDED:
- * describe all the states a buffer can be (allocated/no, free/no, dirty etc.)
- * make some macros
- * CHECKME!!! better use b_bytes==0 ? b_blocknr==-1 ? flags?
+ * Special files.
+ * In the FAT file system, there are only regular files and directories.
+ * There are no files representing character or block specials
+ * (unless some extension are used; several schemes exist, but none is
+ * universal enough to warrant its support here.)
+ * There are no symlink (at file system level) either; again there are
+ * several schemes to circumvent this lacking, but nothing is universal.
+ *
+ * Because of all these shortcomings, we cannot allow the FAT file system
+ * to be used as root file system on MINIX.
+ *
+ * Links.
+ * In the FAT file system, regular files have one and only one directory
+ * entry; hence their link count is always 1, and cannot be incremented.
+ * Directories (except the root) have always at least one entry in its
+ * parent directory, plus the first entry named '.' in itself; in addition
+ * it has one more link for each subdirectory it may have, where the
+ * second entry named '..' will also have the same cluster number.
+ * A consequence of this multiplication of entries for a given
+ * directory, is that directory entries are never updated for timestamp
+ * or when size change.
+ *
+ * We use the properties of this to build a semi-universal system to
+ * access inodes starting with a directory entry coordinates;
+ * such coordinates are stored inside a struct direntryref:
+ *   dr_parent    is the starting cluster number of the directory
+ *                filespace where the entry is located
+ *   dr_entrypos  is the entry position within that directory
+ * for regular files, there is only one entry so no ambiguity;
+ * for directories, we choose the '.' entry, which is always at the
+ * start of the directory, hence have always entrypos==0;
+ * the entry of that directory within its own parent has the
+ * (non-zero) starting cluster number, so the inode can be located;
+ * the '..' entries in subdirectories also have the starting cluster
+ * number stored, so the inode can be located again.
+ * The only difficulty is because in the root directory, there are
+ * no '.' entry; the consequence is that the coordinates (root_dir, 0)
+ * can address a file which is not a directory; this case should be
+ * handled specially.
+ *
+ * In addition to starting cluster number for the parent directory,
+ * entries are also marked with the cluster number where the entry
+ * actually stands, in dr_abscn; this allows quick access to the datas
+ * when they need to be updated.
  */
-/* A block is free if b_dev == NO_DEV. */
-
-struct buf {
-  /* Data portion of the buffer. Uninterpreted by cache. */
-  union blkdata_u *dp;
-
-  /* Header portion of the buffer. */
-  TAILQ_ENTRY(buf) b_next;	/* used to link all free bufs in a chain */
-  LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
-  size_t b_bytes; 	        /* Number of bytes allocated in bp */
-  block_t b_blocknr;            /* block number of its (minor) device */
-/* CHECKME: is it still usefull? */
-  dev_t b_dev;                  /* major | minor device where block resides */
-  char b_dirt;                  /* CLEAN or DIRTY */
-#define CLEAN              0	/* disk and memory copies identical */
-#define DIRTY              1	/* disk and memory copies differ */
-  char b_count;                 /* number of users of this buffer */
-
-/* FIXME: we need an indication (or a hook) when the buffer is for
- * some FAT sector, and should be mirrored (written several times)
- * when flushed to disk...
- */
-/* FIXME: we may need some special stuff to insure that FAT12
- * even and odd blocks are contiguous in logical address space
- * (since entry 342 lies part in sector 0 and part in sector 1)
- */
-
+struct direntryref {
+  cluster_t	dr_parent;	/* cluster pointing the directory */
+  unsigned	dr_entrypos;	/* position of the entry within */
+  cluster_t	dr_abscn;	/* cluster holding the entry */
 };
-
-/* actual content of directories */
-union direntry_u {
-  struct fat_direntry d_direntry;
-  struct fat_lfnentry d_lfnentry;
-};
-
-#define DIR_ENTRY_SIZE     usizeof(union direntry_u)  /* # bytes/dir entry */
-#define NR_DIR_ENTRIES(sz) ((sz)/DIR_ENTRY_SIZE)   /* # dir entries/struct */
-
-/* content of a buffer */
-union blkdata_u {
-  char b__data[MAX_BLOCK_SIZE];	     /* ordinary user data */
-  union direntry_u b__dir[NR_DIR_ENTRIES(MAX_BLOCK_SIZE)];
-  unsigned char b__fat16[2][MAX_BLOCK_SIZE/2]; /* FAT16 chains */
-  unsigned char b__fat32[4][MAX_BLOCK_SIZE/4]; /* FAT32 chains */
-};
-
-/* These defs make it possible to use to bp->b_data instead of bp->dp->b__data */
-#define b_data		dp->b__data
-#define b_dir		dp->b__dir
-/* beware: the following fields are stored in little-endian packed form */
-#define b_zfat16	dp->b__fat16
-#define b_zfat32	dp->b__fat32
 
 /* File system fundamental values used by the FAT file system server.
  * The unique instance of this structure is the global variable 'sb'.
@@ -178,16 +171,72 @@ struct superblock {
   int depclust;			/* directory entries per cluster */
 };
 
-/* Coordinates of a directory entry.
- * In addition to starting cluster number, inode are also tracked using
- * the position of the entry within its parent directory;
- * this allows quick access to the datas when they need to be updated.
- * This also allows to rebuild the tree
+/* Buffer (block) cache.
+ * To acquire a block, a routine calls get_block(), telling which block
+ * it wants. The block is then regarded as "in use" and has its 'b_ref'
+ * field incremented. All the blocks that are not in use are chained
+ * together in an LRU list, implemented as a tail-queue, with '_FIRST'
+ * pointing to the least recently used block, and '_TAIL' to the most
+ * recently used block. Usage for LRU is measured by the time the
+ * put_block() is done. If a block is modified, the modifying routine must
+ * set b_dirt to DIRTY, so the block will eventually be written to the disk.
+ *
+WORK NEEDED:
+ * describe all the states a buffer can be (allocated/no, free/no, dirty etc.)
+ * make some macros
+ * CHECKME!!! better use b_bytes==0 ? b_blocknr==-1 ? flags?
  */
-struct direntryref {
-  cluster_t	dr_clust;	/* cluster pointing the directory */
-  unsigned	dr_entrypos;	/* position of the entry within */
+/* A block is free if b_dev == NO_DEV. */
+
+struct buf {
+  /* Data portion of the buffer. Uninterpreted by cache. */
+  union blkdata_u *dp;
+
+  /* Header portion of the buffer. */
+  TAILQ_ENTRY(buf) b_next;	/* used to link all free bufs in a chain */
+  LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
+  size_t b_bytes; 	        /* Number of bytes allocated in bp */
+  block_t b_blocknr;            /* block number of its (minor) device */
+/* CHECKME: is it still usefull? */
+  dev_t b_dev;                  /* major | minor device where block resides */
+  char b_dirt;                  /* CLEAN or DIRTY */
+#define CLEAN              0	/* disk and memory copies identical */
+#define DIRTY              1	/* disk and memory copies differ */
+  char b_count;                 /* number of users of this buffer */
+
+/* FIXME: we need an indication (or a hook) when the buffer is for
+ * some FAT sector, and should be mirrored (written several times)
+ * when flushed to disk...
+ */
+/* FIXME: we may need some special stuff to insure that FAT12
+ * even and odd blocks are contiguous in logical address space
+ * (since entry 342 lies part in sector 0 and part in sector 1)
+ */
+
 };
+
+/* actual content of directories */
+union direntry_u {
+  struct fat_direntry d_direntry;
+  struct fat_lfnentry d_lfnentry;
+};
+
+#define DIR_ENTRY_SIZE     usizeof(union direntry_u)  /* # bytes/dir entry */
+#define NR_DIR_ENTRIES(sz) ((sz)/DIR_ENTRY_SIZE)   /* # dir entries/struct */
+
+/* content of a buffer */
+union blkdata_u {
+  char b__data[MAX_BLOCK_SIZE];	     /* ordinary user data */
+  union direntry_u b__dir[NR_DIR_ENTRIES(MAX_BLOCK_SIZE)];
+  unsigned char b__fat16[2][MAX_BLOCK_SIZE/2]; /* FAT16 chains */
+  unsigned char b__fat32[4][MAX_BLOCK_SIZE/4]; /* FAT32 chains */
+};
+/* These defs make it possible to use to bp->b_data instead of bp->dp->b__data */
+#define b_data		dp->b__data
+#define b_dir		dp->b__dir
+/* beware: the following fields are stored in little-endian packed form */
+#define b_zfat16	dp->b__fat16
+#define b_zfat32	dp->b__fat32
 
 /*
 CHECKME: refine this
@@ -201,18 +250,19 @@ CHECKME: refine this
  *  file is opened by multiple processes.
  */
 /* FIXME when stuff stable: these constants should move to const.h */
-#define	FC_SIZE		3	/* number of entries in the cache */
+#define	FC_SIZE		2	/* number of entries in the cache */
 #define	FC_LASTMAP	0	/* entry the last call to bmap() resolved to */
 #define	FC_LASTFC	1	/* entry for the last cluster in the file */
 
-#define	FCE_EMPTY	0xffff	/* doesn't represent an actual cluster # */
+#define	FCE_EMPTY	(cluster_t)-1	/* not an actual cluster # */
 /*
  * The fat cache structure.
- * fc_bn is the filesystem relative block number that corresponds
+ * fc_abscn is the filesystem relative cluster number that corresponds
  * to the (beginning of the) file relative cluster number (fc_frcn).
  */
 struct fatcache {
   cluster_t fc_frcn;		/* file relative cluster number	*/
+  cluster_t fc_abscn;		/* (filesystem relative) cluster number	*/
   block_t fc_bn;		/* (filesystem relative) block number */
 };
 
@@ -220,6 +270,7 @@ struct fatcache {
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
+  LIST_ENTRY(inode) i_hash;	/* dirref hashtable chain entry */
   LIST_ENTRY(inode) i_hashclust; /* cluster hashtable chain entry */
   LIST_ENTRY(inode) i_hashref;	/* dirref hashtable chain entry */
   unsigned short i_index;	/* inode index for quick reference */
@@ -229,7 +280,7 @@ struct inode {
   TAILQ_ENTRY(inode) i_free;	/* free list chain entry */
 
 /* FIXME */
-  ino_t i_num;				/* inode number for quick reference */
+	  ino_t i_numKILL;				/* inode number for quick reference */
   struct inode *i_parent;		/* parent inode pointer */
   LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
   LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
@@ -241,17 +292,25 @@ struct inode {
 #define	i_Attributes	i_direntry.deAttributes
 #define	i_LCase		i_direntry.deLCase
 /* beware: the following fields are stored in little-endian packed form */
-#define	iz_StartCluster	i_direntry.deStartCluster
-#define	iz_HighClust	i_direntry.deHighClust
+#define	iz_1stClusterLo	i_direntry.deStartCluster
+#define	iz_1stClusterHi	i_direntry.deStartClusterHi
 #define	iz_FileSize	i_direntry.deFileSize
+#define	iz_MDate	i_direntry.deMDate
+#define	iz_MTime	i_direntry.deMTime
+#define	iz_ADate	i_direntry.deADate
+
+  char * i_long_filename;	/* long file name (\0 terminated) */
+/* FIXME: useful? using malloc/free? */
+  int i_lfn_alloclen;		/* size allocated to above field */
 
   mode_t i_mode;		/* file type, protection, as seen by VFS */
   off_t i_size;			/* current file size in bytes */
   cluster_t i_clust;		/* number of first cluster of data */
 
   struct direntryref i_dirref;	/* coordinates of this entry */
-#define	i_parent_clust	i_dirref.dr_clust /* cluster pointing the directory */
+#define	i_parent_clust	i_dirref.dr_parent /* cluster pointing the directory*/
 #define	i_entrypos	i_dirref.dr_entrypos /* position of the entry within*/
+#define	i_actual_clust	i_dirref.dr_abscn /* cluster pointing the entry */
 
   /* cached values for timestamps: */
   time_t i_btime;		/* when was file created (birth) */
@@ -278,8 +337,9 @@ struct inode {
 #define I_ACCESSED	0x0400		/* file was accessed */
 #define I_DIRTY		0x0800		/* on-disk copy differs */
 
-#define I_HASHED_CLUST	0x1000		/* linked-in in cluster hastable */
-#define I_HASHED_DIRREF	0x2000		/* linked-in in dirref hastable */
+#define I_HASHED	0x1000		/* linked-in in dirref hastable */
+#define I_HASHED_CLUST	0x2000		/* linked-in in cluster hastable */
+#define I_HASHED_DIRREF	0x1000		/* linked-in in dirref hastable */
 
 /* Placeholders for cached timestamps: */
 #define	TIME_UNDETERM	(time_t)0	/* the value is undeterminate */

@@ -53,9 +53,7 @@ _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* fat.c */
 _PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
-_PROTOTYPE( sector_t smap, (struct inode *rip, off_t position)		);
 _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
-
 
 /* inode.c */
 _PROTOTYPE( struct inode *cluster_to_inode, (cluster_t)			);
@@ -88,6 +86,7 @@ _PROTOTYPE( int do_symlink, (void)					);
 
 /* main.c */
 _PROTOTYPE( int do_nothing, (void)					);
+_PROTOTYPE( int main, (int argc, char *argv[])				);
 _PROTOTYPE( int readonly, (void)					);
 _PROTOTYPE( int no_sys, (void)						);
 

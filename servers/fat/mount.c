@@ -67,6 +67,14 @@ PRIVATE int reco_bootsector(
   struct fat_bootsector *bs,	/* is this structure a valid boot sector */
   struct fat_extbpb * *extbpbpp) /* where to put the extension if found */
 {
+/* Do the basic check of the boot sector, and locate the extended BPB (if any)
+ * Also may set sb.fatmask according to the indicated FStype.
+ *
+ * Possible improvements:
+ * could be splitted in 2, one to recognize FAT32 and the other for FAT12/16
+ * the second could be called later if the first failed in some way.
+ * Other way is to have argv[] option to force somehow the recognized kind.
+ */
   if (memcmp(bs->bsBootSectSig, BOOTSIG, sizeof bs->bsBootSectSig)) {
 /* <FUTURE_IMPROVEMENT>
  * if "veryold" (or "dos1") option is set, try to read 2nd sector,
@@ -85,7 +93,7 @@ PRIVATE int reco_bootsector(
 		bs->bsJump[0], bs->bsJump[1], bs->bsJump[2]));
 /* FIXME: should we really abort here?
  * Right now it is a security measure to avoid consider rogue data
- * incorrectly; however, it is entirelly possible to have working
+ * incorrectly; however, it is entirely possible to have working
  * FAT file systems without those bytes set this way;
  * as such, it should probably be possible to override it.
  */
@@ -120,7 +128,7 @@ PRIVATE int reco_bootsector(
 	return(OK);
   }
   if (bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG
-          || bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG_ALT ) {
+   || bs->u.f32bpb.ExtBPB32.exBootSignature==EXBOOTSIG_ALT ) {
 	/* we found a signature for an extended BPB at the
 	 * right place for a FAT file system, but the file
 	 * system identifier is unknown...
@@ -129,13 +137,13 @@ PRIVATE int reco_bootsector(
 	DBGprintf(("mounting failed: found FAT32-like extended BPB, "
 		"but with unkown FStype: <%.8s>\n",
 		bs->u.f32bpb.ExtBPB32.exFileSysType));
-	return(EINVAL);
+	return(EINVAL);		/* should try better... */
   } else if (bs->u.ExtBPB.exBootSignature==EXBOOTSIG
           || bs->u.ExtBPB.exBootSignature==EXBOOTSIG_ALT ) {
 	DBGprintf(("mounting failed: found extended BPB, "
 		"but with unkown FStype: <%.8s>\n",
 		bs->u.ExtBPB.exFileSysType));
-	return(EINVAL);
+	return(EINVAL);		/* should try better... */
   } else {
 	/* we did not found the signature for an extended BPB...
 	 */
@@ -152,10 +160,15 @@ PRIVATE int reco_bootsector(
  *===========================================================================*/
 PRIVATE int chk_bootsector(struct fat_bootsector *bs)
 {
-  /* Sanity checks... */
+/* Sanity checks... */
 
-  if (bs->bpbBytesPerSec[0]!=0 || bs->bpbBytesPerSec[1]!=2) {
-/* FIXME: bigger values should be allowed */
+  if (bs->bpbBytesPerSec[0]!=0
+   || bs->bpbBytesPerSec[1] & (bs->bpbBytesPerSec[1] - 1) ) {
+  /* message is slighty misleading: we really checked that
+   * bpbBytesPerSec is a power-of-two larger than 0x100 (256);
+   * but since 512 is the overall-seen value, better left the message
+   * this way to point out the bad field.
+   */
 	DBGprintf(("mounting failed: not using 512-byte sectors\n"));
 	return(EINVAL);
   }
@@ -183,17 +196,18 @@ PRIVATE int chk_bootsector(struct fat_bootsector *bs)
  *===========================================================================*/
 PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 {
-/* Fill the sb instance */
-/* FIXME: the blk/block stuff should be done later, when block size is fixed. */
+/* Fill the sb instance with the basic sizes.
+ * The blk/block stuff would be done later, when block size is fixed.
+ */
   int i;
   unsigned long bit;
 
-  sb.bpblock = sb.bpsector = get_le16(bs->bpbBytesPerSec);
-  if (sb.bpblock < MIN_SECTOR_SIZE) {
+  sb.bpsector = get_le16(bs->bpbBytesPerSec);
+  if (sb.bpsector < MIN_SECTOR_SIZE) {
 	DBGprintf(("mounting failed: sector size %lu too small\n",
 		(unsigned long) sb.bpsector));
 	return(EINVAL);
-  } else if (sb.bpblock > MAX_SECTOR_SIZE) {
+  } else if (sb.bpsector > MAX_SECTOR_SIZE) {
 	DBGprintf(("mounting failed: sector size %lu too big\n",
 		(unsigned long) sb.bpsector));
 	return(EINVAL);
@@ -201,21 +215,17 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
 	if (bit & sb.bpsector) {
-		if (bit ^ sb.bpsector) {
-			DBGprintf(("mounting failed: "
-				"sector size must be power of 2\n"));
-			return(EINVAL);
-		}
+		assert(! (bit ^ sb.bpsector));	/* should be power-of-2 */
 		sb.bnshift = sb.snshift = i;
 		break;
 	}
   }
-  sb.brelmask = sb.srelmask = sb.bpsector-1;
-  sb.blkpcluster = sb.secpcluster = bs->bpbSecPerClust;
+  sb.srelmask = sb.bpsector-1;
+  sb.secpcluster = bs->bpbSecPerClust;
   bit = 1;
   for (i=0; i<8; bit<<=1,++i) {
 	if (bit & sb.secpcluster) {
-		assert(! (bit ^ sb.secpcluster));
+		assert(! (bit ^ sb.secpcluster)); /* should be power-of-2 */
 		sb.cnshift = sb.snshift + i;
 		break;
 	}
@@ -225,7 +235,7 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
 		1<<(sb.cnshift-10)));
 	return(EINVAL);
   }
-  sb.cbshift = sb.csshift = sb.cnshift - sb.snshift;
+  sb.csshift = sb.cnshift - sb.snshift;
   assert(bs->bpbSecPerClust == (1<<sb.csshift));
   sb.bpcluster = sb.secpcluster * sb.bpsector;
   assert(sb.bpcluster == (1<<sb.cnshift)); /* paranoia */
@@ -233,7 +243,7 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   assert(sizeof(struct fat_direntry) == 32); /* paranoia */
   assert(sizeof(struct fat_lfnentry) == 32);
   assert(DIR_ENTRY_SIZE == 32);
-  sb.depsec = sb.depblk = sb.bpsector / DIR_ENTRY_SIZE;
+  sb.depsec = sb.bpsector / DIR_ENTRY_SIZE;
   sb.depclust = sb.depsec << sb.cnshift;
   return OK;
 }
@@ -245,17 +255,26 @@ PRIVATE int find_sector_counts(
   struct fat_bootsector *bs,
   struct fat_extbpb *extbpbp)
 {
+/* ... */
   sector_t systemarea;
 
   sb.nFATs = bs->bpbFATs;
 
-  sb.resCnt = sb.resSiz = get_le16(bs->bpbResSectors);
+  sb.resCnt = get_le16(bs->bpbResSectors);
   if ( (sb.secpfat = get_le16(bs->bpbFATsecs)) == 0) {
-/* FIXME: beware of FAT12/16 FS with bpbFATsecs == 0... will probably go rocket */
-	/* note: extbpbp==NULL is on the safe side anyway */
+	if (extbpbp == &bs->u.ExtBPB
+	 || sb.fatmask && sb.fatmask != FAT32_MASK) {
+		DBGprintf(("mounting failed: needs at least 1 sector/FAT\n"));
+		return(EINVAL);
+	}
 	if (extbpbp != &bs->u.f32bpb.ExtBPB32)
 		DBGprintf(("warning: mounting FAT32 without extended BPB\n"));
 	sb.secpfat = get_le32(bs->u.f32bpb.bpbBigFATsecs);
+	if (sb.secpfat <= 0) {
+		/* still 0 ??? */
+		DBGprintf(("mounting failed: needs at least 1 sector/FAT\n"));
+		return(EINVAL);
+	}
   }
   sb.blkpfat = sb.secpfat;
   if (INT_MAX<65535 && get_le16(bs->bpbRootDirEnts) > (unsigned)INT_MAX) {
@@ -264,7 +283,7 @@ PRIVATE int find_sector_counts(
 	return(EINVAL);
   }
   sb.rootEntries = get_le16(bs->bpbRootDirEnts);
-  sb.rootCnt = sb.rootSiz = (sb.rootEntries+sb.depsec-1) / sb.depsec;
+  sb.rootCnt = (sb.rootEntries+sb.depsec-1) / sb.depsec;
 #if 0
 /* FIXME: rewrite (FAT32MASK) or move later */
   if (extbpbp == &bs->u.f32bpb.ExtBPB32) {
@@ -283,8 +302,7 @@ PRIVATE int find_sector_counts(
   if ( (sb.totalSecs = get_le16(bs->bpbSectors)) == 0) {
 	sb.totalSecs = get_le32(bs->bpbHugeSectors);
   }
-  sb.totalSiz = sb.totalSecs;
-  sb.fatsCnt  = sb.fatsSiz  = sb.nFATs * sb.secpfat;
+  sb.fatsCnt = sb.nFATs * sb.secpfat;
   systemarea = sb.resCnt + sb.fatsCnt + sb.rootCnt;
   if ( (systemarea + sb.secpcluster) >= sb.totalSecs) {
 	DBGprintf(("mounting failed: incoherent sizes, "
@@ -292,14 +310,14 @@ PRIVATE int find_sector_counts(
 		(unsigned long)systemarea, (unsigned long)sb.totalSecs));
 	return(EINVAL);
   }
-  sb.clustCnt = sb.clustSiz = sb.totalSecs-systemarea;
+  sb.clustCnt = (sb.totalSecs - systemarea) & ~sb.crelmask;
   sb.maxFilesize = (LONG_MAX>>sb.snshift) < sb.clustCnt
 	? LONG_MAX : sb.clustCnt<<sb.snshift;
 
-  sb.resSec   = sb.resBlk   = 0;
-  sb.fatSec   = sb.fatBlk   = sb.resCnt;
-  sb.rootSec  = sb.rootBlk  = sb.fatSec + sb.fatsCnt;
-  sb.clustSec = sb.clustBlk = sb.rootSec + sb.rootCnt;
+  sb.resSec   = 0;
+  sb.fatSec   = sb.resCnt;
+  sb.rootSec  = sb.fatSec + sb.fatsCnt;
+  sb.clustSec = sb.rootSec + sb.rootCnt;
   assert( (sb.clustSec + sb.clustCnt) <= sb.totalSecs);
   return OK;
 }
@@ -311,68 +329,58 @@ PRIVATE int chk_fatsize(
   struct fat_bootsector *bs,
   struct fat_extbpb *extbpbp)
 {
-  /* Final check about FAT sizes */
+/* Final check about FAT sizes */
   sector_t slack;	/* number of useless sector(s) in each FAT */
 
   sb.maxClust = (sb.clustCnt / sb.secpcluster) + 1;
-#define COMPUTE_SLACK(usedFATsize)	\
-	sb.secpfat - ( (usedFATsize) -1 + sb.bpsector ) / sb.bpsector
-
+  if (sb.maxClust > CLUSTMASK_EOF32) {
+	DBGprintf(("mounting failed: too much clusters, maxClust=%lu=%#.8lx\n",
+		(unsigned long)sb.maxClust, (unsigned long)sb.maxClust));
+	return(EINVAL);
+  }
   if (sb.fatmask == FAT12_MASK && ! FS_IS_FAT12(sb.maxClust)
    || sb.fatmask == FAT16_MASK && ! FS_IS_FAT16(sb.maxClust)
    || sb.fatmask == FAT32_MASK && ! FS_IS_FAT32(sb.maxClust)) {
 	DBGprintf(("mounting failed: extended BPB says "
-		"FStype=<%.8s> but maxClust=%lu\n",
+		"FStype=<%.8s> but maxClust=%lu, not compatible\n",
 		extbpbp->exFileSysType, (unsigned long)sb.maxClust));
 	return(EINVAL);
   }
+
   if (FS_IS_FAT12(sb.maxClust)) {
 	sb.fatmask = FAT12_MASK;	sb.eofmask = CLUSTMASK_EOF12;
 	assert(!FS_IS_FAT16(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT32(sb.maxClust));
-	if ( (sb.maxClust*3+2)/2 >= sb.secpfat*sb.bpsector) {
-		DBGprintf(("mounting failed: "
-			"FAT12 with only %ld sectors/FAT but %ld clusters\n",
-			(long)sb.secpfat, (long) sb.maxClust));
-		return(EINVAL);
-	}
 	sb.nibbles = 3;
-	slack = COMPUTE_SLACK((sb.maxClust*3+2)/2);
-/* PLUS virtual methods... +++ */
+/* FIXME: PLUS virtual methods... +++ */
   }
   else if (FS_IS_FAT16(sb.maxClust)) {
 	sb.fatmask = FAT16_MASK;	sb.eofmask = CLUSTMASK_EOF16;
 	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT32(sb.maxClust));
-	if (sb.maxClust*2 >= sb.secpfat*sb.bpsector) {
-		DBGprintf(("mounting failed: "
-			"FAT16 with only %ld sectors/FAT but %ld clusters\n",
-			(long)sb.secpfat, (long) sb.maxClust));
-		return(EINVAL);
-	}
 	sb.nibbles = 4;
-	slack = COMPUTE_SLACK(sb.maxClust*2);
   }
   else if (FS_IS_FAT12(sb.maxClust)) {
 	sb.fatmask = FAT32_MASK;	sb.eofmask = CLUSTMASK_EOF32;
 	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT16(sb.maxClust));
-	if (sb.maxClust*4 >= sb.secpfat*sb.bpsector) {
-		DBGprintf(("mounting failed: "
-			"FAT32 with only %ld sectors/FAT but %ld clusters\n",
-			(long)sb.secpfat, (long) sb.maxClust));
-		return(EINVAL);
-	}
 	sb.nibbles = 8;
-	slack = COMPUTE_SLACK(sb.maxClust*4);
   }
   assert(sb.fatmask != 0);
   assert(sb.maxClust < sb.fatmask);
   assert( (sb.maxClust & ~sb.fatmask) == 0);
   assert(sb.maxClust < (sb.fatmask & CLUST_BAD) );
-
+  if ( (sb.maxClust*sb.nibbles+1)/2 >= sb.secpfat*sb.bpsector) {
+	DBGprintf(("mounting failed: "
+		"FAT%d with only %ld sectors/FAT but %ld clusters\n",
+		sb.nibbles*4, (long)sb.secpfat, (long) sb.maxClust));
+	return(EINVAL);
+  }
   DBGprintf(("FATfs: mounting on %s, %ld clusters, %d rootdir entries\n",
 		fs_dev_label, (long)sb.maxClust-1, sb.rootEntries));
+
+  slack = sb.secpfat
+        - ( (sb.maxClust*sb.nibbles+1)/2 -1 + sb.bpsector ) / sb.bpsector;
   DBGprintf(("FATfs: FATs are %ld sectors, slack=%ld\n",
 		(long)sb.secpfat, (long)slack));
 
@@ -428,13 +436,13 @@ PRIVATE int calc_block_size(void)
 	/* If possible, we will try to double bsize. */
 
 	 /* Compute the resulting relmask, and see what would happen */
-	relmask = relmask*2 + 1;
+	relmask = (relmask<<1) + 1;
 
 	/* The FAT should begin on a block boundary */
 	if (sb.fatSec & relmask)
 		break;
 	/* Each FAT should be an integral number of blocks.
-	 *   This one could be dropped easilly, but will require
+	 *   This one could be dropped, but would require
 	 *   special handling to update the (unaligned) FAT mirror(s).
 	 */
 	if ( sb.secpfat & relmask)
@@ -442,13 +450,15 @@ PRIVATE int calc_block_size(void)
 	/* The root directory, if any, should begin on a block boundary */
 	if (sb.rootCnt && sb.rootSec & relmask)
 		break;
-	/* The root directory should be an integer count of blocks */
+	/* The root directory should be an integer count of blocks
+	 * Not needed, could be done side effect of its neighbours...
+	 */
 	if (sb.rootCnt & relmask)
 		break;
 	/* The data area should begin on a block boundary */
 	if (sb.clustSec & relmask)
 		break;
-	/* note that we do not require the total number of sectors
+	/* Note that we do not require the total number of sectors
 	 * to be an integral multiple; this is because anything after
 	 * the last full block would be an incomplete cluster, so
 	 * unavailable for allocation as part of the FAT file system.
@@ -469,12 +479,8 @@ PRIVATE int calc_block_size(void)
   sb.bpblock = bsize;
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
-	if (bit & sb.bpsector) {
-		if (bit ^ sb.bpsector) {
-			DBGprintf(("mounting failed: "
-				"block size must be power of 2\n"));
-			return(EINVAL);
-		}
+	if (bit & sb.bpblock) {
+		assert(! (bit ^ sb.bpblock));	/* should be power-of-2 */
 		sb.bnshift = i;
 		break;
 	}
@@ -512,7 +518,7 @@ PRIVATE int calc_block_size(void)
 PUBLIC int do_readsuper(void)
 {
 /* This function reads the superblock of the partition, builds the root inode
- * and sends back the details of them.
+ * and sends back the details of it.
  *
  * CHECKME if the following is still relevant?
  * Note, that the FS process does not know the index of the vmnt object which
@@ -530,12 +536,17 @@ PUBLIC int do_readsuper(void)
 
   STATICINIT(bs, MAX_SECTOR_SIZE);	/* allocated once, made contiguous */
 
-  DBGprintf(("FATfs: readsuper (dev %x, flags %x)\n",
+  if (state == MOUNTED)
+         return(EINVAL);
+
+  DBGprintf(("FATfs: readsuper (dev %#.4x, flags %x)\n",
 	(dev_t) m_in.REQ_DEV, m_in.REQ_FLAGS));
 
   if (m_in.REQ_FLAGS & REQ_ISROOT) {
-	/* FIXME: explain... */
-	printf("FATfs: attempt to mount as root device\n");
+	/* FAT do not support being used as root file system on MINIX.
+	 * Detailled explanations are at the beginning of type.h.
+	 */
+	printf("FATfs: attempt to mount as root device (/)\n");
 	return EINVAL;
   }
 
@@ -544,7 +555,10 @@ PUBLIC int do_readsuper(void)
   if (dev == NO_DEV)
 	panic("request for mounting FAT fs on NO_DEV");
 
-  label_to_driver(m_in.REQ_GRANT, m_in.REQ_PATH_LEN);
+  /* Get the label and open the driver */
+  if ( (r = label_to_driver(m_in.REQ_GRANT, m_in.REQ_PATH_LEN)) != OK )
+	return(r);
+  hard_errors = 0;
 
   /* Fill in the boot sector. */
   assert(sizeof *bs >= 512);	/* paranoia */
@@ -552,9 +566,9 @@ PUBLIC int do_readsuper(void)
   if (r != sizeof(*bs))
 	return(EINVAL);
 
-/* Now check the various fields and fill the superblock
- * structure which will keep them available for future use.
- */
+  /* Now check the various fields and fill the superblock
+   * structure which will keep them available for future use.
+   */
   extbpbp = NULL;
   if ( (r = reco_bootsector(bs, &extbpbp)) != OK
     || (r = chk_bootsector(bs)) != OK
@@ -568,13 +582,9 @@ PUBLIC int do_readsuper(void)
   sb.freeClustValid = sb.freeClust = sb.nextClust = 0;
   rootDirSize = (long)sb.rootEntries * DIR_ENTRY_SIZE;
 
-/* Compute block_sizes */
-{
-struct superblock sb0 = sb;
+  /* Compute block_sizes */
   if ( (r = calc_block_size()) != OK )
 	return(r);
-assert(memcmp(&sb,&sb0,sizeof sb) == 0);
-}
   if (sb.bpblock < MIN_BLOCK_SIZE) 
 	return(EINVAL);
   if ((sb.bpblock % 512) != 0) 
@@ -620,7 +630,7 @@ assert(memcmp(&sb,&sb0,sizeof sb) == 0);
 
   rehash_inode(root_ip);
 
-/* Future work: may fetch the volume name (either extBPB or root dir) */
+  /* Future work: may fetch the volume name (either extBPB or root dir) */
 
   m_out.RES_INODE_NR = INODE_NR(root_ip);
   m_out.RES_MODE = root_ip->i_mode;
@@ -644,7 +654,8 @@ PUBLIC int do_unmount()
  */
   struct inode *root_ip;
 
-  DBGprintf(("FATfs: do_unmount\n"));
+  if (state != MOUNTED)
+         return(EINVAL);
 
 /* FIXME: if FAT12, deref the special blocks containing the FAT */
 
@@ -689,7 +700,9 @@ PUBLIC int do_unmount()
 
 /* FAT specifics:
  * we should update the FSInfo sector
- * we should mark FAT[1] as "umounted clean" (after flush)
+ * unless "no_clean_check":
+ *	we should mark FAT[1] as "umounted clean" (after flush), in 2 places
+ *	if hard_errors == 0, mark "no harderrs", in 2 places
  */
 
   /* force any cached blocks out of memory */
