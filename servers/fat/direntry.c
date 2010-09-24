@@ -18,6 +18,7 @@
 
 #include <ctype.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -44,7 +45,9 @@
 
 /* Private global variables: */
   /* working buffer to accumulate to-be-returned direcoty entries */
-PRIVATE char getdents_buf[GETDENTS_BUFSIZ];
+PRIVATE char dents_buf[GETDENTS_BUFSIZ];
+PRIVATE size_t callerbuf_size, callerbuf_off, mybuf_off;
+PRIVATE cp_grant_id_t callerbuf_gid;
 
 /* Private functions:
  *   enter_as_inode	?
@@ -54,10 +57,97 @@ FORWARD _PROTOTYPE( struct inode *enter_as_inode,
 		(struct fat_direntry*, struct inode* dirp, unsigned)	);
 FORWARD _PROTOTYPE( int nameto83,
 		(char string[NAME_MAX+1], struct fat_direntry *)	);
+FORWARD _PROTOTYPE( int lfn_chksum, (struct fat_direntry * fatdp)	);
 
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
 #define	get_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
+
+/*===========================================================================*
+ *				reset_dents_buf				     *
+ *===========================================================================*/
+PRIVATE void reset_dents_buf(cp_grant_id_t gid, size_t size)
+{
+/* ... */
+
+  callerbuf_gid = gid;
+  callerbuf_size = size;
+  callerbuf_off = 0;	/* Offset in the user's buffer */
+  mybuf_off = 0;	/* Offset in getdents_buf */
+  memset(dents_buf, '\0', GETDENTS_BUFSIZ);	/* Avoid leaking any data */
+}
+
+/*===========================================================================*
+ *				flush_dents_buf				     *
+ *===========================================================================*/
+PRIVATE int flush_dents_buf(
+  size_t * total_p)		/* put there number of bytes written so far */
+{
+/* ... */
+  int r;
+
+  if(mybuf_off != 0) {
+DBGprintf(("flush: off=%d->%d\n", mybuf_off, callerbuf_off));
+	r = sys_safecopyto(VFS_PROC_NR, callerbuf_gid, (vir_bytes) callerbuf_off,
+			   (vir_bytes) dents_buf, (size_t) mybuf_off, D);
+	if (r != OK) return(r);
+
+	callerbuf_off += mybuf_off;
+	mybuf_off = 0;
+	memset(dents_buf, '\0', GETDENTS_BUFSIZ);
+  }
+  if (total_p) *total_p = callerbuf_off;
+  return(OK);
+}
+/*===========================================================================*
+ *				get_next_dent				     *
+ *===========================================================================*/
+PRIVATE int get_next_dent(int namelen, struct dirent * *depp)
+/* CHECK: off_t ? */
+{
+/* ... */
+  int r, o;
+  int reclen;
+
+  /* Compute record length */
+  reclen = offsetof(struct dirent, d_name) + namelen + 1;
+  o = (reclen % sizeof(long));
+  if (o != 0)
+	reclen += sizeof(long) - o;
+	/* the buffer has been cleared before */
+
+  if (mybuf_off + reclen > GETDENTS_BUFSIZ) {
+DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", mybuf_off, callerbuf_off, reclen, GETDENTS_BUFSIZ));
+	r = flush_dents_buf(NULL);
+	if (r != OK) return(r);
+  }
+
+  if(callerbuf_off + mybuf_off + reclen > callerbuf_size) {
+DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", callerbuf_off, mybuf_off, reclen, 
+callerbuf_size));
+	/* The user has no space for one more record */
+	if (callerbuf_off == 0 && mybuf_off == 0)
+	/* The user's buffer is too small for 1 record */
+		return(EINVAL);
+	else
+		return(-ENAMETOOLONG);
+  }
+
+  *depp = (struct dirent *) &dents_buf[mybuf_off];
+  (*depp)->d_reclen = (unsigned short) reclen;
+  return(OK);
+}
+
+/*===========================================================================*
+ *				write_one_dent				     *
+ *===========================================================================*/
+PRIVATE int write_one_dent(struct dirent * dep, ino_t ino, off_t off, int reclen, char * name)
+{
+/* ... */
+  int r;
+
+  return(OK);
+}
 
 /*===========================================================================*
  *				do_getdents				     *
@@ -65,46 +155,44 @@ FORWARD _PROTOTYPE( int nameto83,
 PUBLIC int do_getdents(void)
 {
 /* Return as much Directory ENTries as possible in the user buffer. */
-  int r, i, o, done;
+  int r, i, done;
   struct inode *dirp, *newip;
   struct buf *bp;
   union direntry_u * dp;
   struct fat_direntry *fatdp;
   int len, namelen, extlen, reclen;
+  int expecting_lfn_ord;
+  char long_filename[(LFN_ORD+1)*LFN_CHARS + 1];
+  char * lfn_cp;
   block_t b;
   ino_t ino;
-  cp_grant_id_t gid;
-  size_t size, mybuf_off, callerbuf_off;
-  off_t pos, off, block_pos, new_pos, ent_pos;
+  size_t callerbuf_off;
+  off_t pos, off, block_pos, new_pos, ent_pos, lfn_pos;
   struct dirent *dep;
   char *cp;
-  unsigned char slot_mark;
+  unsigned char slot_mark, lfn_chksum;
 
-  gid = (gid_t) m_in.REQ_GRANT;
-  size = (size_t) m_in.REQ_MEM_SIZE;
+  /* Get the values from the request message. */
+  reset_dents_buf((gid_t) m_in.REQ_GRANT, (size_t) m_in.REQ_MEM_SIZE);
   pos = (off_t) m_in.REQ_SEEK_POS_LO;
 
-  DBGprintf(("FATfs: getdents in %lo, off %ld, maxsize:%u\n", m_in.REQ_INODE_NR, pos, size));
+  DBGprintf(("FATfs: getdents in %lo, off %ld, maxsize:%u\n", m_in.REQ_INODE_NR, pos, (unsigned)m_in.REQ_MEM_SIZE));
 
-/* Check whether the position is properly aligned */
+  if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
+	return(EINVAL);
+  /* We might work for a bit, reading blocks etc., so we will increase
+   * the reference count of the inode (Check-me?)
+   * 	  get_inode(rip);
+   */
+
+  /* Check whether the position is properly aligned */
   if( (unsigned int) pos % DIR_ENTRY_SIZE)
 	return(ENOENT);
 
-/* Get the values from the request message.
- * We might work for a bit, reading blocks etc., so we will increase
- * the reference count of the inode (Check-me?)
- */
-  if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL) 
-	return(EINVAL);
-
-  off = pos & sb.brelmask;	/* Offset in block */
+  off = pos & bcc.brelmask;	/* Offset in block */
   block_pos = pos - off;
   done = FALSE;		/* Stop processing blocks when done is set */
   r = OK;
-
-  mybuf_off = 0;	/* Offset in getdents_buf */
-  memset(getdents_buf, '\0', GETDENTS_BUFSIZ);	/* Avoid leaking any data */
-  callerbuf_off = 0;	/* Offset in the user's buffer */
 
 #ifdef FAKE_DOT_ON_ROOT
   if (dirp->i_flags & I_ROOTDIR && pos == 0) {
@@ -154,8 +242,25 @@ PUBLIC int do_getdents(void)
  */
   new_pos = sb.maxFilesize;
 
+#if 0
+	if (block_pos < pos)
+		dp = &bp->b_dir[off / DIR_ENTRY_SIZE];
+	else
+		dp = &bp->b_dir[0];
+
+	for (; dp < &bp->b_dir[bcc.bpblock / DIR_ENTRY_SIZE]; dp++) {
+#else
+	if (block_pos < pos)
+		i = off / DIR_ENTRY_SIZE;
+	else
+		i = 0;
+
+/* FIXME ajoute ent_pos+=DIR_ENTRY_SIZE */
+#endif
+  expecting_lfn_ord = 0;
+
 /*
-  for(; block_pos < dirp->i_size; block_pos += block_size) {
+  for(; block_pos < dirp->i_size; block_pos += bcc.bpblock) {
  */
   while (TRUE) {
 	b = bmap(dirp, block_pos);	/* get next block number */
@@ -172,22 +277,7 @@ PUBLIC int do_getdents(void)
 	assert(bp != NULL);
 
 	/* Search a directory block. */
-#if 0
-	if (block_pos < pos)
-		dp = &bp->b_dir[off / DIR_ENTRY_SIZE];
-	else
-		dp = &bp->b_dir[0];
-
-	for (; dp < &bp->b_dir[block_size / DIR_ENTRY_SIZE]; dp++) {
-#else
-	if (block_pos < pos)
-		i = off / DIR_ENTRY_SIZE;
-	else
-		i = 0;
-
-	for (dp = &bp->b_dir[i]; i < sb.depblk; ++i, ++dp) {
-/* FIXME ajoute ent_pos+=DIR_ENTRY_SIZE */
-#endif
+	for (dp = &bp->b_dir[i]; i < bcc.depblk; ++i, ++dp) {
 
 DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 	dp->d_direntry.deName, dp->d_direntry.deExtension, dp->d_direntry.deName[0]));
@@ -199,8 +289,26 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 			new_pos = block_pos + ((char *) dp - (char *) bp->b_dir);
 			break;
 		}
+
+		assert(slot_mark == dp->d_lfnentry.lfnOrd);
+		/* is this entry the next part of long name? */
+		if ( slot_mark == expecting_lfn_ord
+		  && dp->d_lfnentry.lfnAttributes == ATTR_LFN
+		  && dp->d_lfnentry.lfnChksum == lfn_chksum) {
+			assert(lfn_cp >= long_filename);
+			assert(&lfn_cp[LFN_CHARS] < &long_filename[sizeof(long_filename)]);
+/* WORK NEEDED! */
+			/* copylfn */ ;
+			/* calc len (puisque on a la fin !) */
+			lfn_cp -= LFN_CHARS;
+			--expecting_lfn_ord;
+			continue;
+		}
+
 		/* is this slot out of use? */
 		if (slot_mark == SLOT_DELETED) {
+			expecting_lfn_ord= long_filename[0]= 0; /* reset LFN*/
+/* FIXME: reset == lfn_cp = NULL */
 			continue;
 		}
 
@@ -213,16 +321,29 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 #endif
 
 		/* is this entry for long names? */
-		if(dp->d_lfnentry.lfnAttributes == ATTR_LFN) {
+		if(dp->d_lfnentry.lfnAttributes == ATTR_LFN
+		  && dp->d_lfnentry.lfnOrd & LFN_LAST
+		  && ! (dp->d_lfnentry.lfnOrd & LFN_DELETED) ) {
+			expecting_lfn_ord = dp->d_lfnentry.lfnOrd & LFN_ORD;
+			assert(expecting_lfn_ord*LFN_CHARS < sizeof(long_filename));
+			lfn_cp = long_filename;
+			assert(&lfn_cp[LFN_CHARS] < &long_filename[sizeof(long_filename)]);
 /* WORK NEEDED! */
+			/* copy */
+			lfn_chksum = dp->d_lfnentry.lfnChksum;
+			--expecting_lfn_ord;
 			continue;
 		}
+
 		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
 		/* skip any entry with volume attribute set */
+			expecting_lfn_ord= long_filename[0]= 0; /* reset LFN*/
 			continue;
 		}
 
 		fatdp = & dp->d_direntry;
+/* calc lfnChksum, check if matches && long_filename[0]/lfn_cp !=0 && expecting_lfn_ord=0 */
+/* may skip that if LFN OK */
 		{
 			cp = (char*) &fatdp->deName[8];
 /*DBGprintf(("cp[-8] = '%.8s' ", cp-8));*/
@@ -242,6 +363,7 @@ DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
 			len = namelen + (extlen ? 1 + extlen : 0);
 DBGprintf(("calc.len = %d+%d=%d\n", namelen, extlen, len));
 /* FIXME: lcase */
+
 		}
 		assert(len > 0);
 		if (len > NAME_MAX) {
@@ -252,20 +374,14 @@ DBGprintf(("calc.len = %d+%d=%d\n", namelen, extlen, len));
 		 * to cause problems later, like duplicate filenames.
 		 * So we end the request with an error.
 		 */
-/* CHECKME... */
+/* CHECKME... skip the entry? */
 			/* put_inode(dirp); */
 			put_block(bp);
 			return(EOVERFLOW);
 		}
 /* FIXME check \0 or / => error */
 		
-		/* Compute record length */
-		reclen = offsetof(struct dirent, d_name) + len + 1;
-		o = (reclen % sizeof(long));
-		if (o != 0)
-			reclen += sizeof(long) - o;
-			/* the buffer has been cleared before */
-
+#if 0
 		if (mybuf_off + reclen > GETDENTS_BUFSIZ) {
 DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", mybuf_off, callerbuf_off, reclen, GETDENTS_BUFSIZ));
 			/* flush my buffer */
@@ -283,9 +399,9 @@ DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", mybuf_off, callerbuf_off, r
 			mybuf_off = 0;
 			memset(getdents_buf, '\0', GETDENTS_BUFSIZ);
 		}
-		
-		if(callerbuf_off + mybuf_off + reclen > size) {
-DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", callerbuf_off, mybuf_off, reclen, size));
+
+		if(callerbuf_off + mybuf_off + reclen > callerbuf_size) {
+DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", callerbuf_off, mybuf_off, reclen, callerbuf_size));
 			/* The user has no space for one more record */
 			if (callerbuf_off == 0 && mybuf_off == 0) {
 			/* The user's buffer is too small for 1 record */
@@ -302,7 +418,24 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 			break;
 		}
 
-		dep = (struct dirent *) &getdents_buf[mybuf_off];
+		dep = (struct dirent *) &dents_buf[mybuf_off];
+#else
+		r = get_next_dent(len, &dep);
+		if (r == -ENAMETOOLONG) {
+			/* Record the position of this entry, it is the
+			 * starting point of the next request (unless the
+			 * position is modified with lseek).
+			 */
+				new_pos = ent_pos;
+			done = TRUE;
+			break;
+
+			} else if (r != OK) {
+				/* put_inode(dirp); */
+				put_block(bp);
+				return(r);
+			}
+#endif
 #if 1
 		newip = enter_as_inode(fatdp, dirp, ent_pos);
 		if( newip == NULL ) {
@@ -343,12 +476,13 @@ DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", calle
 		put_inode(newip);
 #endif
 		dep->d_off = ent_pos;
-		dep->d_reclen = (unsigned short) reclen;
 
 		{
 			cp = &dep->d_name[0];
 /* FIXME: lcase */
+			/*
 DBGprintf(("FATfs: copying '%.*s' to %.8p (buf+%d)", namelen, fatdp->deName, cp, cp-getdents_buf));
+			*/
 
 			memcpy(cp, fatdp->deName, namelen);
 			if (slot_mark == SLOT_E5)
@@ -357,12 +491,16 @@ DBGprintf(("FATfs: copying '%.*s' to %.8p (buf+%d)", namelen, fatdp->deName, cp,
 			if (extlen) {
 				*cp++ = '.';
 /* FIXME: lcase */
+				/*
 DBGprintf((", '%.*s' to %.8p (buf+%d)", extlen, fatdp->deExtension, cp, cp-getdents_buf));
+*/
 				memcpy(cp, fatdp->deExtension, extlen);
 cp += extlen;
 			}
 		}
+/*
 DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-getdents_buf, reclen));
+ */
 		dep->d_name[len] = '\0';
 		mybuf_off += reclen;
 	}
@@ -370,20 +508,16 @@ DBGprintf((" till %.8p?=%.8p (buf+%d) - reclen=%d\n", &dep->d_name[len], cp, cp-
 	put_block(bp);
 	if(done)
 		break;
-	block_pos += block_size;
+	block_pos += bcc.bpblock;
+	i = 0;
   }
 
-  if(mybuf_off != 0) {
-DBGprintf(("flush final: off=%d->%d\n", mybuf_off, callerbuf_off));
-	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) callerbuf_off,
-			   (vir_bytes) getdents_buf, (size_t) mybuf_off, D);
+			
+  r = flush_dents_buf(& callerbuf_off);
 	if (r != OK) {
 		/* put_inode(dirp); */
 		return(r);
 	}
-
-	callerbuf_off += mybuf_off;
-  }
 
   if(r == OK) {
 	m_out.RES_NBYTES = callerbuf_off;
@@ -648,6 +782,21 @@ PRIVATE int nameto83(
 }
 
 /*===========================================================================*
+ *				lfn_chksum				     *
+ *===========================================================================*/
+PRIVATE int lfn_chksum(struct fat_direntry * fatdp)
+{
+/* Compute the checksum of a DOS filename for Win95 use */
+  int i;
+  unsigned char s=0;
+  unsigned char * name = fatdp->deName;
+
+  for (i = 11; --i >= 0; s += *name++)
+	s = (s << 7)|(s >> 1);
+  return s;
+}
+
+/*===========================================================================*
  *				lookup_dir				     *
  *===========================================================================*/
 PUBLIC int lookup_dir(
@@ -694,7 +843,7 @@ PUBLIC int lookup_dir(
 
   /* Step through the directory one block at a time. */
 /*
-  for (; pos < dirp->i_size; pos += block_size) {
+  for (; pos < dirp->i_size; pos += bcc.bpblock) {
  */
 /* FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
  * we should NOT rely on the same logic (enlarging if needed),
@@ -713,7 +862,7 @@ PUBLIC int lookup_dir(
 
 	/* Search a directory block. */
 	for (dp = &bp->b_dir[0];
-			dp < &bp->b_dir[NR_DIR_ENTRIES(block_size)];
+			dp < &bp->b_dir[NR_DIR_ENTRIES(bcc.bpblock)];
 			dp++) {
 
 		/* is the EndOfDirectory mark found? */
@@ -755,7 +904,7 @@ PUBLIC int lookup_dir(
 
 	/* The whole block has been searched. */
 	put_block(bp);
-	pos += block_size;	/* continue searching dir */
+	pos += bcc.bpblock;	/* continue searching dir */
   }
 
 /* Cannot happen!
@@ -984,7 +1133,7 @@ PUBLIC int is_empty_dir(
 
   /* Step through the directory one block at a time. */
 /*
-  for (; pos < dirp->i_size; pos += block_size) {
+  for (; pos < dirp->i_size; pos += bcc.bpblock) {
  */
   pos = 0;
   while (TRUE) {
@@ -999,7 +1148,7 @@ PUBLIC int is_empty_dir(
 
 	/* Search a directory block. */
 	for (dp = &bp->b_dir[0];
-			dp < &bp->b_dir[NR_DIR_ENTRIES(block_size)];
+			dp < &bp->b_dir[NR_DIR_ENTRIES(bcc.bpblock)];
 			dp++) {
 
 		/* is the EndOfDirectory mark found? */
@@ -1033,7 +1182,7 @@ PUBLIC int is_empty_dir(
 
 	/* The whole block has been searched. */
 	put_block(bp);
-	pos += block_size;	/* continue searching dir */
+	pos += bcc.bpblock;	/* continue searching dir */
   }
 
 /* Cannot happen!

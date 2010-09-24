@@ -55,9 +55,8 @@ EXTERN char fs_dev_label[16+1];	/* name of the device driver that is handled
 EXTERN int hard_errors;		/* count of hardware errors signalled so far */
 
 /* Buffer cache. */
-EXTERN int num_bufs;
+EXTERN struct bufcache_ctrl bcc; /* buffer cache fundamental values */
 EXTERN int bufs_in_use;		/* # bufs currently in use (not on free list)*/
-EXTERN unsigned block_size;
 EXTERN int may_use_vmcache;	/* secondary cache using VM */
 
 /* Buffers and associated list pointers are private to cache.c */

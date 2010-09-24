@@ -7,7 +7,7 @@
  *   do_bwrite		perform the BWRITE file system request
  *   do_readwrite	perform the READ, WRITE, BREAD and BWRITE requests
  *   do_inhibread	perform the INHIBREAD file system request
- *   read_ahead		xxx
+ *   read_ahead		try to launch the read ahead of some more blocks
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
@@ -31,7 +31,7 @@
 
 /* Private global variables: */
   /* position to read ahead */
-PRIVATE off_t rdahedpos;
+PRIVATE unsigned long rdahedpos;
   /* pointer to inode to read ahead */
 PRIVATE struct inode *rdahed_inode;
 
@@ -50,30 +50,38 @@ PUBLIC int do_read(void)
  */
   int r, rw_flag, n;
   cp_grant_id_t gid;
+#if 0
   u64_t position64;
-  off_t position, f_size, bytes_left;
+#endif
+  unsigned long position, f_size, bytes_left;
   size_t nrbytes;
   unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
-
   
   r = OK;
   
   /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
+#if 0
   position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
   		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-  position = (off_t) m_in.REQ_SEEK_POS_LO;
-/* BUG if !block && (position<0 || posHi!=0 */
-  gid = (cp_grant_id_t) m_in.REQ_GRANT;
+#endif
   nrbytes = (size_t) m_in.REQ_NBYTES;
+  position = (unsigned long) m_in.REQ_SEEK_POS_LO;
+  if (m_in.REQ_SEEK_POS_HI || position>sb.maxFilesize) {
+	nrbytes = 0;		/* indicates EOF, do not read */
+  }
+  gid = (cp_grant_id_t) m_in.REQ_GRANT;
   f_size = rip->i_size;
-  
+
+#if 0  
   DBGprintf(("FATfs: read in %lo, %u bytes from %lx:%lx...\n",
 	INODE_NR(rip), nrbytes, 1[(unsigned long*)&position64], *(unsigned long*)&position64));
+#else
+#endif
 
 #if 0
   rdwt_err = OK;		/* set to EIO if disk error occurs */
@@ -82,83 +90,94 @@ PUBLIC int do_read(void)
   cum_io = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (nrbytes > 0) {
-	off = rem64u(position64, block_size);
-DBGprintf(("off=%u position=%u position64=%u:%u\n", off, position, ex64hi(position64), ex64lo(position64)));
 #if 0
-	off = ((unsigned int) position) % block_size; /* offset in blk*/
+	off = rem64u(position64, bcc.bpblock);
+DBGprintf(("off=%u position=%u position64=%u:%u\n", off, position, ex64hi(position64), ex64lo(position64)));
+	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
 					& sb.brelmask
-	chunk = min(nrbytes, block_size - off);
+	chunk = min(nrbytes, bcc.bpblock - off);
 #else
-	chunk = nrbytes < (block_size-off) ? nrbytes : block_size - off;
+	off = position & bcc.brelmask; /* offset in blk*/
+	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, f_size));
 #endif
-DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, block_size, f_size));
 	bytes_left = f_size - position;
 	if (position >= f_size) break;	/* we are beyond EOF */
+#if 0
 	if (chunk > (unsigned int) bytes_left) chunk = bytes_left;
 DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
+#else
+	if (chunk > bytes_left) chunk = bytes_left;
+#endif
 
 	/* Read or write 'chunk' bytes. */
+#if 0
 	if (ex64hi(position64) != 0)
 		panic("rw_chunk: position too high");
 	b = bmap(rip, (off_t) ex64lo(position64));
+#else
+	b = bmap(rip, position);
+#endif
 	
 	if (b == NO_BLOCK) {
 		DBGprintf(("FATfs: in do_read, bmap returned NO_BLOCK...???\n"));
 		/* Reading from a nonexistent block.  Must read as all zeros.*/
-		bp = get_block(NO_DEV, NO_BLOCK, NO_READ);    /* get a buffer */
+		bp = get_block(NO_DEV, NO_BLOCK, NO_READ);
 		zero_block(bp);
 	} else {
-DBGprintf(("read:: rahead(rip, b=%d, position64, nrbytes=%d)\n", b, nrbytes));
 		/* Read and read ahead if convenient. */
-		bp = rahead(rip, b, position64, nrbytes);
+		bp = rahead(rip, b, cvul64(position), nrbytes);
 	}
 	
 	/* In all cases, bp now points to a valid buffer. */
-	if (bp == NULL) 
-		panic("bp not valid in rw_chunk; this can't happen");
+	assert(bp != NULL);
 	
 	/* Copy a chunk from the block buffer to user space. */
-	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
+	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) cum_io,
 			 (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
 	put_block(bp);
 
+/* FIXME: END_OF_FILE stuff here??? */
 	if (r != OK) break;	/* EOF reached */
 /*
 	if (rdwt_err < 0) break;
  */
 
 	/* Update counters and pointers. */
-	nrbytes -= chunk;	      /* bytes yet to be read */
-	cum_io += chunk;	      /* bytes read so far */
+	nrbytes -= chunk;	/* bytes yet to be read */
+	cum_io += chunk;	/* bytes read so far */
+#if 0
 	position64 = add64ul(position64, chunk);	/* position within the file */
-	position += (off_t) chunk;	/* position within the file */
+#endif
+	position += chunk;	/* position within the file */
   }
 
-  m_out.RES_SEEK_POS_LO = position; /* It might change later and the VFS
-					 has to know this value */
-  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
-  
   /* Check to see if read-ahead is called for, and if so, set it up. */
   if ( (rip->i_flags & I_SEEK)==0
-	&& ((unsigned int)position & sb.brelmask) == 0
-     /* && (regular || mode_word == I_DIRECTORY) */ ) {
+    && (position & bcc.brelmask) == 0) {
 	rdahed_inode = rip;
 	rdahedpos = position;
-  } 
+  }
   rip->i_flags &= ~I_SEEK;
 
+  /* It might change later and the VFS has to know this value */
+  m_out.RES_SEEK_POS_LO = position;
+  m_out.RES_SEEK_POS_HI = m_in.REQ_SEEK_POS_HI;
+#if 0
+  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
+  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
+#endif
+  m_out.RES_NBYTES = cum_io;
+  
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
+/* FIXME: END_OF_FILE... */
   if (rdwt_err == END_OF_FILE) r = OK;
 #endif
-
   if (r == OK) {
-/* FIXME: i_atime = UPDATED */
+	rip->i_atime = TIME_UPDATED;
 	rip->i_flags |= I_ACCESSED|I_DIRTY;	/* inode is thus now dirty */
   }
-
-  m_out.RES_NBYTES = cum_io;
   
   return(r);
 }
@@ -172,30 +191,20 @@ PUBLIC int do_bread(void)
  */
   int r, rw_flag, n;
   cp_grant_id_t gid;
-  u64_t position64;
-  off_t position, f_size, bytes_left;
+  u64_t position;
   size_t nrbytes;
   unsigned int off, cum_io, chunk;
   block_t b;
   struct inode *rip;
   struct buf *bp;
-/*
-  int block_spec;
-  int regular;
-  unsigned chunk;
-  mode_t mode_word;
- */ 
   struct inode blk_rip;  /* Pseudo inode for rw_chunk */
 
-  
   r = OK;
-  
+
   /* Get the values from the request message */
   assert(m_in.REQ_DEV2 == dev);
-  position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
-  		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-  position = (off_t) m_in.REQ_SEEK_POS_LO;
-/* BUG if !block && (position<0 || posHi!=0 */
+  position = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
+		    (unsigned long) m_in.REQ_SEEK_POS_HI);
   gid = (cp_grant_id_t) m_in.REQ_GRANT;
   nrbytes = (size_t) m_in.REQ_NBYTES;
 
@@ -206,22 +215,16 @@ PUBLIC int do_bread(void)
   cum_io = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (nrbytes > 0) {
-	off = rem64u(position64, block_size);	/* offset in blk*/
-#if 0
-	off = ((unsigned int) position) % block_size; /* offset in blk*/
-	chunk = min(nrbytes, block_size - off);
-#else
-	chunk = nrbytes < (block_size-off) ? nrbytes : block_size - off;
-#endif
-	b = div64u(position64, block_size);
+	b = div64u(position, bcc.bpblock);
+	off = rem64u(position, bcc.bpblock); /* offset in block */
+	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
 	
 	/* Read and read ahead if convenient. */
 /*FIXME*/ rip = &blk_rip;
-	bp = rahead(rip, b, position64, nrbytes);
+	bp = rahead(rip, b, position, nrbytes);
 	
 	/* In all cases, bp now points to a valid buffer. */
-	if (bp == NULL) 
-		panic("bp not valid in rw_chunk; this can't happen");
+	assert(bp != NULL);
 	
 	/* Copy a chunk from the block buffer to user space. */
 	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
@@ -234,17 +237,15 @@ PUBLIC int do_bread(void)
  */
 
 	/* Update counters and pointers. */
-	nrbytes -= chunk;	      /* bytes yet to be read */
-	cum_io += chunk;	      /* bytes read so far */
-	position64 = add64ul(position64, chunk);	/* position within the file */
-	position += (off_t) chunk;	/* position within the file */
+	nrbytes -= chunk;	/* bytes yet to be read */
+	cum_io += chunk;	/* bytes read so far */
+	position = add64ul(position, chunk); /* position within the file */
   }
 
-  m_out.RES_SEEK_POS_LO = position; /* It might change later and the VFS
-					 has to know this value */
-  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
-
+  m_out.RES_SEEK_POS_LO = ex64lo(position); 
+  m_out.RES_SEEK_POS_HI = ex64hi(position); 
+  m_out.RES_NBYTES = cum_io;
+  
 #if 0  
   /* Check to see if read-ahead is called for, and if so, set it up. */
 /*FIXME: should work... */
@@ -259,9 +260,187 @@ PUBLIC int do_bread(void)
   if (rdwt_err == END_OF_FILE) r = OK;
 #endif
 
-  m_out.RES_NBYTES = cum_io;
-  
   return(r);
+}
+
+/*===========================================================================*
+ *				do_inhibread				     *
+ *===========================================================================*/
+PUBLIC int do_inhibread(void)
+{
+/* Inhibit possible read-ahead (called as part of LSEEK system call) */
+  struct inode *rip;
+  
+  if((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+
+  rip->i_flags |= I_SEEK;	
+  
+  return(OK);
+}
+
+/*===========================================================================*
+ *				read_ahead				     *
+ *===========================================================================*/
+PUBLIC void read_ahead(void)
+{
+/* Read a block into the cache before it is needed.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ */
+  register struct inode *rip;
+  struct buf *bp;
+  block_t b;
+
+  if(!rdahed_inode)
+	return;
+
+  rip = rdahed_inode;		/* pointer to inode to read ahead from */
+  rdahed_inode = NULL;		/* turn off read ahead */
+
+#if 0
+  if ( (b = read_map(rip, rdahedpos)) == NO_BLOCK) return;	/* at EOF */
+#endif
+  assert(rdahedpos > 0); /* So we can safely cast it to unsigned below */
+
+DBGprintf(("read_ahead:: rahead(rip, b=%d, cvul64( (unsigned long) rdahedpos=%ld), bcc.bpblock=%d)\n", b, rdahedpos, bcc.bpblock));
+  bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), bcc.bpblock);
+  put_block(bp);
+}
+
+/*===========================================================================*
+ *				rahead					   *
+ *===========================================================================*/
+PRIVATE struct buf *rahead(
+  register struct inode *rip,	/* pointer to inode for file to be read */
+  block_t baseblock,		/* block at current position */
+  u64_t position,		/* position within file */
+  unsigned bytes_ahead)		/* bytes beyond position for immediate use */
+{
+/* Fetch a block from the cache or the device.  If a physical read is
+ * required, prefetch as many more blocks as convenient into the cache.
+ * This usually covers bytes_ahead and is at least BLOCKS_MINIMUM.
+ * The device driver may decide it knows better and stop reading at a
+ * cylinder boundary (or after an error).  Rw_scattered() puts an optional
+ * flag on all reads to allow this.
+ *
+ * Warning: this code is not reentrant (use static local variables, without mutex)
+ */
+/* Minimum number of blocks to prefetch. */
+# define BLOCKS_MINIMUM		(num_bufs < 50 ? 18 : 32)
+  int block_spec, scale, read_q_size;
+  unsigned int blocks_ahead, fragment;
+  block_t block, blocks_left;
+  off_t ind1_pos;
+/*
+  dev_t dev;
+ */
+  struct buf *bp;
+  static unsigned int readqsize = 0;
+  static struct buf **read_q;
+
+  if(readqsize != bcc.nbufs) {
+	if(readqsize > 0) {
+		assert(read_q != NULL);
+		free(read_q);
+	}
+	if(!(read_q = malloc(sizeof(read_q[0]) * bcc.nbufs)))
+		panic("couldn't allocate read_q");
+	readqsize = bcc.nbufs;
+  }
+
+/*
+  block_spec = (rip->i_mode & I_TYPE) == I_BLOCK_SPECIAL;
+  if (block_spec) 
+	dev = (dev_t) rip->i_zone[0];
+  else 
+	dev = rip->i_dev;
+ */  
+
+  block = baseblock;
+  bp = get_block(dev, block, PREFETCH);
+  if (bp->b_dev != NO_DEV) return(bp);
+
+  /* The best guess for the number of blocks to prefetch:  A lot.
+   * It is impossible to tell what the device looks like, so we don't even
+   * try to guess the geometry, but leave it to the driver.
+   *
+   * The floppy driver can read a full track with no rotational delay, and it
+   * avoids reading partial tracks if it can, so handing it enough buffers to
+   * read two tracks is perfect.  (Two, because some diskette types have
+   * an odd number of sectors per track, so a block may span tracks.)
+   *
+   * The disk drivers don't try to be smart.  With todays disks it is
+   * impossible to tell what the real geometry looks like, so it is best to
+   * read as much as you can.  With luck the caching on the drive allows
+   * for a little time to start the next read.
+   *
+   * The current solution below is a bit of a hack, it just reads blocks from
+   * the current file position hoping that more of the file can be found.  A
+   * better solution must look at the already available zone pointers and
+   * indirect blocks (but don't call bmap!).
+   */
+
+  fragment = rem64u(position, bcc.bpblock);
+  position = sub64u(position, fragment);
+  bytes_ahead += fragment;
+
+  blocks_ahead = (bytes_ahead + bcc.bpblock - 1) / bcc.bpblock;
+
+#if 0
+  if (block_spec && rip->i_size == 0) {
+	blocks_left = (block_t) NR_IOREQS;
+  } else {
+	blocks_left = (block_t) (rip->i_size-ex64lo(position)+bcc.bpblock-1) /
+								bcc.bpblock;
+
+	/* Go for the first indirect block if we are in its neighborhood. */
+	if (!block_spec) {
+		scale = rip->i_sp->s_log_zone_size;
+		ind1_pos = (off_t) rip->i_ndzones * (bcc.bpblock << scale);
+		if ((off_t) ex64lo(position) <= ind1_pos &&
+		   rip->i_size > ind1_pos) {
+			blocks_ahead++;
+			blocks_left++;
+		}
+	}
+  }
+#endif
+
+  /* No more than the maximum request. */
+  if (blocks_ahead > NR_IOREQS) blocks_ahead = NR_IOREQS;
+
+#if 0
+  /* Read at least the minimum number of blocks, but not after a seek. */
+  if (blocks_ahead < BLOCKS_MINIMUM && rip->i_seek == NO_SEEK)
+	blocks_ahead = BLOCKS_MINIMUM;
+#endif
+
+  /* Can't go past end of file. */
+  if (blocks_ahead > blocks_left) blocks_ahead = blocks_left;
+
+  read_q_size = 0;
+
+  /* Acquire block buffers. */
+  for (;;) {
+	read_q[read_q_size++] = bp;
+
+	if (--blocks_ahead == 0) break;
+
+	/* Don't trash the cache, leave some free. */
+	if (bufs_in_use >= bcc.nbufs - KEPT_BUFS) break;
+
+	block++;
+
+	bp = get_block(dev, block, PREFETCH);
+	if (bp->b_dev != NO_DEV) {
+		/* Oops, block already in the cache, get out. */
+		put_block(bp);
+		break;
+	}
+  }
+  rw_scattered(dev, read_q, read_q_size, READING);
+  return(get_block(dev, baseblock, NORMAL));
 }
 
 /*===========================================================================*
@@ -324,12 +503,12 @@ PUBLIC int do_write(void)
   cum_io = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (nrbytes > 0) {
-	off = rem64u(position64, block_size);	/* offset in blk*/
+	off = rem64u(position64, bcc.bpblock);	/* offset in blk*/
 #if 0
-	off = ((unsigned int) position) % block_size; /* offset in blk*/
-	chunk = min(nrbytes, block_size - off);
+	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
+	chunk = min(nrbytes, bcc.bpblock - off);
 #else
-	chunk = nrbytes < (block_size-off) ? nrbytes : block_size - off;
+	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
 #endif
 	if (ex64hi(position64) != 0)
 		panic("rw_chunk: position too high");
@@ -346,7 +525,7 @@ PUBLIC int do_write(void)
 		 * in.  However, a full block need not be read in.  If it is already in
 		 * the cache, acquire it, otherwise just acquire a free buffer.
 		 */
-		n = (chunk == block_size ? NO_READ : NORMAL);
+		n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
 		if (off == 0 && (off_t) ex64lo(position64) >= rip->i_size) 
 			n = NO_READ;
 		bp = get_block(dev, b, n);
@@ -356,7 +535,7 @@ PUBLIC int do_write(void)
 	if (bp == NULL) 
 		panic("bp not valid in rw_chunk; this can't happen");
 	
-	if (chunk != block_size &&
+	if (chunk != bcc.bpblock &&
 	    (off_t) ex64lo(position64) >= rip->i_size && off == 0) {
 		zero_block(bp);
 	}
@@ -459,20 +638,20 @@ PUBLIC int do_bwrite(void)
   cum_io = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (nrbytes > 0) {
-	off = rem64u(position64, block_size);	/* offset in blk*/
+	off = rem64u(position64, bcc.bpblock);	/* offset in blk*/
 #if 0
-	off = ((unsigned int) position) % block_size; /* offset in blk*/
-	chunk = min(nrbytes, block_size - off);
+	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
+	chunk = min(nrbytes, bcc.bpblock - off);
 #else
-	chunk = nrbytes < (block_size-off) ? nrbytes : block_size - off;
+	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
 #endif
-	b = div64u(position64, block_size);
+	b = div64u(position64, bcc.bpblock);
 	
 	/* Normally an existing block to be partially overwritten is first read
 	 * in.  However, a full block need not be read in.  If it is already in
 	 * the cache, acquire it, otherwise just acquire a free buffer.
 	 */
-	n = (chunk == block_size ? NO_READ : NORMAL);
+	n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
 	bp = get_block(dev, b, n);
 
 	/* In all cases, bp now points to a valid buffer. */
@@ -510,182 +689,4 @@ PUBLIC int do_bwrite(void)
   m_out.RES_NBYTES = cum_io;
   
   return(r);
-}
-
-/*===========================================================================*
- *				read_ahead				     *
- *===========================================================================*/
-PUBLIC void read_ahead(void)
-{
-/* Read a block into the cache before it is needed. */
-  register struct inode *rip;
-  struct buf *bp;
-  block_t b;
-
-  if(!rdahed_inode)
-	return;
-
-  rip = rdahed_inode;		/* pointer to inode to read ahead from */
-  rdahed_inode = NULL;	/* turn off read ahead */
-#if 0
-  if ( (b = read_map(rip, rdahedpos)) == NO_BLOCK) return;	/* at EOF */
-#endif
-  assert(rdahedpos > 0); /* So we can safely cast it to unsigned below */
-
-DBGprintf(("read_ahead:: rahead(rip, b=%d, cvul64( (unsigned long) rdahedpos=%ld), block_size=%d)\n", b, rdahedpos, block_size));
-  bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), block_size);
-  put_block(bp /*, PARTIAL_DATA_BLOCK */);
-}
-
-
-/*===========================================================================*
- *				rahead					   *
- *===========================================================================*/
-PRIVATE struct buf *rahead(rip, baseblock, position, bytes_ahead)
-register struct inode *rip;	/* pointer to inode for file to be read */
-block_t baseblock;		/* block at current position */
-u64_t position;			/* position within file */
-unsigned bytes_ahead;		/* bytes beyond position for immediate use */
-{
-/* Fetch a block from the cache or the device.  If a physical read is
- * required, prefetch as many more blocks as convenient into the cache.
- * This usually covers bytes_ahead and is at least BLOCKS_MINIMUM.
- * The device driver may decide it knows better and stop reading at a
- * cylinder boundary (or after an error).  Rw_scattered() puts an optional
- * flag on all reads to allow this.
- *
- * Warning: this code is not reentrant (use static local variables, without mutex)
- */
-/* Minimum number of blocks to prefetch. */
-# define BLOCKS_MINIMUM		(num_bufs < 50 ? 18 : 32)
-  int block_spec, scale, read_q_size;
-  unsigned int blocks_ahead, fragment;
-  block_t block, blocks_left;
-  off_t ind1_pos;
-/*
-  dev_t dev;
- */
-  struct buf *bp;
-  static unsigned int readqsize = 0;
-  static struct buf **read_q;
-
-  if(readqsize != num_bufs) {
-	if(readqsize > 0) {
-		assert(read_q != NULL);
-		free(read_q);
-	}
-	if(!(read_q = malloc(sizeof(read_q[0])*num_bufs)))
-		panic("couldn't allocate read_q");
-	readqsize = num_bufs;
-  }
-
-/*
-  block_spec = (rip->i_mode & I_TYPE) == I_BLOCK_SPECIAL;
-  if (block_spec) 
-	dev = (dev_t) rip->i_zone[0];
-  else 
-	dev = rip->i_dev;
- */  
-
-  block = baseblock;
-  bp = get_block(dev, block, PREFETCH);
-  if (bp->b_dev != NO_DEV) return(bp);
-
-  /* The best guess for the number of blocks to prefetch:  A lot.
-   * It is impossible to tell what the device looks like, so we don't even
-   * try to guess the geometry, but leave it to the driver.
-   *
-   * The floppy driver can read a full track with no rotational delay, and it
-   * avoids reading partial tracks if it can, so handing it enough buffers to
-   * read two tracks is perfect.  (Two, because some diskette types have
-   * an odd number of sectors per track, so a block may span tracks.)
-   *
-   * The disk drivers don't try to be smart.  With todays disks it is
-   * impossible to tell what the real geometry looks like, so it is best to
-   * read as much as you can.  With luck the caching on the drive allows
-   * for a little time to start the next read.
-   *
-   * The current solution below is a bit of a hack, it just reads blocks from
-   * the current file position hoping that more of the file can be found.  A
-   * better solution must look at the already available zone pointers and
-   * indirect blocks (but don't call bmap!).
-   */
-
-  fragment = rem64u(position, block_size);
-  position = sub64u(position, fragment);
-  bytes_ahead += fragment;
-
-  blocks_ahead = (bytes_ahead + sb.brelmask) / block_size;
-
-#if 0
-  if (block_spec && rip->i_size == 0) {
-	blocks_left = (block_t) NR_IOREQS;
-  } else {
-	blocks_left = (block_t) (rip->i_size-ex64lo(position)+sb.brelmask) /
-								block_size;
-
-	/* Go for the first indirect block if we are in its neighborhood. */
-	if (!block_spec) {
-		scale = rip->i_sp->s_log_zone_size;
-		ind1_pos = (off_t) rip->i_ndzones * (block_size << scale);
-		if ((off_t) ex64lo(position) <= ind1_pos &&
-		   rip->i_size > ind1_pos) {
-			blocks_ahead++;
-			blocks_left++;
-		}
-	}
-  }
-#endif
-
-  /* No more than the maximum request. */
-  if (blocks_ahead > NR_IOREQS) blocks_ahead = NR_IOREQS;
-
-#if 0
-  /* Read at least the minimum number of blocks, but not after a seek. */
-  if (blocks_ahead < BLOCKS_MINIMUM && rip->i_seek == NO_SEEK)
-	blocks_ahead = BLOCKS_MINIMUM;
-#endif
-
-  /* Can't go past end of file. */
-  if (blocks_ahead > blocks_left) blocks_ahead = blocks_left;
-
-  read_q_size = 0;
-
-  /* Acquire block buffers. */
-  for (;;) {
-	read_q[read_q_size++] = bp;
-
-	if (--blocks_ahead == 0) break;
-
-	/* Don't trash the cache, leave 4 free. */
-/* FIXME: beware of the FAT12 cache... const.h? */
-	if (bufs_in_use >= num_bufs - 4) break;
-
-	block++;
-
-	bp = get_block(dev, block, PREFETCH);
-	if (bp->b_dev != NO_DEV) {
-		/* Oops, block already in the cache, get out. */
-		put_block(bp /*, FULL_DATA_BLOCK */);
-		break;
-	}
-  }
-  rw_scattered(dev, read_q, read_q_size, READING);
-  return(get_block(dev, baseblock, NORMAL));
-}
-
-/*===========================================================================*
- *				do_inhibread				     *
- *===========================================================================*/
-PUBLIC int do_inhibread(void)
-{
-  struct inode *rip;
-  
-  if((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
-	  return(EINVAL);
-
-  /* inhibit read ahead */
-  rip->i_flags |= I_SEEK;	
-  
-  return(OK);
 }

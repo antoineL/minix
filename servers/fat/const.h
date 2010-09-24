@@ -45,6 +45,13 @@
 #define	NUM_BUFS	200 
 #endif
 
+/* When reading ahead, we should not trash the whole cache.
+ * Keep that number of buffers away from reading ahead.
+ */
+#ifndef	KEPT_BUFS
+#define	KEPT_BUFS	4 
+#endif
+
 /* Size of buffers in the cache. */
 #ifndef MIN_BLOCK_SIZE
 #define MIN_BLOCK_SIZE	512

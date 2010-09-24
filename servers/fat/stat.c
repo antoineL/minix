@@ -77,11 +77,13 @@ PUBLIC int do_stat(void)
   stat.st_mode = get_mode(rip);
   stat.st_uid = use_uid;
   stat.st_gid = use_gid;
-  stat.st_rdev = NO_DEV;
+  stat.st_rdev = NO_DEV;	/* do not support block/char. specials */
 #if 0
   stat.st_size = ex64hi(rip->i_size) ? ULONG_MAX : ex64lo(rip->i_size);
-#elif 1
+#elif 0
   stat.st_size = rip->i_size;
+#elif 1
+  stat.st_size = rip->i_size > LONG_MAX ? LONG_MAX : rip->i_size;
 #else
   stat.st_size = IS_DIR(rip) ? 65535 : rip->i_size;
 #endif

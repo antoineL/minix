@@ -216,7 +216,7 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   for (i=0; i<16; bit<<=1,++i) {
 	if (bit & sb.bpsector) {
 		assert(! (bit ^ sb.bpsector));	/* should be power-of-2 */
-		sb.bnshift = sb.snshift = i;
+		sb.snshift = i;
 		break;
 	}
   }
@@ -276,7 +276,6 @@ PRIVATE int find_sector_counts(
 		return(EINVAL);
 	}
   }
-  sb.blkpfat = sb.secpfat;
   if (INT_MAX<65535 && get_le16(bs->bpbRootDirEnts) > (unsigned)INT_MAX) {
 	DBGprintf(("mounting failed: too much root dir entries (%u)\n",
 		get_le16(bs->bpbRootDirEnts)));
@@ -311,8 +310,8 @@ PRIVATE int find_sector_counts(
 	return(EINVAL);
   }
   sb.clustCnt = (sb.totalSecs - systemarea) & ~sb.crelmask;
-  sb.maxFilesize = (LONG_MAX>>sb.snshift) < sb.clustCnt
-	? LONG_MAX : sb.clustCnt<<sb.snshift;
+  sb.maxFilesize = (ULONG_MAX>>sb.snshift) < sb.clustCnt
+	? ULONG_MAX : sb.clustCnt<<sb.snshift;
 
   sb.resSec   = 0;
   sb.fatSec   = sb.resCnt;
@@ -476,39 +475,39 @@ PRIVATE int calc_block_size(void)
 	return(EINVAL);
   }
 
-  sb.bpblock = bsize;
+  bcc.bpblock = bsize;
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
-	if (bit & sb.bpblock) {
-		assert(! (bit ^ sb.bpblock));	/* should be power-of-2 */
-		sb.bnshift = i;
+	if (bit & bcc.bpblock) {
+		assert(! (bit ^ bcc.bpblock));	/* should be power-of-2 */
+		bcc.bnshift = i;
 		break;
 	}
   }
-  assert(sb.bnshift == sb.snshift + shift);
-  sb.brelmask = sb.bpsector-1;
-  sb.blkpcluster = sb.secpcluster >>shift;
+  assert(bcc.bnshift == sb.snshift + shift);
+  bcc.brelmask = bcc.bpblock-1;
+  bcc.blkpcluster = sb.secpcluster >>shift;
 
-  sb.cbshift = sb.csshift + shift;
-  assert(sb.cbshift == sb.cnshift - sb.bnshift);
-  assert(sb.blkpcluster == (1<<sb.cbshift));
-  sb.depblk = sb.bpsector / DIR_ENTRY_SIZE;
+  bcc.cbshift = sb.csshift + shift;
+  assert(bcc.cbshift == sb.cnshift - bcc.bnshift);
+  assert(bcc.blkpcluster == (1<<bcc.cbshift));
+  bcc.depblk = bcc.bpblock / DIR_ENTRY_SIZE;
 
-  sb.resBlk = sb.resSec;
-  sb.resSiz = sb.fatBlk = sb.resCnt >>shift;
-  sb.blkpfat = sb.secpfat >>shift;
+  bcc.resBlk = sb.resSec;
+  bcc.resSiz = bcc.fatBlk = sb.resCnt >>shift;
+  bcc.blkpfat = sb.secpfat >>shift;
 /* Because of possible unalignment of mirror FAT, do not do
- * sb.fatsSiz = sb.nFATs * sb.blkpfat;
+ * bcc.fatsSiz = sb.nFATs * bcc.blkpfat;
  */
-  sb.fatsSiz = sb.fatsCnt >>shift;
-  sb.rootBlk = sb.fatBlk + sb.fatsSiz;
-  assert(sb.rootBlk == sb.rootSec >>shift);
-  sb.rootSiz = sb.rootCnt >>shift;
-  sb.clustBlk = sb.rootBlk + sb.rootSiz;
-  assert(sb.clustBlk == sb.clustSec >>shift);
+  bcc.fatsSiz = sb.fatsCnt >>shift;
+  bcc.rootBlk = bcc.fatBlk + bcc.fatsSiz;
+  assert(bcc.rootBlk == sb.rootSec >>shift);
+  bcc.rootSiz = sb.rootCnt >>shift;
+  bcc.clustBlk = bcc.rootBlk + bcc.rootSiz;
+  assert(bcc.clustBlk == sb.clustSec >>shift);
 
-  sb.totalSiz = sb.totalSecs >>shift;
-  sb.clustSiz = sb.clustCnt >>shift;
+  bcc.totalBlks = sb.totalSecs >>shift;
+  bcc.clustSiz = sb.clustCnt >>shift;
   return OK;
 }
 
@@ -585,15 +584,17 @@ PUBLIC int do_readsuper(void)
   /* Compute block_sizes */
   if ( (r = calc_block_size()) != OK )
 	return(r);
-  if (sb.bpblock < MIN_BLOCK_SIZE) 
+  if (bcc.bpblock < MIN_BLOCK_SIZE) 
 	return(EINVAL);
-  if ((sb.bpblock % 512) != 0) 
+  if ((bcc.bpblock % 512) != 0) 
 	return(EINVAL);
 
 /* FIXME: compute num_blocks with knowledge of global FS size... */
-  init_cache(NUM_BUFS, sb.bpblock);
+  init_cache(bcc.nbufs=NUM_BUFS, bcc.bpblock);
 
-/* FIXME: if FAT12, read the FAT into specials (contiguous) buffers */
+/* FIXME: if FAT12, read the FAT into specials (contiguous) buffers
+ * Do not forget to increase bufs_in_use...
+ */
 
   root_ip = init_inodes(NUM_INODES);
 

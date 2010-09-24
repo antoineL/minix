@@ -103,37 +103,31 @@ typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
  * In addition to starting cluster number for the parent directory,
  * entries are also marked with the cluster number where the entry
  * actually stands, in dr_abscn; this allows quick access to the datas
- * when they need to be updated.
+ * when they need to be updated. Another optimisation is to store
+ * the position of the first of the lfn_direntry which are preceding.
  */
 struct direntryref {
   cluster_t	dr_parent;	/* cluster pointing the directory */
-  unsigned	dr_entrypos;	/* position of the entry within */
+  unsigned	dr_entrypos;	/* position of the fat_direntry within */
   cluster_t	dr_abscn;	/* cluster holding the entry */
+  unsigned	dr_lfnpos;	/* position of the lfn_direntry, if any */
 };
 
 /* File system fundamental values used by the FAT file system server.
  * The unique instance of this structure is the global variable 'sb'.
  */
 struct superblock {
-  unsigned bpblock;		/* bytes per block */
-  int bnshift;			/* shift off_t (file offset) right this
-				 *  amount to get a block rel number */
-  off_t brelmask;		/* and a file offset with this mask
-				 *  to get block rel offset */
   unsigned bpsector;		/* bytes per sector */
   int snshift;			/* shift off_t (file offset) right this
 				 *  amount to get a sector rel number */
   off_t srelmask;		/* and a file offset with this mask
 				 *  to get sector rel offset */
   unsigned bpcluster;		/* bytes per cluster */
-  unsigned blkpcluster;		/* blocks per cluster */
   unsigned secpcluster;		/* sectors per cluster */
   int cnshift;			/* shift off_t (file offset) right this
 				 *  amount to get a cluster rel number */
   off_t crelmask;		/* and a file offset with this mask
 				 *  to get cluster rel offset */
-  int cbshift;			/* shift a block number right this
-				 *  amount to get a cluster number */
   int csshift;			/* shift a sector number right this
 				 *  amount to get a cluster number */
 
@@ -143,15 +137,8 @@ struct superblock {
 	clustSec, clustCnt,	/* data: starting sector nr and total size */
 	          totalSecs;	/* file system: total size in sectors */
 
-  block_t resBlk, resSiz,	/* reserved zone: block nr (=0) and size */
-	fatBlk,   fatsSiz,	/* FATs: starting block nr and total size */
-	rootBlk,  rootSiz,	/* root: starting block nr and total size */
-	clustBlk, clustSiz,	/* data: starting block nr and total size */
-	          totalSiz;	/* file system: total size in blocks */
-
   int nFATs;			/* number of FATs */
   int secpfat;			/* sectors per FAT (each one) */
-  int blkpfat;			/* blocks per FAT */
   int nibbles;			/* count of nibble (half-byte) per FAT entry*/
   unsigned fatmask;		/* FATxx_MASK; gives the kind of FAT */
   unsigned eofmask;		/* CLUSTMASK_EOFxx, accordingly */
@@ -164,11 +151,35 @@ struct superblock {
   cluster_t freeClust;		/* total number of free clusters */
   cluster_t nextClust;		/* number of next free cluster */
 
-  off_t maxFilesize;		/* maximum possible size for a file */
-
-  int depblk;			/* directory entries per block */
+  unsigned long maxFilesize;	/* maximum possible size for a file */
   int depsec;			/* directory entries per sector */
   int depclust;			/* directory entries per cluster */
+};
+
+/* Buffer (block) cache control values.
+ * Fundamental values used by the buffer cache.
+ * The unique instance of this structure is the global variable 'bcc'.
+ */
+struct bufcache_ctrl {
+  unsigned bpblock;		/* bytes per block */
+  int bnshift;			/* shift off_t (file offset) right this
+				 *  amount to get a block rel number */
+  off_t brelmask;		/* and a file offset with this mask
+				 *  to get block rel offset */
+  unsigned blkpcluster;		/* blocks per cluster */
+  int cbshift;			/* shift a block number right this
+				 *  amount to get a cluster number */
+
+  block_t resBlk, resSiz,	/* reserved zone: block nr (=0) and count */
+	fatBlk,   fatsSiz,	/* FATs: starting block nr and total count */
+	rootBlk,  rootSiz,	/* root: starting block nr and total count */
+	clustBlk, clustSiz,	/* data: starting block nr and total count */
+	          totalBlks;	/* file system: total size in blocks */
+
+  int blkpfat;			/* blocks per FAT */
+  int depblk;			/* directory entries per block */
+
+  int nbufs;			/* total number of buffers in cache */
 };
 
 /* Buffer (block) cache.
@@ -181,13 +192,10 @@ struct superblock {
  * put_block() is done. If a block is modified, the modifying routine must
  * set b_dirt to DIRTY, so the block will eventually be written to the disk.
  *
-WORK NEEDED:
- * describe all the states a buffer can be (allocated/no, free/no, dirty etc.)
- * make some macros
- * CHECKME!!! better use b_bytes==0 ? b_blocknr==-1 ? flags?
+ * A free buffer is indicated with b_blocknr == NO_BLOCK (0); this is OK
+ * with FAT, since the block or sector 0 is only read once at mounting,
+ * and its content is never updated by the file system server.
  */
-/* A block is free if b_dev == NO_DEV. */
-
 struct buf {
   /* Data portion of the buffer. Uninterpreted by cache. */
   union blkdata_u *dp;
@@ -200,8 +208,9 @@ struct buf {
 /* CHECKME: is it still usefull? */
   dev_t b_dev;                  /* major | minor device where block resides */
   char b_dirt;                  /* CLEAN or DIRTY */
-#define CLEAN              0	/* disk and memory copies identical */
-#define DIRTY              1	/* disk and memory copies differ */
+#define CLEAN		0	/* disk and memory copies identical */
+#define DIRTY		1	/* disk and memory copies differ */
+#define NOTREAD		2	/* just prefetched, not read in memory */
   char b_count;                 /* number of users of this buffer */
 
 /* FIXME: we need an indication (or a hook) when the buffer is for
@@ -214,6 +223,8 @@ struct buf {
  */
 
 };
+#define	IS_FREE_BLOCK(bp)	((bp)->b_blocknr == NO_BLOCK)
+	/* beware: MFS cache considers b_dev == NO_DEV instead. */
 
 /* actual content of directories */
 union direntry_u {
@@ -304,7 +315,7 @@ struct inode {
   int i_lfn_alloclen;		/* size allocated to above field */
 
   mode_t i_mode;		/* file type, protection, as seen by VFS */
-  off_t i_size;			/* current file size in bytes */
+  unsigned long i_size;		/* current file size in bytes */
   cluster_t i_clust;		/* number of first cluster of data */
 
   struct direntryref i_dirref;	/* coordinates of this entry */

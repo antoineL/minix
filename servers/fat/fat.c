@@ -83,7 +83,7 @@ fc_lookup(
 /*===========================================================================*
  *				bmap					     *
  *===========================================================================*/
-PUBLIC block_t bmap(struct inode *rip, off_t position)
+PUBLIC block_t bmap(struct inode *rip, unsigned long position)
 {
 /* Map a fileoffset into a physical block that is filesystem relative. */
   cluster_t findcn;		/* file relative cluster to get	*/
@@ -104,9 +104,9 @@ PUBLIC block_t bmap(struct inode *rip, off_t position)
 
   i = 0;
   cn = rip->i_clust;
-  findbn = position >> sb.bnshift;
+  findbn = position >> bcc.bnshift;
   findcn = position >> sb.cnshift;
-  boff = (position & sb.crelmask) >> sb.bnshift;
+  boff = (position & sb.crelmask) >> bcc.bnshift;
 
 DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 	INODE_NR(rip), position, findcn, boff, cn));
@@ -116,10 +116,10 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
    */
   if (cn == CLUST_CONVROOT ) {
 	assert(rip->i_flags & I_ROOTDIR);
-	if (findbn > sb.rootBlk) {
+	if (findbn > bcc.rootBlk) {
 		return /*E2BIG*/ NO_BLOCK;
 	}
-	return sb.rootBlk + findbn;
+	return bcc.rootBlk + findbn;
   }
 
 /* Rummage around in the fat cache, maybe we can avoid tromping
@@ -171,8 +171,8 @@ fc_lookup(
 		 * cn is less than 1<<28, and nibbles is 8
 		 */
 		byteoffset = cn * sb.nibbles / 2;
-		bn = (byteoffset >> sb.bnshift) + sb.fatBlk;
-		bo = byteoffset & sb.brelmask;
+		bn = (byteoffset >> bcc.bnshift) + bcc.fatBlk;
+		bo = byteoffset & bcc.brelmask;
 		if (bn != bp0_bn) {
 			if (bp0)
 				put_block(bp0);
@@ -236,7 +236,7 @@ fc_lookup(
 /*
 		fc_setcache(rip, FC_LASTMAP, i, cn);
  */
-		return ((cn-CLUST_FIRST) << sb.cbshift) + sb.clustBlk;
+		return ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk;
 	}
 
 hiteof:
@@ -258,6 +258,6 @@ FIXME: beware LASTMAP/LASTFC, i/i-1, cn/prevcn...
 	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
  */
 	return ATEOF(cn, sb.eofmask) ? /*E2BIG*/ NO_BLOCK
-	       : ((cn-CLUST_FIRST) << sb.cbshift) + sb.clustBlk;
+	       : ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk;
 #endif
 }

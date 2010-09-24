@@ -19,7 +19,8 @@
 _PROTOTYPE( int do_flush, (void)					);
 _PROTOTYPE( int do_sync, (void)						);
 enum get_blk_arg_e {
-	NORMAL,		/* forces get_block to do disk read */
+	NORMAL,		/* forces get_block to read disk */
+	ZERO_BLOCK,	/* asks get_block to fill block with zeroes */
 	NO_READ,	/* prevents get_block from doing disk read */
 	PREFETCH	/* tells get_block not to read or mark dev */
 };
@@ -52,7 +53,7 @@ _PROTOTYPE( int scattered_dev_io,(int op, iovec_t[], u64_t pos, int cnt));
 _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* fat.c */
-_PROTOTYPE( block_t bmap, (struct inode *rip, off_t position)		);
+_PROTOTYPE( block_t bmap, (struct inode *rip, unsigned long position)	);
 _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
 /* inode.c */

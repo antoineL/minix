@@ -30,7 +30,7 @@ PUBLIC int do_fstatfs(void)
   if (state != MOUNTED)
 	  return(EINVAL);
    
-  st.f_bsize = sb.bpblock;
+  st.f_bsize = bcc.bpblock;
   
   /* Copy the struct to user space. */
   r = sys_safecopyto(m_in.m_source, (cp_grant_id_t) m_in.REQ_GRANT,

@@ -16,7 +16,7 @@
  * This current version assumes somewhat that 'dev' is unique,
  * and assumes in many places that blocks are all of the same size
  * named block_size, a global variable which value can be changed
- * at init time with set_blocksize().
+ * at init time with init_cache().
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
@@ -49,9 +49,14 @@
 #define END_OF_FILE   (-104)	/* eof detected */
 
 /* CHECKME/FIXME: documentation! */
-#define BUFHASH(b) ((b) % num_bufs)
+#define HASHSIZE	(num_bufs)
+#define BUFHASH(b)	((b) % HASHSIZE)
 
 /* Private global variables: */
+  /* size of each buffer */
+PRIVATE unsigned block_size;
+  /* number of buffers in the cache */
+PRIVATE int num_bufs;
   /* dynamically-allocated array of buf descriptors */
 PRIVATE struct buf *buf;
   /* least recently used free block list */
@@ -78,15 +83,14 @@ FORWARD _PROTOTYPE( void rm_lru, (struct buf *bp) );
 /*===========================================================================*
  *				init_cache                                   *
  *===========================================================================*/
-PUBLIC void init_cache(int new_num_bufs, unsigned int blocksize)
+PUBLIC void init_cache(int new_num_bufs, unsigned int new_block_size)
 {
 /* Initialize the buffer pool, and set the (unique) size of the blocks. */
   register struct buf *bp;
 
   assert(new_num_bufs > 0);
-  assert(blocksize > 0);
+  assert(new_block_size > 0);
 
-/* CHECKME: useful? */
   if (have_used_inode())
 	panic("init_cache with inode(s) in use");
 
@@ -103,7 +107,6 @@ PUBLIC void init_cache(int new_num_bufs, unsigned int blocksize)
 
   if(buf)
 	free(buf);
-
   if(!(buf = calloc(sizeof(buf[0]), new_num_bufs)))
 	panic("couldn't allocate buf list (%d)", new_num_bufs);
 
@@ -111,9 +114,10 @@ PUBLIC void init_cache(int new_num_bufs, unsigned int blocksize)
 	free(buf_hash);
   if(!(buf_hash = calloc(sizeof(buf_hash[0]), new_num_bufs)))
 	panic("couldn't allocate buf hash list (%d)", new_num_bufs);
+  /* FIXME: consider explicit _INIT for the hash heads. */
 
   num_bufs = new_num_bufs;
-  block_size = blocksize;
+  block_size = new_block_size;
 
   DBGprintf(("FATfs: %d blocks, %u+%u bytes each, = %lu bytes\n",
 	num_bufs, (unsigned)block_size, usizeof(struct buf),
@@ -161,11 +165,13 @@ PUBLIC int do_sync()
 /* if FAT12, if the whole FAT is projected in a special area,
  * should be flushed NOW... in all the mirrors!
  */
-/* update FSInfo (FAT32) => DIRTY */
+/* update FSInfo (FAT32) => DIRTY
+ * beware: cannot use cache, should be done using sector I/O
+ */
 
 #if 0 /*obsolete*/
   for(bp = &buf[0]; bp < &buf[num_bufs]; bp++)
-	  if(bp->b_dev != NO_DEV && bp->b_dirt == DIRTY) 
+	  if(!IS_FREE_BLOCK(bp) && bp->b_dirt == DIRTY) 
 		  flushall(bp->b_dev);
 #endif
   flushall(dev);
@@ -180,15 +186,18 @@ PUBLIC int do_flush()
 {
 /* Flush the blocks of a device from the cache after writing any dirty blocks
  * to disk.
+ * Since we are not the / file system, and given that this request is intended
+ * for unmounted devices, chances are this is never used.
  */
   dev_t req_dev = (dev_t) m_in.REQ_DEV;
-#if 1 /*BUG in MFS???*/
-  if(dev != req_dev) return(EBUSY);
-#else
+
+  /* We do not fiddle with other partitions or file systems: */
+  if(dev != req_dev) return(EINVAL);
+#if 0
   if(dev == req_dev) return(EBUSY);
 #endif
 
-/* CHECKME: needed? */
+  /* sync'ing will write al dirty inodes to the cache */
   do_sync();
 
   flushall(req_dev);
@@ -246,7 +255,10 @@ PRIVATE void invalidate(
   register struct buf *bp;
 
   for (bp = &buf[0]; bp < &buf[num_bufs]; bp++)
-	if (bp->b_dev == device) bp->b_dev = NO_DEV;
+	if (bp->b_dev == device) {
+		bp->b_blocknr = NO_BLOCK;
+		bp->b_dev = NO_DEV;
+	}
 
 #ifdef USE_VMCACHE
   vm_forgetblocks();
@@ -268,14 +280,14 @@ PUBLIC struct buf *get_block(
  * 'only_search' is 1).  All the blocks in the cache that are not in use
  * are linked together in a chain, with 'front' pointing to the least recently
  * used block and 'rear' to the most recently used block.  If 'only_search' is
- * 1, the block being requested will be overwritten in its entirety, so it is
+ * NO_READ, the block being requested will be overwritten in its entirety, so it is
  * only necessary to see if it is in the cache; if it is not, any free buffer
  * will do.  It is not necessary to actually read the block in from disk.
  * If 'only_search' is PREFETCH, the block need not be read from the disk,
  * and the device is not to be marked on the block, so callers can tell if
  * the block returned is valid.
  * In addition to the LRU chain, there is also a hash chain to link together
- * blocks whose block numbers end with the same bit strings, for fast lookup.
+ * blocks, for faster lookups.
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  */
@@ -362,13 +374,19 @@ DBGprintf(("allocated...", bp->dp));
 DBGprintf(("@ %.8p...", bp->dp));
 
   /* Remove the block that was just taken from its hash chain. */
+/*
   b = BUFHASH(bp->b_blocknr);
+ */
   LIST_REMOVE(bp, b_hash);
 
   /* If the block taken is dirty, make it clean by writing it to the disk.
    * Avoid hysteresis by flushing all other dirty blocks for the same device.
    */
+#if 0
   if (bp->b_dev != NO_DEV) {
+#else
+  if (!IS_FREE_BLOCK(bp)) {
+#endif
 	if (bp->b_dirt == DIRTY) flushall(bp->b_dev);
 
 #ifdef USE_VMCACHE
@@ -377,6 +395,7 @@ DBGprintf(("@ %.8p...", bp->dp));
 	 */
 	yieldid = make64(bp->b_dev, bp->b_blocknr);
 	assert(bp->b_bytes == block_size);
+	bp->b_blocknr = NO_BLOCK;
 	bp->b_dev = NO_DEV;
 #endif
 DBGprintf(("old flushed..."));
@@ -390,6 +409,7 @@ DBGprintf(("old flushed..."));
   LIST_INSERT_HEAD(&buf_hash[b], bp, b_hash);
 
 #ifdef USE_VMCACHE
+/* FIXME: check... */
   if(dev == NO_DEV) {
 	if(vmcache && cmp64(yieldid, VM_BLOCKID_NONE) != 0) {
 		vm_yield_block_get_block(yieldid, VM_BLOCKID_NONE,
@@ -418,6 +438,7 @@ DBGprintf(("and found in L2 (VM) cache! paged in @ %.8p!\n", bp->dp));
 #endif
   }
 
+#if 0
   if(only_search == PREFETCH) {
 	/* PREFETCH: don't do i/o. */
 	bp->b_dev = NO_DEV;
@@ -436,6 +457,35 @@ DBGprintf(("read..."));
 #endif
   } else
 	panic("unexpected only_search value: %d", only_search);
+#else
+  switch (only_search) {
+  case PREFETCH:
+	/* PREFETCH: don't do i/o. */
+	bp->b_dev = NO_DEV;
+/* FIXME: 
+	bp->b_blocknr = NO_BLOCK;
+ */
+	bp->b_dirt = NOTREAD;
+	break;
+  case NORMAL:
+	rw_block(bp, READING);
+DBGprintf(("read..."));
+	break;
+  case NO_READ:
+#ifdef USE_VMCACHE
+	/* we want this block, but its contents
+	 * will be overwritten. VM has to forget
+	 * about it.
+	 */
+	if(vmcache) {
+		vm_forgetblock(getid);
+	}
+#endif
+	break;
+  default:
+	panic("unexpected only_search value: %d", only_search);
+  }
+#endif
   assert(bp->dp);
 
 DBGprintf(("and returned!\n"));
@@ -445,8 +495,7 @@ DBGprintf(("and returned!\n"));
 /*===========================================================================*
  *				rm_lru					     *
  *===========================================================================*/
-PRIVATE void rm_lru(bp)
-struct buf *bp;
+PRIVATE void rm_lru(struct buf *bp)
 {
 /* Remove a block from its LRU chain. */
 
@@ -457,8 +506,7 @@ struct buf *bp;
 /*===========================================================================*
  *				zero_block				     *
  *===========================================================================*/
-PUBLIC void zero_block(bp)
-register struct buf *bp;	/* pointer to buffer to zero */
+PUBLIC void zero_block(struct buf *bp)	/* pointer to buffer to zero */
 {
 /* Zero a block. */
   assert(bp->b_bytes > 0);
@@ -470,22 +518,10 @@ register struct buf *bp;	/* pointer to buffer to zero */
 /*===========================================================================*
  *				put_block				     *
  *===========================================================================*/
-#if 0
-PUBLIC void put_block(bp, block_type)
-register struct buf *bp;	/* pointer to the buffer to be released */
-int block_type;			/* INODE_BLOCK, DIRECTORY_BLOCK, or whatever */
-#else
-PUBLIC void put_block(register struct buf *bp) /* buffer to be released */
-#endif
+PUBLIC void put_block(struct buf *bp) /* buffer to be released */
 {
-/* Return a block to the list of available blocks.   Depending on 'block_type'
- * it may be put on the front or rear of the LRU chain.  Blocks that are
- * expected to be needed again shortly (e.g., partially full data blocks)
- * go on the rear; blocks that are unlikely to be needed again shortly
- * (e.g., full data blocks) go on the front.  Blocks whose loss can hurt
- * the integrity of the file system (e.g., inode blocks) are written to
- * disk immediately if they are dirty.
- */
+/* Return a block to the list of available blocks. */
+
   if (bp == NULL) return;	/* it is easier to check here than in caller */
 
   bp->b_count--;		/* there is one use fewer now */
@@ -493,51 +529,19 @@ PUBLIC void put_block(register struct buf *bp) /* buffer to be released */
 
   bufs_in_use--;		/* one fewer block buffers in use */
 
-  /* Put this block back on the LRU chain.  If the ONE_SHOT bit is set in
-   * 'block_type', the block is not likely to be needed again shortly, so put
-   * it on the front of the LRU chain where it will be the first one to be
-   * taken when a free buffer is needed later.
-   */
-#if 0 /*obsolete*/
-  if (bp->b_dev == DEV_RAM || (block_type & ONE_SHOT)) {
-	/* Block probably won't be needed quickly. Put it on front of chain.
-  	 * It will be the next block to be evicted from the cache.
-  	 */
-	bp->b_prev = NULL;
-	bp->b_next = front;
-	if (front == NULL)
-		rear = bp;	/* LRU chain was empty */
-	else
-		front->b_prev = bp;
-	front = bp;
-  } 
-  else {
-#endif
-
-  /* Block probably will be needed quickly.  Put it on rear of chain.
+  /* Put this block back on the LRU chain.
+   * Block probably will be needed quickly.  Put it on rear of chain.
    * It will not be evicted from the cache for a long time.
    */
   TAILQ_INSERT_TAIL(&lru, bp, b_next);
-
-#if 0 /*obsolete*/
-  }
-
-  /* Some blocks are so important (e.g., inodes, indirect blocks) that they
-   * should be written to the disk immediately to avoid messing up the file
-   * system in the event of a crash.
-   */
-  if ((block_type & WRITE_IMMED) && bp->b_dirt==DIRTY && bp->b_dev != NO_DEV) {
-		rw_block(bp, WRITING);
-  } 
-#endif
 }
 
 /*===========================================================================*
  *				rw_block				     *
  *===========================================================================*/
-PRIVATE void rw_block(bp, rw_flag)
-register struct buf *bp;	/* buffer pointer */
-int rw_flag;			/* READING or WRITING */
+PRIVATE void rw_block(
+  register struct buf *bp,	/* buffer pointer */
+  int rw_flag)			/* READING or WRITING */
 {
 /* Read or write one disk block.
 <TRASHME>
@@ -558,7 +562,7 @@ int rw_flag;			/* READING or WRITING */
 	op = (rw_flag == READING ? DEV_READ_S : DEV_WRITE_S);
 	r = seqblock_dev_io(op, bp->dp, pos, block_size);
 	if (r < 0) {
-		printf("FATfs I/O error on device %d/%d, block %lu\n",
+		printf("FATfs: I/O error on device %d/%d, block %lu\n",
 			major(dev), minor(dev), bp->b_blocknr);
 		op_failed = 1;
 	} else if( (unsigned) r != block_size) {
@@ -577,7 +581,6 @@ int rw_flag;			/* READING or WRITING */
   }
 
   bp->b_dirt = CLEAN;
-
 }
 
 /*===========================================================================*
@@ -594,23 +597,24 @@ PUBLIC void rw_scattered(
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  */
-
   register struct buf *bp;
-  int gap;
-  u64_t pos;
   register int i;
-  register iovec_t *iop;
+  int j, r, gap;
+  iovec_t *iop;
+  u64_t pos;
   static iovec_t *iovec = NULL;
-  int j, r;
 
-/* UGLY STUFF; might move to init_cache... */
   STATICINIT(iovec, NR_IOREQS);	/* allocated once, made contiguous */
 
   /* (Shell) sort buffers on b_blocknr. */
+#if 0
   gap = 1;
   do
 	gap = 3 * gap + 1;
   while (gap <= bufqsize);
+#else
+  for (gap = 3+1; gap <= bufqsize; gap = 3 * gap + 1) ;
+#endif
   while (gap != 1) {
 	gap /= 3;
 	for (j = gap; j < bufqsize; j++) {
@@ -679,7 +683,7 @@ PUBLIC void rw_scattered(
 		/* We're not making progress, this means we might keep
 		 * looping. Buffers remain dirty if un-written. Buffers are
 		 * lost if invalidate()d or LRU-removed while dirty. This
-		 * is better than keeping unwritable blocks around forever..
+		 * is better than keeping unwritable blocks around forever.
 		 */
 		break;
 	}
