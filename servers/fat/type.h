@@ -109,7 +109,7 @@ typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
 struct direntryref {
   cluster_t	dr_parent;	/* cluster pointing the directory */
   unsigned	dr_entrypos;	/* position of the fat_direntry within */
-  cluster_t	dr_abscn;	/* cluster holding the entry */
+  block_t	dr_absbn;	/* block holding the entry */
   unsigned	dr_lfnpos;	/* position of the lfn_direntry, if any */
 };
 

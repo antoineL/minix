@@ -76,7 +76,9 @@ _PROTOTYPE( int advance, (struct inode *dirp,
 	struct inode **res_inode, char string[NAME_MAX], int chk_perm)	);
 #define IGN_PERM	0
 #define CHK_PERM	1
+_PROTOTYPE( int do_create, (void)					);
 _PROTOTYPE( int do_lookup, (void)					);
+_PROTOTYPE( int do_mountpoint, (void)					);
 _PROTOTYPE( int do_putnode, (void)					);
 
 _PROTOTYPE( int do_create, (void)					);
@@ -115,7 +117,23 @@ _PROTOTYPE( int do_fstatfs, (void)					);
 _PROTOTYPE( int do_statvfs, (void)					);
 
 /* utility.c */
+#ifndef CONVNAME_ENUM_
+#define CONVNAME_ENUM_
+enum convname_result_e {
+  CONV_OK,
+  CONV_HASLOWER,
+  CONV_NAMETOOLONG,
+  CONV_TRAILINGDOT,
+  CONV_INVAL
+};
+#endif
+
+_PROTOTYPE( int conv_83toname,
+		(struct fat_direntry *, char string[NAME_MAX+1])	);
+_PROTOTYPE( int conv_nameto83,
+		(char string[NAME_MAX+1], struct fat_direntry *)	);
 _PROTOTYPE( time_t dos2unixtime, (uint8_t dosdate[2],uint8_t dostime[2]));
+_PROTOTYPE( int lfn_chksum, (struct fat_direntry * fatdp)		);
 _PROTOTYPE( void unix2dostime, (time_t,
 			uint8_t deDate[2], uint8_t deTime[2])		);
 

@@ -2,6 +2,10 @@
  *
  * The entry points into this file are:
  *   dos2unixtime	convert DOS-style date and time into time_t
+ *   unix2dostime	convert time_t into DOS-style date and time
+ *   conv_83toname	convert FAT-style entry name into string
+ *   conv_nameto83	convert string into FAT-style entry
+ *   lfn_chksum		compute the checksum of a FAT entry name for LFN
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
@@ -34,16 +38,35 @@
  * Do not #define _MINIX
  */
 
+#include <assert.h>
+#include <ctype.h>
+#include <limits.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 
 #include "fat.h"
+
+#ifndef NAME_MAX
+#define NAME_MAX	14
+#endif
 
 #ifndef	PRIVATE
 #define PRIVATE	static		/* PRIVATE x limits the scope of x */
 #endif
 #ifndef	PUBLIC
 #define PUBLIC			/* PUBLIC is the opposite of PRIVATE */
+#endif
+
+#ifndef CONVNAME_ENUM_
+#define CONVNAME_ENUM_
+enum convname_result_e {
+  CONV_OK,
+  CONV_HASLOWER,
+  CONV_NAMETOOLONG,
+  CONV_TRAILINGDOT,
+  CONV_INVAL
+};
 #endif
 
 /* Private read-only global variables: */
@@ -78,6 +101,7 @@ PRIVATE int leapyear[] = {
   #if DEBUG
    #define DBGprintf(x) printf x
   #else
+   extern int verbose;
    #define DBGprintf(x) if(verbose)printf x
   #endif 
  #endif
@@ -231,4 +255,233 @@ PUBLIC void unix2dostime(time_t t, uint8_t deDate[2],uint8_t deTime[2])
 	deTime[0] = lastdtime & 0xFF;
 	deTime[1] = lastdtime << 8;
   }
+}
+
+/*===========================================================================*
+ *				conv_83toname				     *
+ *===========================================================================*/
+PUBLIC int conv_83toname(
+  struct fat_direntry *fatdp,	/* FAT directory entry, as read on disk */
+  char string[NAME_MAX+1])	/* where to put the equivalent name */
+{
+/* ...
+ * This functions returns
+ *   CONV_OK if conversion was trouble free,
+ *   CONV_INVAL if invalid characters were encountered.
+ */
+/* FIXME: ATTR_HIDDEN could be transformed to leading dot */
+  const unsigned char *p;
+  char *q;
+
+  assert(NAME_MAX >= 8 + 1 + 3);
+
+  if (fatdp->deLCase & LCASE_NAME) {
+	p = (const unsigned char*) & fatdp->deName[0];
+	q = & string[0];
+	while (p < (const unsigned char*) &fatdp->deName[8])
+		*q++ = tolower(*p++);
+  } else {
+	memcpy(string, fatdp->deName, 8);
+	p = (const unsigned char*) & fatdp->deName[8];
+	q = & string[8];
+  }
+  assert(p == (const unsigned char*) &fatdp->deName[8]);
+  assert(q == & string[8]);
+
+  while (q-- >= & string[1])
+	if (*q != ' ') break;
+
+  if (q == & string[0] && *q == ' ') {
+	/* only spaces characters... */
+	DBGprintf(("FATfs: encountered entry without name (all spaces).\n"));
+	return(CONV_INVAL);
+  }
+
+  assert(q >= & string[0]);
+  assert(q <  & string[8]);
+
+  if (fatdp->deName[0] == SLOT_E5)
+	string[0] = SLOT_DELETED;	/* DOS was hacked too! */
+
+  ++q;
+  *q++ = '.';
+
+  assert(p == (const unsigned char*) & fatdp->deExtension[0]);
+
+  if (fatdp->deLCase & LCASE_EXTENSION) {
+	while (p < (const unsigned char*) & fatdp->deExtension[3])
+		*q++ = tolower(*p++);
+  } else {
+	memcpy(q, fatdp->deExtension, 3);
+	p += 3;
+	q += 3;
+  }
+
+  assert(p == (const unsigned char*) & fatdp->deExtension[3]);
+  assert(q >= & string[0]);
+  assert(q <= & string[NAME_MAX+1]);
+  assert(q <= & string[8+1+3+1]);
+  assert(q >  & string[4]);
+  assert(q[-4] == '.');
+
+  while (*--q == ' ') ;	/* will stop at '.' anyway */
+  if (*q == '.')
+	--q;			/* no extension, remove the dot */
+  assert(q >= & string[0]);
+  assert(q <  & string[8+1+3]);
+  assert(q <  & string[NAME_MAX]);
+  *++q = '\0';
+  if (strlen(string) != q - string) {
+	/* some '\0' are embedded in the FAT name */
+	DBGprintf(("FATfs: encountered NUL character in a name.\n"));
+	return(CONV_INVAL);
+  } else if (strchr(string, '/') != NULL) {
+	DBGprintf(("FATfs: encountered '/' character in a name.\n"));
+	return(CONV_INVAL);
+  } else
+	return(CONV_OK);
+}
+
+/*===========================================================================*
+ *				conv_nameto83				     *
+ *===========================================================================*/
+PUBLIC int conv_nameto83(
+  char string[NAME_MAX+1],	/* some file name (passed by VFS) */
+  struct fat_direntry *fatdp)	/* where to put the 8.3 compliant equivalent
+				 * with resulting LCase attribute also */
+{
+/* Transforms a filename (as part of a path) into the form suitable to be
+ * used in FAT directory entries, named 8.3 because it could only have up
+ * to 8 characters before the (only) dot, and 3 characters after it.
+ * This functions returns
+ *   CONV_OK if conversion was trouble free,
+ *   CONV_HASLOWER if conversion was done with some character uppercased,
+ *   CONV_NAMETOOLONG if it does not fit the 8.3 limits,
+ *   CONV_TRAILINGDOT if the name has a trailing dot (valid with DOS/Windows),
+ *   CONV_INVAL if invalid characters were encountered.
+ */
+/* FIXME: leading dot could be transformed to ATTR_HIDDEN */
+  const unsigned char *p = (const unsigned char *)string;
+  unsigned char *q;
+  int prev, next, haslower, hasupper, res;
+
+  memset(fatdp->deName, ' ', 8+3);	/* fill with spaces */
+  fatdp->deLCase &= ~ (LCASE_NAME|LCASE_EXTENSION);
+
+  switch (next = *p) {
+  case '.':
+	if (p[1] == '\0') {
+		memcpy(fatdp->deName, NAME_DOT, 8+3);
+		return(CONV_OK);
+	} else if (p[1] == '.' && p[2] == '\0') {
+		memcpy(fatdp->deName, NAME_DOT_DOT, 8+3);
+		return(CONV_OK);
+	} else
+	/* cannot store a filename starting with . */
+		return(CONV_INVAL);
+  case '\0':
+	/* filename staring with NUL ? */
+	DBGprintf(("FATfs: passed filename starting with \\0\n"));
+	return(CONV_INVAL);
+  case ' ':
+	/* filename staring with space; legal but slippery */
+	DBGprintf(("FATfs: warning: passed filename starting with space\n"));
+	break;
+  case SLOT_E5:
+	DBGprintf(("FATfs: warning: initial character '\\005' in a filename, "
+		"will be mangled into '\\xE5'\n"));
+  case SLOT_DELETED:
+	next = SLOT_E5;
+	break;
+  }
+
+  haslower = hasupper = prev = 0;
+  for (q=&fatdp->deName[0]; q < &fatdp->deName[8]; ++q) {
+	if (next == '.' || next == '\0') {
+		if (prev == ' ') {
+			DBGprintf(("FATfs: warning: final space character "
+				"in a name, will be dropped.\n"));
+		}
+		break;
+	} else if (strchr(FAT_FORBIDDEN_CHARS, next) != NULL) {
+		/* some characters cannot enter in FAT filenames */
+		return(CONV_INVAL);
+	} else {
+		hasupper |= isupper(next);
+		haslower |= islower(next);
+		*q = toupper(next);
+	}
+	prev = next;
+	next = *++p;
+  }
+/* FIXME: move to caller when creating... */
+/* check q-d==3 &&
+   static const char *dev3[] = {"CON", "AUX", "PRN", "NUL", "   "};
+ * check q-d==4 && isdigit(q[-1])
+   static const char *dev4[] = {"COM", "LPT" };
+ */
+  if (haslower && !hasupper)
+	fatdp->deLCase |= LCASE_NAME;
+  res = haslower ? CONV_HASLOWER : CONV_OK;
+
+  if (*p == '\0') {
+	/* no extension */
+	return(res);
+  }
+  if (*p++ != '.') {
+	/* more than 8 chars in name... */
+	return(CONV_NAMETOOLONG);
+  }
+  next = *p;
+  if (next == '\0') {
+	/* initial filename was "foobar." (trailing dot)
+	 * DOS and Windows recognize it the same as "foobar"
+	 */
+	DBGprintf(("FATfs: filename \"%s\" has a trailing dot...\n",
+			string));
+	return(CONV_TRAILINGDOT);	/* FIXME: haslower is not registered */
+  }
+
+  haslower = hasupper = prev = 0;
+  for (q=&fatdp->deExtension[0]; q < &fatdp->deExtension[3]; ++q) {
+	if (next == '\0') {
+		break;
+	} else if (strchr(FAT_FORBIDDEN_CHARS, next) != NULL) {
+		/* some characters cannot enter in FAT filenames */
+		return(CONV_INVAL);
+	} else {
+		hasupper |= isupper(next);
+		haslower |= islower(next);
+		*q = toupper(next);
+	}
+	prev = next;
+	next = *++p;
+  }
+
+  if (next == '\0') {
+	if (prev == ' ') {
+		DBGprintf(("FATfs: warning: final space character "
+			"in an extension, will be dropped.\n"));
+	}
+	if (haslower && !hasupper)
+		fatdp->deLCase |= LCASE_EXTENSION;
+	return(haslower ? CONV_HASLOWER : res);
+  }
+  /* more than 3 chars in extension... */
+  return(CONV_NAMETOOLONG);
+}
+
+/*===========================================================================*
+ *				lfn_chksum				     *
+ *===========================================================================*/
+PUBLIC int lfn_chksum(struct fat_direntry * fatdp)
+{
+/* Compute the checksum of a FAT entry name for LFN check. */
+  int i;
+  unsigned char sum=0;
+  const unsigned char *p = fatdp->deName;
+
+  for (i = 8+3; --i >= 0; sum += *p++)
+	sum = (sum << 7)|(sum >> 1);
+  return sum;
 }

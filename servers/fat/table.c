@@ -9,8 +9,8 @@
 
 #include <limits.h>	/* for NGROUPS_MAX, work around fishy headers */
 
-/* Dispatch table for requests. This is for the protocol as revised
- * in December 2009 (SVN rev. 5780)
+/* Dispatch table for requests.
+ * This is for the protocol as revised in December 2009 (SVN rev. 5780)
  */
 PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	no_sys,		/*  0			*/
@@ -34,14 +34,15 @@ PUBLIC _PROTOTYPE( int (*vfs_req_vec[]), (void) ) = {
 	do_flush,	/* 18 flush		*/
 	do_read,	/* 19 read		*/
 	do_write,	/* 20 write		*/
- /**/	readonly,	/* 21 mknod		*/
- /**/	/*do_mkdir*/readonly,	/* 22 mkdir		*/
- /**/	/*do_create*/readonly,	/* 23 create		*/
+	do_create,	/* 21 mknod		*/
+	do_create,	/* 22 mkdir		*/
+	do_create,	/* 23 create		*/
  /**/	readonly,	/* 24 link		*/
  /**/	/*do_rename*/readonly,	/* 25 rename		*/
 	do_lookup,	/* 26 lookup		*/
-/*CHK*/	no_sys,		/* 27 mountpoint	*/
+	do_mountpoint,	/* 27 mountpoint	*/
 	do_readsuper,	/* 28 readsuper		*/
+/*WRK	do_create,*/
 	no_sys,		/* 29 newnode (unsupported) */
 /*CHK*/	no_sys,		/* 30 rdlink		*/
 	do_getdents,	/* 31 getdents		*/

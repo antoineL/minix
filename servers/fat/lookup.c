@@ -1,9 +1,10 @@
 /* This file provides path-to-inode lookup functionality.
  *
  * The entry points into this file are:
- *   do_putnode		perform the PUTNODE file system call
- *   do_mountpoint	perform the MOUNTPOINT file system call
+ *   do_putnode		perform the PUTNODE file system request
+ *   do_mountpoint	perform the MOUNTPOINT file system request
  *   do_lookup		perform the LOOKUP file system request
+ *   do_create		perform the CREATE, MKDIR, MKNOD file system requests
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
@@ -494,4 +495,185 @@ PRIVATE char *get_name(
   }
 
   return(ep);
+}
+
+/*===========================================================================*
+ *				do_create				     *
+ *===========================================================================*/
+PUBLIC int do_create(void)
+{
+/* ... */
+  phys_bytes len;
+  int r;
+  struct inode *dirp;
+  struct inode *rip;
+  mode_t omode;
+  char lastc[LFN_NAME_MAX + 1];
+  
+  if (read_only) return(EROFS);	/* paranoia */
+
+  /* Read request message */
+/* CREATE, MKNOD, MKDIR; NEW_NODE?; idem SYMLINK */
+  omode = (mode_t) m_in.REQ_MODE;
+/*
+  caller_uid = (uid_t) m_in.REQ_UID;
+  caller_gid = (gid_t) m_in.REQ_GID;
+  */
+
+  /* Try to make the file. */ 
+
+  /* Copy the last component (i.e., file name) */
+#if 0
+  len = min( (unsigned) m_in.REQ_PATH_LEN, sizeof(lastc));
+#else
+  len = m_in.REQ_PATH_LEN;
+  if (len > sizeof(lastc) || len > NAME_MAX+1) {
+	return(ENAMETOOLONG);
+  }
+#endif
+  r = sys_safecopyfrom(VFS_PROC_NR, (cp_grant_id_t) m_in.REQ_GRANT,
+		    (vir_bytes) 0, (vir_bytes) lastc, (size_t) len, D);
+  if (r != OK) return r;
+#if 0
+  NUL(lastc, len, sizeof(lastc));
+  memset();
+#endif
+
+  /* Get last directory inode (i.e., directory that will hold the new inode) */
+  if ((dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+	  return(ENOENT);
+  get_inode(dirp);
+
+/* Create a new inode by calling new_node(). 
+ * New_node() is called by do_open(), do_mknod(), and do_mkdir().  
+ * In all cases it allocates a new inode, makes a directory entry for it in
+ * the dirp directory with string name, and initializes it.  
+ * It returns a pointer to the inode if it can do this; 
+ * otherwise it returns NULL.  It always sets 'err_code'
+ * to an appropriate value (OK or an error code).
+ * 
+ * The parsed path rest is returned in 'parsed' if parsed is nonzero. It
+ * has to hold at least NAME_MAX bytes.
+ */
+
+  /* Get final component of the path. */
+#if 0
+  rip = advance(dirp, lastc /*, IGN_PERM */ );
+#else
+  r = advance(dirp, &rip, lastc, IGN_PERM );
+#endif
+
+#if 0
+  if (S_ISDIR(bits) && (ldirp->i_nlinks >= LINK_MAX)) {
+        /* New entry is a directory, alas we can't give it a ".." */
+        put_inode(rip);
+        err_code = EMLINK;
+        return(NULL);
+  }
+#endif
+
+  if ( rip == NULL && r == ENOENT) {
+	/* Last path component does not exist.  Make new directory entry. */
+#if 0
+	if ( (rip = alloc_inode((ldirp)->i_dev, bits)) == NULL) {
+		/* Cannot creat new inode: out of inodes. */
+		return(NULL);
+	}
+
+	/* Force inode to the disk before making directory entry to make
+	 * the system more robust in the face of a crash: an inode with
+	 * no directory entry is much better than the opposite.
+	 */
+pour FAT, pour MKDIR, l´ordre est le suivant:
+ -creer inode vide (get_free_inode)
+ -allouer cluster, remplir avec . et ..
+ -add_entry
+#if 0  
+MKDIR
+  /* Get the inode numbers for . and .. to enter in the directory. */
+  dotdot = ldirp->i_num;	/* parent's inode number */
+  dot = rip->i_num;		/* inode number of the new dir itself */
+
+  /* Now make dir entries for . and .. unless the disk is completely full. */
+  /* Use dot1 and dot2, so the mode of the directory isn't important. */
+  rip->i_mode = (mode_t) m_in.REQ_MODE;	/* set mode */
+  r1 = search_dir(rip, dot1, &dot, ENTER, IGN_PERM);/* enter . in the new dir*/
+  r2 = search_dir(rip, dot2, &dotdot, ENTER, IGN_PERM); /* enter .. in the new
+							 dir */
+
+  /* If both . and .. were successfully entered, increment the link counts. */
+  if (r1 == OK && r2 == OK) {
+	  /* Normal case.  It was possible to enter . and .. in the new dir. */
+	  rip->i_nlinks++;	/* this accounts for . */
+	  ldirp->i_nlinks++;	/* this accounts for .. */
+	  ldirp->i_dirt = DIRTY;	/* mark parent's inode as dirty */
+  } else {
+	  /* It was not possible to enter . or .. probably disk was full -
+	   * links counts haven't been touched. */
+	  if(search_dir(ldirp, lastc, NULL, DELETE, IGN_PERM) != OK)
+		  panic("Dir disappeared: %ul", rip->i_num);
+	  rip->i_nlinks--;	/* undo the increment done in new_node() */
+  }
+  rip->i_dirt = DIRTY;		/* either way, i_nlinks has changed */
+#endif
+ 
+	rip->i_nlinks++;
+/* MKNOD:
+(zone_t) m_in.REQ_DEV
+ */
+	rip->i_zone[0] = z0;		/* major/minor device numbers */
+	rw_inode(rip, WRITING);		/* force inode to disk now */
+
+	/* New inode acquired.  Try to make directory entry. */
+	if((r=search_dir(ldirp, string, &rip->i_num, ENTER, IGN_PERM)) != OK) {
+		rip->i_nlinks--;	/* pity, have to free disk inode */
+		rip->i_dirt = DIRTY;	/* dirty inodes are written out */
+		put_inode(rip);	/* this call frees the inode */
+		err_code = r;
+		return(NULL);
+	}
+#endif
+
+  } else if (r == EENTERMOUNT || r == ELEAVEMOUNT) {
+  	r = EEXIST;
+  } else { 
+	/* Either last component exists, or there is some problem. */
+	if (rip != NULL)
+		r = EEXIST;
+/*
+	else
+		r = err_code;
+ */
+  }
+
+  /* The caller has to return the directory inode (*dirp).  */
+/*
+  err_code = r;
+  r = err_code;
+ */
+
+  /* If an error occurred, release inode. */
+/* MKDIR also execs if rip==NULL */
+  if (r != OK) {
+	  put_inode(dirp);
+	  put_inode(rip);
+	  return(r);
+  }
+
+  /* Reply message (solo CREATE) */
+  m_out.RES_INODE_NR = INODE_NR(rip);
+  m_out.RES_MODE = rip->i_mode;
+  m_out.RES_FILE_SIZE_LO = rip->i_size;
+
+  /* This values are needed for the execution */
+  m_out.RES_UID = use_uid;
+  m_out.RES_GID = use_gid;
+
+  /* Drop parent dir */
+  put_inode(dirp);		/* return the inode of the parent dir */
+
+/* except pour CREATE */  
+  put_inode(rip);		/* return the inode of the newly made dir */
+
+  return(OK);
 }
