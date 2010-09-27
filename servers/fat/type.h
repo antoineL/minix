@@ -95,16 +95,23 @@ typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
  * (non-zero) starting cluster number, so the inode can be located;
  * the '..' entries in subdirectories also have the starting cluster
  * number stored, so the inode can be located again.
- * The only difficulty is because in the root directory, there are
- * no '.' entry; the consequence is that the coordinates (root_dir, 0)
+ *
+ * The only difficulties are because of the root directory.
+ * Since there are no '.' entries in it, the coordinates (root_dir, 0)
  * can address a file which is not a directory; this case should be
- * handled specially.
+ * handled with care.
+ * The root directory itself is addressed with the coordinates (0,0),
+ * which match the value stored in the '..' entries; however, this
+ * does not match the actual number of the starting cluster.
+ * Extra care should be exercised to avoid creating other directory
+ * entries with 0 as starting cluster number.
  *
  * In addition to starting cluster number for the parent directory,
- * entries are also marked with the cluster number where the entry
- * actually stands, in dr_abscn; this allows quick access to the datas
+ * entries are also marked with the block number where the entry
+ * actually stands, in dr_absbn; this allows quick access to the datas
  * when they need to be updated. Another optimisation is to store
  * the position of the first of the lfn_direntry which are preceding.
+ * FIXME: move that stuff to normal members of struct inode.
  */
 struct direntryref {
   cluster_t	dr_parent;	/* cluster pointing the directory */
@@ -281,9 +288,11 @@ struct fatcache {
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
-  LIST_ENTRY(inode) i_hash;	/* dirref hashtable chain entry */
+  LIST_ENTRY(inode) i_hash;	/* coordonates hashtable chain entry */
+#if 0
   LIST_ENTRY(inode) i_hashclust; /* cluster hashtable chain entry */
   LIST_ENTRY(inode) i_hashref;	/* dirref hashtable chain entry */
+#endif
   unsigned short i_index;	/* inode index for quick reference */
   unsigned short i_gen;		/* inode generation number */
   unsigned short i_ref;		/* VFS reference count */

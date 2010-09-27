@@ -47,17 +47,25 @@ FORWARD _PROTOTYPE( int update_dev_status, (int task_status,
  *===========================================================================*/
 PUBLIC int do_new_driver(void)
 {
- /* New driver endpoint for this device */
+/* New driver endpoint for this device */
 
-/* FIXME: handle this better... */
-  assert(dev == (dev_t) m_in.REQ_DEV);
+  /* Check protocol sanity */
+  if( major((dev_t) m_in.REQ_DEV) != major(dev) ) return(EINVAL);
+
+  /* According to spec, the minor device could be different.
+   * Not sure how to handle it, better tell the world we can fudge...
+   */
+  if((dev_t) m_in.REQ_DEV != dev) {
+	printf("FATfs new_driver(dev=%x,) while our dev=%x\n",
+		(dev_t) m_in.REQ_DEV, dev);
+  }
 
 /* FIXME: if driver_e changes, need to close the old one (?)
  * then open the new driver channel...
+ *
+ * We do not currently do taht, and go the easiest way!
  */
   driver_e = (endpoint_t) m_in.REQ_DRIVER_E;
-
-/* need to dev_open it ??? */
 
   return(OK);
 }
@@ -72,10 +80,11 @@ PUBLIC int label_to_driver(cp_grant_id_t gid, size_t label_len)
  */
   int r;
 
+  /* Check protocol sanity */
   if (label_len >= sizeof(fs_dev_label))
 	return(EINVAL);
-  memset(fs_dev_label, 0, sizeof(fs_dev_label));
 
+  memset(fs_dev_label, 0, sizeof(fs_dev_label));
   r = sys_safecopyfrom(m_in.m_source, gid, (vir_bytes) 0,
 		       (vir_bytes) fs_dev_label, label_len, D);
   if (r != OK) {

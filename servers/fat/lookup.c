@@ -5,6 +5,8 @@
  *   do_mountpoint	perform the MOUNTPOINT file system request
  *   do_lookup		perform the LOOKUP file system request
  *   do_create		perform the CREATE, MKDIR, MKNOD file system requests
+ *   do_newnode		perform the NEWNODE file system request
+ *   do_unlink		perform the UNLINK, RMDIR file system requests
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
  *
@@ -40,6 +42,10 @@ FORWARD _PROTOTYPE( int parse_path, (ino_t dir, ino_t root, int flags,
 	struct inode **res_inop, size_t *offsetp, int *symlinkp)	);
 
 FORWARD _PROTOTYPE( char *get_name, (char *name, char string[NAME_MAX+1]) );
+FORWARD _PROTOTYPE( int remove_dir,
+	(struct inode *dirp, struct inode *rip, char string[NAME_MAX+1]) );
+FORWARD _PROTOTYPE( int unlink_file,
+	(struct inode *dirp, struct inode *rip, char string[NAME_MAX+1]) );
 
 /*===========================================================================*
  *				do_putnode				 *
@@ -503,46 +509,59 @@ PRIVATE char *get_name(
 PUBLIC int do_create(void)
 {
 /* ... */
-  phys_bytes len;
+/* CREATE, MKNOD, MKDIR; NEW_NODE?; idem SYMLINK */
   int r;
   struct inode *dirp;
   struct inode *rip;
-  mode_t omode;
-  char lastc[LFN_NAME_MAX + 1];
-  
+  char string[LFN_NAME_MAX + 1];
+  mode_t newnode_mode;
+  size_t len;
+
   if (read_only) return(EROFS);	/* paranoia */
 
   /* Read request message */
-/* CREATE, MKNOD, MKDIR; NEW_NODE?; idem SYMLINK */
-  omode = (mode_t) m_in.REQ_MODE;
+  newnode_mode = (mode_t) m_in.REQ_MODE;
 /*
-  caller_uid = (uid_t) m_in.REQ_UID;
-  caller_gid = (gid_t) m_in.REQ_GID;
+  newnode_uid = (uid_t) m_in.REQ_UID;
+  newnode_gid = (gid_t) m_in.REQ_GID;
   */
+  /* Are we creating a directory, a regular file,
+   * or something else (which will fail)?
+   */
+  if (S_ISDIR(newnode_mode)) {
+	/* Directories need allocation of space now (even if using MKNOD)
+	 * for the server to work, since we rely on the fact
+	 * directories have a non-zero start cluster number.
+	 */
+  } else if (S_ISREG(newnode_mode)) {
+  } else
+	return(EINVAL);
 
-  /* Try to make the file. */ 
+  /* Try to make the file. */
 
   /* Copy the last component (i.e., file name) */
 #if 0
-  len = min( (unsigned) m_in.REQ_PATH_LEN, sizeof(lastc));
+  len = min( (unsigned) m_in.REQ_PATH_LEN, sizeof(string));
 #else
   len = m_in.REQ_PATH_LEN;
-  if (len > sizeof(lastc) || len > NAME_MAX+1) {
+  if (len > sizeof(string) || len > NAME_MAX+1) {
 	return(ENAMETOOLONG);
   }
 #endif
+  memset(string, 0, sizeof(string));
   r = sys_safecopyfrom(VFS_PROC_NR, (cp_grant_id_t) m_in.REQ_GRANT,
-		    (vir_bytes) 0, (vir_bytes) lastc, (size_t) len, D);
+		    (vir_bytes) 0, (vir_bytes) string, len, D);
   if (r != OK) return r;
-#if 0
-  NUL(lastc, len, sizeof(lastc));
-  memset();
-#endif
+  /* Check protocol sanity */
+  if( len<=1 || string[len-1]!='\0' || strlen(string)+1!=len )
+	return(EINVAL);
 
   /* Get last directory inode (i.e., directory that will hold the new inode) */
-  if ((dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
-	  return(ENOENT);
-  get_inode(dirp);
+  /* Get the inode from the request msg. Do not increase the inode refcount*/
+  if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+  /*CHECKME: is it needed? is the dir open anyway? should we increase ref? */
+  /* get_inode(dirp); */
 
 /* Create a new inode by calling new_node(). 
  * New_node() is called by do_open(), do_mknod(), and do_mkdir().  
@@ -558,19 +577,32 @@ PUBLIC int do_create(void)
 
   /* Get final component of the path. */
 #if 0
-  rip = advance(dirp, lastc /*, IGN_PERM */ );
+  rip = advance(dirp, string /*, IGN_PERM */ );
 #else
-  r = advance(dirp, &rip, lastc, IGN_PERM );
+  r = advance(dirp, &rip, string, IGN_PERM );
 #endif
 
 #if 0
-  if (S_ISDIR(bits) && (ldirp->i_nlinks >= LINK_MAX)) {
+  if (S_ISDIR(newnode_mode) && (ldirp->i_nlinks >= LINK_MAX)) {
         /* New entry is a directory, alas we can't give it a ".." */
         put_inode(rip);
         err_code = EMLINK;
         return(NULL);
   }
 #endif
+
+  if ( rip == NULL && r == ENOENT) {
+  } else if (r == EENTERMOUNT || r == ELEAVEMOUNT) {
+  	r = EEXIST;
+  } else { 
+	/* Either last component exists, or there is some problem. */
+	if (rip != NULL)
+		r = EEXIST;
+/*
+	else
+		r = err_code;
+ */
+  }
 
   if ( rip == NULL && r == ENOENT) {
 	/* Last path component does not exist.  Make new directory entry. */
@@ -610,7 +642,7 @@ MKDIR
   } else {
 	  /* It was not possible to enter . or .. probably disk was full -
 	   * links counts haven't been touched. */
-	  if(search_dir(ldirp, lastc, NULL, DELETE, IGN_PERM) != OK)
+	  if(search_dir(ldirp, string, NULL, DELETE, IGN_PERM) != OK)
 		  panic("Dir disappeared: %ul", rip->i_num);
 	  rip->i_nlinks--;	/* undo the increment done in new_node() */
   }
@@ -655,25 +687,306 @@ MKDIR
   /* If an error occurred, release inode. */
 /* MKDIR also execs if rip==NULL */
   if (r != OK) {
-	  put_inode(dirp);
+	  /* put_inode(dirp); */
 	  put_inode(rip);
 	  return(r);
   }
 
   /* Reply message (solo CREATE) */
-  m_out.RES_INODE_NR = INODE_NR(rip);
-  m_out.RES_MODE = rip->i_mode;
-  m_out.RES_FILE_SIZE_LO = rip->i_size;
+  if (m_in.m_type == REQ_CREATE) {
+	m_out.RES_INODE_NR = INODE_NR(rip);
+	m_out.RES_FILE_SIZE_LO = rip->i_size;
+	m_out.RES_FILE_SIZE_HI = 0;
+	
+	/* These values are needed for VFS working: */
+	m_out.RES_MODE = rip->i_mode;
+	m_out.RES_UID = use_uid;
+	m_out.RES_GID = use_gid;
+  } else
+	/* only CREATE keeps the node referenced */
+	put_inode(rip);		/* drop the inode of the newly made entry */
 
-  /* This values are needed for the execution */
-  m_out.RES_UID = use_uid;
-  m_out.RES_GID = use_gid;
-
-  /* Drop parent dir */
-  put_inode(dirp);		/* return the inode of the parent dir */
-
-/* except pour CREATE */  
-  put_inode(rip);		/* return the inode of the newly made dir */
-
+  /* put_inode(dirp); */	/* no need to drop the inode of the parent dir */
   return(OK);
+}
+
+/*===========================================================================*
+ *				do_newnode				     *
+ *===========================================================================*/
+PUBLIC int do_newnode(void)
+{
+/* ... */
+/* NEW_NODE?; idem SYMLINK */
+  int r;
+  struct inode *rip;
+  mode_t newnode_mode;
+
+  if (read_only) return(EROFS);	/* paranoia */
+
+  /* Read request message */
+  newnode_mode = (mode_t) m_in.REQ_MODE;
+/*
+  newnode_uid = (uid_t) m_in.REQ_UID;
+  newnode_gid = (gid_t) m_in.REQ_GID;
+  */
+  /* Are we creating a directory, a regular file,
+   * or something else (which will fail)?
+   */
+  if (S_ISDIR(newnode_mode)) {
+	/* Directories need allocation of space now (even if using MKNOD)
+	 * for the server to work, since we rely on the fact
+	 * directories have a non-zero start cluster number.
+	 */
+  } else if (S_ISREG(newnode_mode)) {
+  } else
+	return(EINVAL);
+
+/* Create a new inode by calling new_node(). 
+ * New_node() is called by do_open(), do_mknod(), and do_mkdir().  
+ * In all cases it allocates a new inode, makes a directory entry for it in
+ * the dirp directory with string name, and initializes it.  
+ * It returns a pointer to the inode if it can do this; 
+ * otherwise it returns NULL.  It always sets 'err_code'
+ * to an appropriate value (OK or an error code).
+ * 
+ * The parsed path rest is returned in 'parsed' if parsed is nonzero. It
+ * has to hold at least NAME_MAX bytes.
+ */
+
+#if 0
+	if ( (rip = alloc_inode((ldirp)->i_dev, bits)) == NULL) {
+		/* Cannot creat new inode: out of inodes. */
+		return(NULL);
+	}
+
+	/* Force inode to the disk before making directory entry to make
+	 * the system more robust in the face of a crash: an inode with
+	 * no directory entry is much better than the opposite.
+	 */
+pour FAT, pour MKDIR, l´ordre est le suivant:
+ -creer inode vide (get_free_inode)
+ -allouer cluster, remplir avec . et ..
+ -add_entry
+#if 0  
+MKDIR
+  /* Get the inode numbers for . and .. to enter in the directory. */
+  dotdot = ldirp->i_num;	/* parent's inode number */
+  dot = rip->i_num;		/* inode number of the new dir itself */
+
+  /* Now make dir entries for . and .. unless the disk is completely full. */
+  /* Use dot1 and dot2, so the mode of the directory isn't important. */
+  rip->i_mode = (mode_t) m_in.REQ_MODE;	/* set mode */
+  r1 = search_dir(rip, dot1, &dot, ENTER, IGN_PERM);/* enter . in the new dir*/
+  r2 = search_dir(rip, dot2, &dotdot, ENTER, IGN_PERM); /* enter .. in the new
+							 dir */
+
+  /* If both . and .. were successfully entered, increment the link counts. */
+  if (r1 == OK && r2 == OK) {
+	  /* Normal case.  It was possible to enter . and .. in the new dir. */
+	  rip->i_nlinks++;	/* this accounts for . */
+	  ldirp->i_nlinks++;	/* this accounts for .. */
+	  ldirp->i_dirt = DIRTY;	/* mark parent's inode as dirty */
+  } else {
+	  /* It was not possible to enter . or .. probably disk was full -
+	   * links counts haven't been touched. */
+	  if(search_dir(ldirp, string, NULL, DELETE, IGN_PERM) != OK)
+		  panic("Dir disappeared: %ul", rip->i_num);
+	  rip->i_nlinks--;	/* undo the increment done in new_node() */
+  }
+  rip->i_dirt = DIRTY;		/* either way, i_nlinks has changed */
+#endif
+ 
+	rip->i_nlinks++;
+/* MKNOD:
+(zone_t) m_in.REQ_DEV
+ */
+	rip->i_zone[0] = z0;		/* major/minor device numbers */
+	rw_inode(rip, WRITING);		/* force inode to disk now */
+
+#endif
+
+  if (r == OK) {
+	m_out.RES_INODE_NR = INODE_NR(rip);
+	m_out.RES_FILE_SIZE_LO = rip->i_size;
+	m_out.RES_FILE_SIZE_HI = 0;
+	
+	/* These values are needed for VFS working: */
+	m_out.RES_MODE = rip->i_mode;
+	m_out.RES_UID = use_uid;
+	m_out.RES_GID = use_gid;
+  } else {
+  /* If an error occurred, release inode. */
+	if (rip) put_inode(rip);
+  }
+  return(r);
+}
+
+/*===========================================================================*
+ *				do_unlink				     *
+ *===========================================================================*/
+PUBLIC int do_unlink()
+{
+/* Perform the UNLINK or RMDIR request. The code for these two is almost
+ * the same. They differ only in some condition testing.
+ *
+ * unlink() may be used by the superuser to do dangerous things; rmdir() may
+ * not. However these distinctions are supposedly handled at VFS level.
+ * So we intend to perform any possible operation.
+ */
+  struct inode *rip;
+  struct inode *dirp;
+  int r;
+  char string[NAME_MAX];
+  size_t len;
+  
+  if (read_only) return(EROFS);	/* paranoia */
+
+  /* Copy the last component */
+#if 0
+  len = min( (unsigned) m_in.REQ_PATH_LEN, sizeof(string));
+#else
+  len = m_in.REQ_PATH_LEN;
+  if (len > sizeof(string) || len > NAME_MAX+1) {
+	return(ENAMETOOLONG);
+  }
+#endif
+  r = sys_safecopyfrom(VFS_PROC_NR, (cp_grant_id_t) m_in.REQ_GRANT,
+		    (vir_bytes) 0, (vir_bytes) string, len, D);
+  if (r != OK) return r;
+#if 0
+  NUL(string, len, sizeof(string));
+  memset();
+#endif
+
+  /* Temporarily open the dir. */
+  /* Get the inode from the request msg. Do not increase the inode refcount*/
+  if( (dirp = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+  /*CHECKME: is it needed? is the dir open anyway? should we increase ref? */
+  /* get_inode(dirp); */
+
+  /* The last directory exists.  Does the file also exist? */
+  r = advance(dirp, &rip, string, IGN_PERM);
+
+  /* If error, return inode. */
+  if(r != OK) {
+	  /* Mount point? */
+  	if (r == EENTERMOUNT || r == ELEAVEMOUNT) {
+  	  	put_inode(rip);
+  		r = EBUSY;
+  	}
+	/* put_inode(dirp); */
+	return(r);
+  }
+  
+  /* Now test if the call is allowed, separately for unlink() and rmdir(). */
+  if(m_in.m_type == REQ_RMDIR) {
+	r = remove_dir(dirp, rip, string);
+  } else { /* request is UNLINK */
+	/* Only the superuser may unlink directories, but it can unlink
+	 * any dir. However in current versions of VFS, the check is not
+	 * performed; so we choose the safe way, and prevent any unlink(DIR)
+	 *
+	 * A possible way is to record if the last LOOKUP (on that directory)
+	 * was done with root credentials or not, and use that information
+	 * to decide if the operation can be authorized; however it would
+	 * remove the stateless property of the current protocol, and
+	 * allow possible races and subsequent security holes if/when
+	 * VFS becomes multi-tasked.
+	 * Also note that POSIX allows file systems to arbitrary denegate
+	 * directories unlinking.
+	 */
+	if (IS_DIR(rip)) r = EPERM;
+
+	/* Actually try to unlink the file; fails if parent is mode 0 etc. */
+	if (r == OK) r = unlink_file(dirp, rip, string);
+  }
+
+  /* If unlink was possible, it has been done, otherwise it has not. */
+  put_inode(rip);
+  /* put_inode(dirp); */
+  return(r);
+}
+
+/*===========================================================================*
+ *				remove_dir				     *
+ *===========================================================================*/
+PRIVATE int remove_dir(
+  struct inode *dirp,		 	/* parent directory */
+  struct inode *rip,			/* directory to be removed */
+  char dir_name[NAME_MAX])		/* name of directory to be removed */
+{
+/* A directory has to be removed. Five conditions have to met:
+ *	- The file must be a directory
+ *	- The directory must be empty (except for . and ..)
+ *	- The final component of the path must not be . or ..
+ *	- The directory must not be the root of a mounted file system (VFS)
+ *	- The directory must not be anybody's root/working directory (VFS)
+ */
+  int r;
+
+  /* is_empty_dir() checks that rip is a directory too. */
+  if ((r = is_empty_dir(rip)) != OK)
+  	return(r);
+
+  if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0)
+	return(EINVAL);
+  if ( rip->i_flags & (I_ROOTDIR|I_MOUNTPOINT) ) {
+	/* cannot remove 'root' or a mounpoint */
+	return(EBUSY);
+  }
+
+  /* Actually try to unlink the file; fails if parent is mode 0 etc. */
+  if ((r = unlink_file(dirp, rip, dir_name)) != OK)
+	return r;
+
+  /* Unlink . and .. from the dir. The super user can link and unlink any dir,
+   * so don't make too many assumptions about them.
+   */
+/* FIXME: is it really necessary for FAT? */
+  (void) unlink_file(rip, NULL, /*dot1*/ ".");
+  (void) unlink_file(rip, NULL, /*dot2*/ "..");
+  return(OK);
+}
+
+/*===========================================================================*
+ *				unlink_file				     *
+ *===========================================================================*/
+PRIVATE int unlink_file(
+  struct inode *dirp,		/* parent directory of file */
+  struct inode *rip,		/* inode of file, may be NULL too. */
+  char file_name[NAME_MAX])	/* name of file to be removed */
+{
+/* Unlink 'file_name'; rip must be the inode of 'file_name' or NULL. */
+
+  ino_t numb;			/* inode number */
+  int	r;
+
+#if 0
+/* FIXME: only used for . and .. above; or perhaps RENAME? */
+  /* If rip is not NULL, it is used to get faster access to the inode. */
+  if (rip == NULL) {
+  	/* Search for file in directory and try to get its inode. */
+	err_code = search_dir(dirp, file_name, &numb, LOOK_UP, IGN_PERM);
+	if (err_code == OK) rip = get_inode(dirp->i_dev, (int) numb);
+	if (err_code != OK || rip == NULL) return(err_code);
+  } else {
+	dup_inode(rip);		/* inode will be returned with put_inode */
+  }
+#endif
+
+  r = del_direntry(dirp, rip);
+
+  if (r == OK) {
+#if 0
+	rip->i_nlinks--;	/* entry deleted from parent's dir */
+	rip->i_update |= CTIME;
+#endif
+	rip->i_ctime = TIME_UPDATED;
+	rip->i_flags |= I_DIRTY;
+  }
+
+  /* did not get_inode/dup_inode above, so no need to
+   * put_inode(rip); */
+  return(r);
 }

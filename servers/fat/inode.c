@@ -175,10 +175,17 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
 #endif
   rip->i_ref = 1;		/* root inode is hereby in use */
   rip->i_flags = I_DIR | I_ROOTDIR; /* root inode is a directory */
+
   rip->i_Attributes = ATTR_DIRECTORY;
   memset(rip->i_Name, ' ', 8);	/* root inode has empty name */
   memset(rip->i_Extension, ' ', 3);
-/* FIXME: dirref... */
+
+  /* See type.h and enter_as_inode() in direntry.c
+   * for more explanation about this value.
+   */
+  rip->i_parent_clust = CLUST_ROOT;
+  rip->i_entrypos = 0;
+  rehash_inode(rip);
 
   return(rip);
 }
@@ -219,6 +226,7 @@ PUBLIC struct inode *fetch_inode(ino_t ino_nr)
   return rip;
 }
 
+#if 0
 /*===========================================================================*
  *				find_inode        			     *
  *===========================================================================*/
@@ -266,6 +274,7 @@ PUBLIC struct inode * cluster_to_inode(cluster_t clust)
   
   return(NULL);
 }
+#endif
 
 /*===========================================================================*
  *				dirref_to_inode        			     *
@@ -308,6 +317,7 @@ PUBLIC void rehash_inode(struct inode *rip)
   assert(rip);
   flags = rip->i_flags;
 
+#if 0
   if (flags & I_HASHED_CLUST)
 	LIST_REMOVE(rip, i_hashclust);
   if (rip->i_clust != 0) {
@@ -316,6 +326,7 @@ PUBLIC void rehash_inode(struct inode *rip)
 	flags |= I_HASHED_CLUST;
   } else
 	flags &= ~I_HASHED_CLUST;
+#endif
 
   if (flags & I_HASHED)
 	LIST_REMOVE(rip, i_hash);
@@ -337,10 +348,12 @@ PRIVATE void unhash_inode(struct inode *rip)
 /* Remove from hash tables. To be done when inode goes out of cache. */
 
   assert(rip);
+#if 0
   if (rip->i_flags & I_HASHED_CLUST) {
 	LIST_REMOVE(rip, i_hashclust);
 	/* rip->i_clust = 0; */
   }
+#endif
   if (rip->i_flags & I_HASHED) {
 	LIST_REMOVE(rip, i_hash);
 	/* rip->i_dirref.dr_clust = 0; */

@@ -54,12 +54,25 @@ _PROTOTYPE( int seqblock_dev_io, (int op, void *, u64_t pos, int cnt)	);
 
 /* fat.c */
 _PROTOTYPE( block_t bmap, (struct inode *rip, unsigned long position)	);
+_PROTOTYPE( int clusteralloc, (cluster_t *res_clust, cluster_t fillwith));
+_PROTOTYPE( int clusterfree, (cluster_t cluster)			);
+_PROTOTYPE( cluster_t countfreeclusters, (void)				);
+_PROTOTYPE( void done_fat_bitmap, (void)					);
+_PROTOTYPE( int extendfile,
+	(struct inode *rip, struct buf **bpp, cluster_t *ncp)		);
+_PROTOTYPE( int freeclusterchain, (cluster_t startcluster)		);
+_PROTOTYPE( int init_fat_bitmap, (void)					);
+
+_PROTOTYPE( cluster_t lastcluster, (struct inode *, cluster_t *frcnp)	);
+_PROTOTYPE( block_t peek_bmap, (struct inode *rip, unsigned long)	);
+
 _PROTOTYPE( struct buf *new_block, (struct inode *rip, off_t position)	);
 
+
 /* inode.c */
-_PROTOTYPE( struct inode *cluster_to_inode, (cluster_t)			);
 _PROTOTYPE( struct inode *dirref_to_inode, (cluster_t, unsigned)	);
 _PROTOTYPE( struct inode *fetch_inode, (ino_t ino_nr)			);
+_PROTOTYPE( struct inode *find_inode, (cluster_t, unsigned)		);
 _PROTOTYPE( void flush_inodes, (void)					);
 _PROTOTYPE( struct inode *get_free_inode, (void)			);
 _PROTOTYPE( void get_inode, (struct inode *ino)				);
@@ -79,13 +92,13 @@ _PROTOTYPE( int advance, (struct inode *dirp,
 _PROTOTYPE( int do_create, (void)					);
 _PROTOTYPE( int do_lookup, (void)					);
 _PROTOTYPE( int do_mountpoint, (void)					);
+_PROTOTYPE( int do_newnode, (void)					);
 _PROTOTYPE( int do_putnode, (void)					);
+_PROTOTYPE( int do_unlink, (void)					);
 
-_PROTOTYPE( int do_create, (void)					);
-_PROTOTYPE( int do_mkdir, (void)					);
-_PROTOTYPE( int do_mknod, (void)					);
-_PROTOTYPE( int do_mountpoint, (void)					);
+_PROTOTYPE( int do_link, (void)						);
 _PROTOTYPE( int do_symlink, (void)					);
+_PROTOTYPE( int do_readlink, (void)					);
 
 /* main.c */
 _PROTOTYPE( int do_nothing, (void)					);
@@ -100,6 +113,7 @@ _PROTOTYPE( int do_unmount, (void)					);
 /* readwrite.c */
 _PROTOTYPE( int do_bread, (void)					);
 _PROTOTYPE( int do_bwrite, (void)					);
+_PROTOTYPE( int do_ftrunc, (void)					);
 _PROTOTYPE( int do_inhibread, (void)					);
 _PROTOTYPE( int do_read, (void)						);
 _PROTOTYPE( int do_write, (void)					);

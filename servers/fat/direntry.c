@@ -93,6 +93,8 @@ FIXME: refcount?
 	  && memcmp(dp->deName, NAME_DOT, 8+3) != 0) {
 		/* canonical coordinates. */
 		parent_clust = dirp->i_clust;
+#if 0
+/* FIXME: it should work OK with normal case... */
 	} else if ( dirrefp->dr_entrypos == DIR_ENTRY_SIZE
 	  && memcmp(dp->deName, NAME_DOT_DOT, 8+3) != 0
 	  && dirp->i_flags&I_ROOTDIR ) {
@@ -104,9 +106,14 @@ FIXME: refcount?
 		assert(rip);
 		get_inode(dirp);
 		return(dirp);
+#endif
 	} else {
-		/* either the entry in parent, or .. in sub
-		 * eitherways, the cluster is what we are after
+		/* The entry is the named one in parent, or is .. in sub;
+		 * eitherways, the "starting cluster" is what we are after.
+		 *
+		 * FAT quirks: the .. entry of 1st-level subdirectories (which
+		 * points to the root directory) has 0 as starting cluster,
+		 * which is exactly what is stored in inodes[0].i_parent_clust
 		 */
 		parent_clust = clust;
 	}
@@ -136,6 +143,12 @@ FIXME: refcount?
   rip->i_size = get_le32(dp->deFileSize);
   if ( (dp->deAttributes & ATTR_DIRECTORY) == ATTR_DIRECTORY)  {
 	rip->i_flags |= I_DIR;	/* before call to get_mode */
+	if (rip->i_clust == CLUST_NONE) {
+/* FIXME: Warn+fail is i_clust==CLUST_NONE(0); need to clean the error protocol
+ */
+		put_inode(rip);
+		return(NULL);
+	}
 	if (rip->i_size == 0) {
 	/* in the FAT file system, since directory entries are
 	 * replicated in many places around, the deFileSize field
@@ -151,8 +164,6 @@ DBGprintf(("FATfs: inode %d is a directory, size up to %u\n", INODE_NR(rip), sb.
 		rip->i_size == sb.bpcluster;
 		rip->i_flags |= I_DIRNOTSIZED;
 	}
-/* FIXME: Warn+fail is i_clust==0; need to clean the error protocol
- */
   }
 /* FIXME: else should check clust==0
  * (or we have potential problems down the road...)

@@ -589,12 +589,11 @@ PUBLIC int do_readsuper(void)
   if ((bcc.bpblock % 512) != 0) 
 	return(EINVAL);
 
-/* FIXME: compute num_blocks with knowledge of global FS size... */
+/* FIXME: compute num_blocks (bcc.nbufs) with knowledge of global FS size...*/
   init_cache(bcc.nbufs=NUM_BUFS, bcc.bpblock);
 
-/* FIXME: if FAT12, read the FAT into specials (contiguous) buffers
- * Do not forget to increase bufs_in_use...
- */
+  if ( (r = init_fat_bitmap()) != OK )
+	return(r);
 
   root_ip = init_inodes(NUM_INODES);
 
@@ -614,22 +613,19 @@ PUBLIC int do_readsuper(void)
 	/* We do not know the size of the root directory...
 	 * We could enumerate the FAT chain to learn how long
 	 * the directory really is; right now we do not do that,
-	 * and just place a faked value of one cluster.
+	 * and just place a faked value of one cluster;
+	 * anyway this directory will be looked up quickly...
 	 */
 	root_ip->i_size == sb.bpcluster;
 	root_ip->i_flags |= I_DIRNOTSIZED;
   }
   root_ip->i_mode = get_mode(root_ip);
+/* FIXME above... */
+  sb.rootCluster = root_ip->i_clust;
 
 /* FIXME: fake entries . and .. in root dir; will fix
   root_ip->i_entrypos = ???
  */
-/* FIXME above... */
-  sb.rootCluster =
-  root_ip->i_parent_clust = root_ip->i_clust;
-  root_ip->i_entrypos = 0;
-
-  rehash_inode(root_ip);
 
   /* Future work: may fetch the volume name (either extBPB or root dir) */
 
@@ -657,8 +653,6 @@ PUBLIC int do_unmount()
 
   if (state != MOUNTED)
          return(EINVAL);
-
-/* FIXME: if FAT12, deref the special blocks containing the FAT */
 
 #if 1
   /* Decrease the reference count of the root inode.
@@ -705,6 +699,9 @@ PUBLIC int do_unmount()
  *	we should mark FAT[1] as "umounted clean" (after flush), in 2 places
  *	if hard_errors == 0, mark "no harderrs", in 2 places
  */
+/* FIXME: if FAT12, deref the special blocks containing the FAT */
+
+  done_fat_bitmap();
 
   /* force any cached blocks out of memory */
 /* CHECKME: perhaps better to call explicitely

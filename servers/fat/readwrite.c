@@ -2,11 +2,11 @@
  *
  * The entry points into this file are:
  *   do_read		perform the READ file system request
+ *   do_inhibread	perform the INHIBREAD file system request
  *   do_bread		perform the BREAD file system request
  *   do_write		perform the WRITE file system request
  *   do_bwrite		perform the BWRITE file system request
  *   do_readwrite	perform the READ, WRITE, BREAD and BWRITE requests
- *   do_inhibread	perform the INHIBREAD file system request
  *   read_ahead		try to launch the read ahead of some more blocks
  *
  * Warning: this code is not reentrant (use static local variables, without mutex)
@@ -40,6 +40,10 @@ PRIVATE struct inode *rdahed_inode;
  */
 FORWARD _PROTOTYPE( struct buf *rahead, (struct inode *rip, block_t baseblock,
 			u64_t position, unsigned bytes_ahead)		);
+FORWARD _PROTOTYPE( int set_newsize,
+			(struct inode *, unsigned long newsize)		);
+FORWARD _PROTOTYPE( int clear_area, (struct inode *rip,
+			unsigned long start, unsigned long end)		);
 
 /*===========================================================================*
  *				do_read					   *
@@ -50,12 +54,10 @@ PUBLIC int do_read(void)
  */
   int r, rw_flag, n;
   cp_grant_id_t gid;
-#if 0
-  u64_t position64;
-#endif
-  unsigned long position, f_size, bytes_left;
-  size_t nrbytes;
-  unsigned int off, cum_io, chunk;
+  unsigned long position, file_size, bytes_left;
+  size_t rem_bytes, chunk;
+  vir_bytes cum_bytes;
+  unsigned int off;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -65,76 +67,51 @@ PUBLIC int do_read(void)
   /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
-#if 0
-  position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
-  		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-#endif
-  nrbytes = (size_t) m_in.REQ_NBYTES;
+  rem_bytes = (size_t) m_in.REQ_NBYTES;
   position = (unsigned long) m_in.REQ_SEEK_POS_LO;
   if (m_in.REQ_SEEK_POS_HI || position>sb.maxFilesize) {
-	nrbytes = 0;		/* indicates EOF, do not read */
+	rem_bytes = 0;		/* indicates EOF, do not read */
   }
   gid = (cp_grant_id_t) m_in.REQ_GRANT;
-  f_size = rip->i_size;
+  file_size = rip->i_size;
 
-#if 0  
-  DBGprintf(("FATfs: read in %lo, %u bytes from %lx:%lx...\n",
-	INODE_NR(rip), nrbytes, 1[(unsigned long*)&position64], *(unsigned long*)&position64));
-#else
-#endif
+  DBGprintf(("FATfs: read in %lo, %u bytes from %lu...\n", INODE_NR(rip), rem_bytes, position));
 
 #if 0
   rdwt_err = OK;		/* set to EIO if disk error occurs */
 #endif
 
-  cum_io = 0;
+  cum_bytes = 0;
   /* Split the transfer into chunks that don't span two blocks. */
-  while (nrbytes > 0) {
-#if 0
-	off = rem64u(position64, bcc.bpblock);
-DBGprintf(("off=%u position=%u position64=%u:%u\n", off, position, ex64hi(position64), ex64lo(position64)));
-	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
-					& sb.brelmask
-	chunk = min(nrbytes, bcc.bpblock - off);
-#else
+  while (rem_bytes > 0) {
 	off = position & bcc.brelmask; /* offset in blk*/
-	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
-DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, f_size));
-#endif
-	bytes_left = f_size - position;
-	if (position >= f_size) break;	/* we are beyond EOF */
-#if 0
-	if (chunk > (unsigned int) bytes_left) chunk = bytes_left;
-DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
-#else
+	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, file_size));
+
+	bytes_left = file_size - position;
+	if (position >= file_size) break;	/* we are beyond EOF */
 	if (chunk > bytes_left) chunk = bytes_left;
-#endif
 
 	/* Read or write 'chunk' bytes. */
-#if 0
-	if (ex64hi(position64) != 0)
-		panic("rw_chunk: position too high");
-	b = bmap(rip, (off_t) ex64lo(position64));
-#else
 	b = bmap(rip, position);
-#endif
 	
 	if (b == NO_BLOCK) {
-		DBGprintf(("FATfs: in do_read, bmap returned NO_BLOCK...???\n"));
+		DBGprintf(("FATfs: in do_read, bmap returned NO_BLOCK!?\n"));
 		/* Reading from a nonexistent block.  Must read as all zeros.*/
 		bp = get_block(NO_DEV, NO_BLOCK, NO_READ);
 		zero_block(bp);
 	} else {
 		/* Read and read ahead if convenient. */
-		bp = rahead(rip, b, cvul64(position), nrbytes);
+/* FIXME: peek for possible blocks according to cached FAT clusters */
+		bp = rahead(rip, b, cvul64(position), rem_bytes);
 	}
 	
 	/* In all cases, bp now points to a valid buffer. */
 	assert(bp != NULL);
 	
 	/* Copy a chunk from the block buffer to user space. */
-	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) cum_io,
-			 (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
+	r = sys_safecopyto(VFS_PROC_NR, gid, cum_bytes,
+			 (vir_bytes) (bp->b_data+off), chunk, D);
 	put_block(bp);
 
 /* FIXME: END_OF_FILE stuff here??? */
@@ -144,11 +121,8 @@ DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
  */
 
 	/* Update counters and pointers. */
-	nrbytes -= chunk;	/* bytes yet to be read */
-	cum_io += chunk;	/* bytes read so far */
-#if 0
-	position64 = add64ul(position64, chunk);	/* position within the file */
-#endif
+	rem_bytes -= chunk;	/* bytes yet to be read */
+	cum_bytes += chunk;	/* bytes read so far */
 	position += chunk;	/* position within the file */
   }
 
@@ -163,11 +137,7 @@ DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
   /* It might change later and the VFS has to know this value */
   m_out.RES_SEEK_POS_LO = position;
   m_out.RES_SEEK_POS_HI = m_in.REQ_SEEK_POS_HI;
-#if 0
-  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
-#endif
-  m_out.RES_NBYTES = cum_io;
+  m_out.RES_NBYTES = cum_bytes;
   
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
@@ -179,87 +149,6 @@ DBGprintf(("chunk2 is %u bytes, left=%u\n", chunk, bytes_left));
 	rip->i_flags |= I_ACCESSED|I_DIRTY;	/* inode is thus now dirty */
   }
   
-  return(r);
-}
-
-/*===========================================================================*
- *				do_bread				   *
- *===========================================================================*/
-PUBLIC int do_bread(void)
-{
-/* Read from a block device.
- */
-  int r, rw_flag, n;
-  cp_grant_id_t gid;
-  u64_t position;
-  size_t nrbytes;
-  unsigned int off, cum_io, chunk;
-  block_t b;
-  struct inode *rip;
-  struct buf *bp;
-  struct inode blk_rip;  /* Pseudo inode for rw_chunk */
-
-  r = OK;
-
-  /* Get the values from the request message */
-  assert(m_in.REQ_DEV2 == dev);
-  position = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
-		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-  gid = (cp_grant_id_t) m_in.REQ_GRANT;
-  nrbytes = (size_t) m_in.REQ_NBYTES;
-
-#if 0
-  rdwt_err = OK;		/* set to EIO if disk error occurs */
-#endif
-
-  cum_io = 0;
-  /* Split the transfer into chunks that don't span two blocks. */
-  while (nrbytes > 0) {
-	b = div64u(position, bcc.bpblock);
-	off = rem64u(position, bcc.bpblock); /* offset in block */
-	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
-	
-	/* Read and read ahead if convenient. */
-/*FIXME*/ rip = &blk_rip;
-	bp = rahead(rip, b, position, nrbytes);
-	
-	/* In all cases, bp now points to a valid buffer. */
-	assert(bp != NULL);
-	
-	/* Copy a chunk from the block buffer to user space. */
-	r = sys_safecopyto(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
-			 (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
-	put_block(bp);
-
-	if (r != OK) break;	/* EOF reached */
-/*
-	if (rdwt_err < 0) break;
- */
-
-	/* Update counters and pointers. */
-	nrbytes -= chunk;	/* bytes yet to be read */
-	cum_io += chunk;	/* bytes read so far */
-	position = add64ul(position, chunk); /* position within the file */
-  }
-
-  m_out.RES_SEEK_POS_LO = ex64lo(position); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position); 
-  m_out.RES_NBYTES = cum_io;
-  
-#if 0  
-  /* Check to see if read-ahead is called for, and if so, set it up. */
-/*FIXME: should work... */
-  if( ((unsigned int) position & sb.brelmask) == 0) {
-	rdahed_inode = rip;
-	rdahedpos = position;
-  } 
-#endif
-
-#if 0  
-  if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
-  if (rdwt_err == END_OF_FILE) r = OK;
-#endif
-
   return(r);
 }
 
@@ -277,6 +166,91 @@ PUBLIC int do_inhibread(void)
   rip->i_flags |= I_SEEK;	
   
   return(OK);
+}
+
+/*===========================================================================*
+ *				do_bread				   *
+ *===========================================================================*/
+PUBLIC int do_bread(void)
+{
+/* Read from a block device.
+ */
+  int r, rw_flag, n;
+  cp_grant_id_t gid;
+  u64_t position;
+  size_t rem_bytes;
+  vir_bytes cum_bytes, chunk;
+  unsigned int off;
+  block_t b;
+  struct buf *bp;
+  struct inode *rip;
+  struct inode blk_rip;  /* Pseudo inode for rw_chunk */
+
+  r = OK;
+
+  /* Get the values from the request message */
+  if((dev_t) m_in.REQ_DEV2 != dev) return(EINVAL);
+  position = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
+		    (unsigned long) m_in.REQ_SEEK_POS_HI);
+  gid = (cp_grant_id_t) m_in.REQ_GRANT;
+  rem_bytes = (size_t) m_in.REQ_NBYTES;
+
+#if 0
+  rdwt_err = OK;		/* set to EIO if disk error occurs */
+#endif
+
+  cum_bytes = 0;
+  b = div64u(position, bcc.bpblock);
+  off = rem64u(position, bcc.bpblock); /* offset in block */
+  /* Split the transfer into chunks that don't span two blocks. */
+  while (rem_bytes > 0) {
+	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+	
+	/* Read and read ahead if convenient. */
+/*FIXME*/ rip = &blk_rip;
+	bp = rahead(rip, b, position, rem_bytes);
+	
+	/* In all cases, bp now points to a valid buffer. */
+	assert(bp != NULL);
+	
+	/* Copy a chunk from the block buffer to user space. */
+	r = sys_safecopyto(VFS_PROC_NR, gid, cum_bytes,
+			 (vir_bytes) (bp->b_data+off), chunk, D);
+	put_block(bp);
+
+	if (r != OK) break;	/* EOF reached */
+/*
+	if (rdwt_err < 0) break;
+ */
+
+	/* Update counters and pointers. */
+	rem_bytes -= chunk;	/* bytes yet to be read */
+	cum_bytes += chunk;	/* bytes read so far */
+	position = add64ul(position, chunk); /* position within the file */
+
+	++b;			/* next block */
+	off = 0;		/* start at beginning of block */
+  }
+
+  m_out.RES_SEEK_POS_LO = ex64lo(position); 
+  m_out.RES_SEEK_POS_HI = ex64hi(position); 
+  m_out.RES_NBYTES = cum_bytes;
+  
+#if 0  
+  /* Check to see if read-ahead is called for, and if so, set it up. */
+/*FIXME: should work... */
+  if( ((unsigned int) position & sb.brelmask) == 0) {
+	rdahed_inode = rip;
+	rdahedpos = position;
+  } 
+#endif
+
+#if 0  
+  if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
+  if (rdwt_err == END_OF_FILE) r = OK;
+#endif
+
+  return(r);
 }
 
 /*===========================================================================*
@@ -388,6 +362,7 @@ PRIVATE struct buf *rahead(
   blocks_ahead = (bytes_ahead + bcc.bpblock - 1) / bcc.bpblock;
 
 #if 0
+/* Change to peeking the FAT... */
   if (block_spec && rip->i_size == 0) {
 	blocks_left = (block_t) NR_IOREQS;
   } else {
@@ -453,9 +428,10 @@ PUBLIC int do_write(void)
   int r, rw_flag, n;
   cp_grant_id_t gid;
   u64_t position64;
-  off_t position, f_size, bytes_left;
-  size_t nrbytes;
-  unsigned int off, cum_io, chunk;
+  unsigned long position, file_size, bytes_left;
+  size_t rem_bytes, chunk;
+  vir_bytes cum_bytes;
+  unsigned int off;
   block_t b;
   struct inode *rip;
   struct buf *bp;
@@ -465,55 +441,58 @@ PUBLIC int do_write(void)
   unsigned chunk;
   mode_t mode_word;
  */ 
-  struct inode blk_rip;  /* Pseudo inode for rw_chunk */
 
-  if (read_only)
-	return EROFS;
+  if (read_only) return EROFS;
 
   r = OK;
   
   /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
+/*
   position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
   		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-  position = (off_t) m_in.REQ_SEEK_POS_LO;
-/* BUG if !block && (position<0 || posHi!=0 */
+*/
+  rem_bytes = (size_t) m_in.REQ_NBYTES;
+  position = (unsigned long) m_in.REQ_SEEK_POS_LO;
   gid = (cp_grant_id_t) m_in.REQ_GRANT;
-  nrbytes = (size_t) m_in.REQ_NBYTES;
-  f_size = rip->i_size;
+  rem_bytes = (size_t) m_in.REQ_NBYTES;
+  file_size = rip->i_size;
   
-  /* Check in advance to see if file will grow too big. */
-/* FIXME: check overflow */
-  if (position > (off_t) (sb.maxFilesize - nrbytes))
+  /* Check in advance to see if file will grow too big.
+   * Take care of possible overflows if rem_bytes>sb.maxFilesize
+   */
+  if ( m_in.REQ_SEEK_POS_HI
+    || position > sb.maxFilesize
+    || position > (sb.maxFilesize - rem_bytes) )
 	return(EFBIG);
 
-#if 0
-/* Clear the zone containing present EOF if hole about
- * to be created.  This is necessary because all unwritten
- * blocks prior to the EOF must read as zeros.
- */
-  if(position > f_size) clear_zone(rip, f_size, 0);
-#endif
-	    
+  /* Clear the zone containing present EOF if hole about
+   * to be created.  This is necessary because all unwritten
+   * blocks prior to the EOF must read as zeros.
+   */
+  if(position > file_size) set_newsize(rip, position);
+
 #if 0
   rdwt_err = OK;		/* set to EIO if disk error occurs */
 #endif
 
-  cum_io = 0;
+  cum_bytes = 0;
   /* Split the transfer into chunks that don't span two blocks. */
-  while (nrbytes > 0) {
-	off = rem64u(position64, bcc.bpblock);	/* offset in blk*/
+  while (rem_bytes > 0) {
+	off = position & bcc.brelmask; /* offset in blk*/
+	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, file_size));
+
 #if 0
-	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
-	chunk = min(nrbytes, bcc.bpblock - off);
-#else
-	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
+	bytes_left = file_size - position;
+	if (position >= file_size) break;	/* we are beyond EOF */
+	if (chunk > bytes_left) chunk = bytes_left;
 #endif
-	if (ex64hi(position64) != 0)
-		panic("rw_chunk: position too high");
-	b = bmap(rip, (off_t) ex64lo(position64));
-	
+
+	/* Write 'chunk' bytes. */
+	b = bmap(rip, position);
+
 	if (b == NO_BLOCK) {
 #if 0
 		/* Writing to a nonexistent block. Create and enter in inode.*/
@@ -521,75 +500,75 @@ PUBLIC int do_write(void)
 #endif
 			return /*FIXME!!! (err_code)*/ EIO;
 	} else {
-		/* Normally an existing block to be partially overwritten is first read
-		 * in.  However, a full block need not be read in.  If it is already in
-		 * the cache, acquire it, otherwise just acquire a free buffer.
+		/* Normally an existing block to be partially overwritten is
+		 * first read in. However, a full block need not be read in.
+		 * If it is already in the cache, acquire it, otherwise just
+		 * acquire a free buffer.
 		 */
 		n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
-		if (off == 0 && (off_t) ex64lo(position64) >= rip->i_size) 
+		if (off == 0 && position >= rip->i_size) 
 			n = NO_READ;
 		bp = get_block(dev, b, n);
 	}
 	
 	/* In all cases, bp now points to a valid buffer. */
-	if (bp == NULL) 
-		panic("bp not valid in rw_chunk; this can't happen");
-	
+	assert(bp != NULL);
+
+/* FIXME: if we advance i_size and are going past a block boundary
+ * which is NOT a cluster boundary, we should make sure the newly
+ * allocated block is zero-ed...
+ */
+
+#if 0	
 	if (chunk != bcc.bpblock &&
 	    (off_t) ex64lo(position64) >= rip->i_size && off == 0) {
 		zero_block(bp);
 	}
+#else
+	if (n == NO_READ)
+		zero_block(bp);
+#endif
 
 	/* Copy a chunk from user space to the block buffer. */
-	r = sys_safecopyfrom(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
-			   (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
+	r = sys_safecopyfrom(VFS_PROC_NR, gid, cum_bytes,
+			   (vir_bytes) (bp->b_data+off), chunk, D);
 	bp->b_dirt = DIRTY;
 	put_block(bp);
 
-	if (r != OK) break;	/* EOF reached */
+	if (r != OK) break;
+/*CANNOT BE... EOF reached */
 /*
 	if (rdwt_err < 0) break;
  */
 
 	/* Update counters and pointers. */
-	nrbytes -= chunk;	      /* bytes yet to be read */
-	cum_io += chunk;	      /* bytes read so far */
-	position64 = add64ul(position64, chunk);	/* position within the file */
-	position += (off_t) chunk;	/* position within the file */
+	cum_bytes += chunk;	/* bytes written so far */
+	rem_bytes -= chunk;	/* bytes yet to be written */
+	position += chunk;	/* position within the file */
   }
 
-  m_out.RES_SEEK_POS_LO = position; /* It might change later and the VFS
-					 has to know this value */
-  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
+  /* It might change later and the VFS has to know this value */
+  m_out.RES_SEEK_POS_LO = position;
+  m_out.RES_SEEK_POS_HI = m_in.REQ_SEEK_POS_HI;
+  m_out.RES_NBYTES = cum_bytes;
   
   /* Update file size and access time. */
-#if 0
-  if (regular || mode_word == I_DIRECTORY) {
-	if (position > f_size) rip->i_size = position;
-  } 
-#else
-  if (position > f_size) rip->i_size = position;
-#endif  
+/* FIXME: check what happens if some error came in... */
+  if (position > rip->i_size) {
+	rip->i_size = position;
+	rip->i_flags |= I_DIRTY; /* inode is thus now dirty */
+  }
   rip->i_flags &= ~I_SEEK;
 
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
   if (rdwt_err == END_OF_FILE) r = OK;
-
-  if (r == OK) {
-	if (rw_flag == READING) rip->i_update |= ATIME;
-	if (rw_flag == WRITING) rip->i_update |= CTIME | MTIME;
-	rip->i_dirt = DIRTY;		/* inode is thus now dirty */
-  }
 #endif
   if (r == OK) {
-/* FIXME: i_mtime = UPDATED i_ctime = UPDATED */
-	rip->i_flags |= I_MTIME|I_DIRTY;	/* inode is thus now dirty */
+	rip->i_mtime = TIME_UPDATED;
+	rip->i_ctime = TIME_UPDATED;
+	rip->i_flags |= I_MTIME|I_DIRTY; /* inode is thus now dirty */
   }
-
-  m_out.RES_NBYTES = cum_io;
-  
   return(r);
 }
 
@@ -600,67 +579,50 @@ PUBLIC int do_bwrite(void)
 {
 /* Write data to a block device.
  */
-  int r, rw_flag, n;
+  int r, rw_flag;
   cp_grant_id_t gid;
-  u64_t position64;
-  off_t position, f_size, bytes_left;
-  size_t nrbytes;
-  unsigned int off, cum_io, chunk;
+  u64_t position;
+  size_t rem_bytes, chunk;
+  vir_bytes cum_bytes;
+  unsigned off;
   block_t b;
-  struct inode *rip;
   struct buf *bp;
-/*
-  int block_spec;
-  int regular;
-  unsigned chunk;
-  mode_t mode_word;
- */ 
-  struct inode blk_rip;  /* Pseudo inode for rw_chunk */
 
-  if (read_only)
-	return EROFS;
+  if (read_only) return EROFS;
 
   r = OK;
   
   /* Get the values from the request message */
-  assert(m_in.REQ_DEV2 == dev);
-  position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
+  if((dev_t) m_in.REQ_DEV2 != dev) return(EINVAL);
+  position = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
   		    (unsigned long) m_in.REQ_SEEK_POS_HI);
-  position = (off_t) m_in.REQ_SEEK_POS_LO;
-/* BUG if !block && (position<0 || posHi!=0 */
+  rem_bytes = (size_t) m_in.REQ_NBYTES;
   gid = (cp_grant_id_t) m_in.REQ_GRANT;
-  nrbytes = (size_t) m_in.REQ_NBYTES;
   
 #if 0
   rdwt_err = OK;		/* set to EIO if disk error occurs */
 #endif
 
-  cum_io = 0;
+  cum_bytes = 0;
+  b = div64u(position, bcc.bpblock);
+  off = rem64u(position, bcc.bpblock);	/* offset in blk*/
   /* Split the transfer into chunks that don't span two blocks. */
-  while (nrbytes > 0) {
-	off = rem64u(position64, bcc.bpblock);	/* offset in blk*/
-#if 0
-	off = ((unsigned int) position) % bcc.bpblock; /* offset in blk*/
-	chunk = min(nrbytes, bcc.bpblock - off);
-#else
-	chunk = nrbytes < (bcc.bpblock-off) ? nrbytes : bcc.bpblock - off;
-#endif
-	b = div64u(position64, bcc.bpblock);
-	
-	/* Normally an existing block to be partially overwritten is first read
-	 * in.  However, a full block need not be read in.  If it is already in
-	 * the cache, acquire it, otherwise just acquire a free buffer.
+  while (rem_bytes > 0) {
+	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+
+	/* Normally an existing block to be partially overwritten is first
+	 * read in. However, a full block need not be read in.
+	 * If it is already in the cache, acquire it, otherwise just
+	 * acquire a free buffer.
 	 */
-	n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
-	bp = get_block(dev, b, n);
+	bp = get_block(dev, b, chunk == bcc.bpblock ? NO_READ : NORMAL);
 
 	/* In all cases, bp now points to a valid buffer. */
-	if (bp == NULL) 
-		panic("bp not valid in rw_chunk; this can't happen");
+	assert(bp != NULL);
 	
 	/* Copy a chunk from user space to the block buffer. */
-	r = sys_safecopyfrom(VFS_PROC_NR, gid, (vir_bytes) /*buf_off*/ cum_io,
-			   (vir_bytes) (bp->b_data+off), (size_t) chunk, D);
+	r = sys_safecopyfrom(VFS_PROC_NR, gid, cum_bytes,
+			   (vir_bytes) (bp->b_data+off), chunk, D);
 	bp->b_dirt = DIRTY;
 	put_block(bp);
 
@@ -670,23 +632,184 @@ PUBLIC int do_bwrite(void)
  */
 
 	/* Update counters and pointers. */
-	nrbytes -= chunk;	      /* bytes yet to be read */
-	cum_io += chunk;	      /* bytes read so far */
-	position64 = add64ul(position64, chunk);	/* position within the file */
-	position += (off_t) chunk;	/* position within the file */
+	cum_bytes += chunk;	/* bytes written so far */
+	rem_bytes -= chunk;	/* bytes yet to be written */
+	position = add64ul(position, chunk); /* position within the file */
+
+	++b;			/* next block */
+	off = 0;		/* start at beginning of block */
   }
 
-  m_out.RES_SEEK_POS_LO = position; /* It might change later and the VFS
-					 has to know this value */
-  m_out.RES_SEEK_POS_LO = ex64lo(position64); 
-  m_out.RES_SEEK_POS_HI = ex64hi(position64); 
-  
 #if 0  
   if (rdwt_err != OK) r = rdwt_err;	/* check for disk error */
   if (rdwt_err == END_OF_FILE) r = OK;
 #endif
 
-  m_out.RES_NBYTES = cum_io;
+  m_out.RES_NBYTES = cum_bytes;
+  /* It might change later and the VFS has to know this value */
+  m_out.RES_SEEK_POS_LO = ex64lo(position); 
+  m_out.RES_SEEK_POS_HI = ex64hi(position); 
   
+  return(r);
+}
+
+/*===========================================================================*
+ *				do_ftrunc				     *
+ *===========================================================================*/
+PUBLIC int do_ftrunc(void)
+{
+  struct inode *rip;
+  unsigned long start, end;
+  int r;
+  
+  /* Get the values from the request msg. Do not increase the inode refcount*/
+  if( (rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
+	  return(EINVAL);
+
+  start = m_in.REQ_TRC_START_LO;
+  end = m_in.REQ_TRC_END_LO;
+
+  if (end == 0 && m_in.REQ_TRC_END_HI == 0) {
+	if ( m_in.REQ_TRC_START_HI || start > sb.maxFilesize )
+		return(EFBIG);
+	r = set_newsize(rip, start);
+  }
+  else {
+	if ( m_in.REQ_TRC_END_HI || m_in.REQ_TRC_START_HI )
+		return(EINVAL);	/* make no sense */
+	r = clear_area(rip, start, end);
+  }  
+  return(r);
+}
+    
+/*===========================================================================*
+ *				set_newsize				     *
+ *===========================================================================*/
+PRIVATE int set_newsize(struct inode *rip, unsigned long newsize)
+{
+/* Set inode to a certain size, freeing any zones no longer referenced
+ * and updating the size in the inode.
+ * If the inode is extended, the extra space is allocated.
+ */
+  int r;
+  unsigned long file_size, last_block, cut_mark;
+
+  file_size = rip->i_size;
+  /* Free the actual space if truncating. */
+  if(newsize < file_size) {
+/* FIXME: only do the remaining of block... 
+ * but take care of case file_size pointing in the last block, just below 4GB
+ */
+	/* Zeroes the remaining part of the last allocated block.
+	 * We should take care of avoiding overflows.
+	 */
+	cut_mark = newsize|sb.crelmask; /* last addresseable byte after cut */
+	if (newsize >= (ULONG_MAX & ~sb.crelmask)) /* avoid overflow */
+	  	r = clear_area(rip, newsize, ULONG_MAX);
+	else 
+	  	r = clear_area(rip, newsize, cut_mark+1);
+  	if (r != OK)
+  		return(r);
+	/* Now unchain all remaining clusters (if any) */
+	if ( (newsize>>sb.cnshift) < (file_size>>sb.cnshift) ) {
+		/* freechain */
+	}
+  }
+
+  /* Clear the rest of the last zone if expanding. */
+/*
+  if(newsize > file_size) clear_zone(rip, rip->i_size, 0);
+ */
+
+  /* Next correct the inode size. */
+  rip->i_size = newsize;
+  rip->i_mtime = TIME_UPDATED;
+  rip->i_ctime = TIME_UPDATED;
+  rip->i_flags |= I_MTIME|I_DIRTY; /* inode is thus now dirty */
+  return(OK);
+}
+
+/*===========================================================================*
+ *				clear_area				     *
+ *===========================================================================*/
+PRIVATE int clear_area(struct inode *rip,
+  unsigned long position,
+  unsigned long end)		/* range of bytes to free (end uninclusive) */
+{
+/* Cut an arbitrary hole in a file. With FAT, which does not support sparse
+ * files, it means zeroing the relevant space.
+ *
+ * This function does not care whether the effect is to truncate the file
+ * entirelly, which in the FAT file system is a special condition. Adjusting
+ * the final size of the inode is to be done by the caller too, if wished.
+ *
+ * Consumers of this function currently are set_newsize(), used to
+ * free or zero data blocks, but also to implement the ftruncate() and
+ * truncate() system calls, and the F_FREESP fcntl().
+ */
+  int r, n;
+  unsigned long file_size;
+  size_t rem_bytes, chunk;
+  unsigned int off;
+  block_t b;
+  struct buf *bp;
+
+  file_size = rip->i_size;
+  if(end > file_size)		/* freeing beyond end makes no sense */
+	end = rip->i_size;
+  if(end <= position)		/* end is uninclusive, so position<end */
+	return(EINVAL);
+  
+  rem_bytes = end - position;
+  r = OK;			/* always succeeds! */
+
+#if 0
+  rdwt_err = OK;		/* set to EIO if disk error occurs */
+#endif
+
+  /* Split the operation into chunks that don't span two blocks. */
+  while (rem_bytes > 0) {
+	off = position & bcc.brelmask; /* offset in blk*/
+	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d)\n", chunk, off, bcc.bpblock));
+
+	b = bmap(rip, position);
+
+	/* Normally an existing block to be partially overwritten is first
+	 * read in. However, a full block need not be read in.  If it is already in
+	 * the cache, acquire it, otherwise just acquire a free buffer.
+	 */
+	n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
+
+	if (b == NO_BLOCK || (bp = get_block(dev, b, n)) == NULL ) {
+#if 0
+Cannot happen! (unless serious failure in FAT reading, or FS incoherency)
+		/* Writing to a nonexistent block. Create and enter in inode.*/
+		if ((bp = new_block(rip, (off_t) ex64lo(position))) == NULL)
+#endif
+			return /*FIXME!!! (err_code)*/ EIO;
+	}
+	assert(bp != NULL);
+
+	if (n == NO_READ)
+		zero_block(bp);
+	else {
+		memset(& bp->b_data[off], 0, chunk);
+	}
+
+	bp->b_dirt = DIRTY;
+	put_block(bp);
+
+	/* Update counters and pointers. */
+	rem_bytes -= chunk;	/* bytes yet to be cleared */
+	position += chunk;	/* position within the file */
+  }
+
+  /* Update file size and access time. */
+  if (r == OK) {
+	rip->i_mtime = TIME_UPDATED;
+	rip->i_ctime = TIME_UPDATED;
+	rip->i_flags |= I_MTIME|I_DIRTY; /* inode is thus now dirty */
+  }
   return(r);
 }
