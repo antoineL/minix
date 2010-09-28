@@ -333,7 +333,7 @@ PRIVATE int chk_fatsize(
 
   sb.maxClust = (sb.clustCnt / sb.secpcluster) + 1;
   if (sb.maxClust > CLUSTMASK_EOF32) {
-	DBGprintf(("mounting failed: too much clusters, maxClust=%lu=%#.8lx\n",
+	DBGprintf(("mounting failed: too much clusters, maxClust=%lu=0x%.8lx\n",
 		(unsigned long)sb.maxClust, (unsigned long)sb.maxClust));
 	return(EINVAL);
   }
@@ -538,7 +538,7 @@ PUBLIC int do_readsuper(void)
   if (state == MOUNTED)
          return(EINVAL);
 
-  DBGprintf(("FATfs: readsuper (dev %#.4x, flags %x)\n",
+  DBGprintf(("FATfs: readsuper (dev 0x%.4x, flags %x)\n",
 	(dev_t) m_in.REQ_DEV, m_in.REQ_FLAGS));
 
   if (m_in.REQ_FLAGS & REQ_ISROOT) {

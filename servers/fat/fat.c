@@ -108,7 +108,7 @@ PUBLIC int init_fat_bitmap(void)
 block_t cn;
 	block_t whichblk;
 	int whichbyte;
-	int error;
+	int error = 0;
 	union fattwiddle x;
 
 /*
@@ -183,12 +183,17 @@ block_t cn;
 			if (whichblk != bp0_blk) {
 				if (bp0)
 					put_block(bp0);
+				bp0 = get_block(dev, whichblk, NORMAL);
+				if (bp0 == NO_BLOCK) {
+					DBGprintf(("FATfs: init_fat_bitmap unable to get "
+						"FAT block %ld\n", (long)whichblk));
+					error = EIO;
+					goto error_exit;
+				}
 /*
-				error = bread(pmp->pm_devvp, whichblk,
-					bcc.bpblock, NOCRED, &bp0);
- */
 				if (error)
 					goto error_exit;
+ */
 				bp0_blk = whichblk;
 			}
 			x.byte[0] = bp0->b_data[whichbyte];
@@ -207,7 +212,7 @@ block_t cn;
   DBGprintf(("FATfs: FAT bitmap are %u bytes\n", (sb.maxClust >> 3) + 1));
 
 
-	return 0;
+	return OK;
 
 error_exit:;
 	if (bp0)

@@ -274,13 +274,23 @@ PUBLIC void rehash_inode(struct inode *rip)
 
   if (flags & I_HASHED)
 	LIST_REMOVE(rip, i_hash);
+#if 0
+will not work: root directory have rip->i_parent_clust == 0...
   if (rip->i_parent_clust != 0) {
 	hash = (int) ((rip->i_parent_clust ^ rip->i_entrypos) % NUM_HASH_SLOTS);
 	LIST_INSERT_HEAD(&hash_inodes[hash], rip, i_hash);
 	flags |= I_HASHED;
   } else
 	flags &= ~I_HASHED;
-
+#else
+/* FIXME: horribel quick hack: use special value to mean "free" */
+  if (rip->i_entrypos != 123) {
+	hash = (int) ((rip->i_parent_clust ^ rip->i_entrypos) % NUM_HASH_SLOTS);
+	LIST_INSERT_HEAD(&hash_inodes[hash], rip, i_hash);
+	flags |= I_HASHED;
+  } else
+	flags &= ~I_HASHED;
+#endif
   rip->i_flags = flags;
 }
 
@@ -442,7 +452,7 @@ PUBLIC struct inode *get_free_inode(void)
   TAILQ_REMOVE(&unused_inodes, rip, i_free);
 
   assert(rip->i_ref == 0);
-  assert(rip->i_flags & I_ORPHAN == 0);
+  assert( (rip->i_flags & I_ORPHAN) == 0);
   assert(!HAS_CHILDREN(rip));
 
   /* If this was a cached inode, free it first. */

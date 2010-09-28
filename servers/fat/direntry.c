@@ -127,6 +127,11 @@ FIXME: refcount?
 
 /* FIXME: entrypos=0 clust=root peut etre soit root, soit 1re entree de root */
 
+/*
+DBGprintf(("FATfs: enter_as_inode ['%.8s.%.3s'], seek %ld+%d",
+		rip->i_Name, rip->i_Extension, parent_clust, entrypos));
+ */
+
   if ( (rip = dirref_to_inode(parent_clust, entrypos)) != NULL ) {
 	/* found in inode cache */
 	get_inode(rip);
@@ -135,6 +140,7 @@ FIXME: refcount?
 
   /* get a fresh inode with ref. count = 1 */
   rip = get_free_inode();
+  if (rip == NULL) return NULL;
   rip->i_flags = 0;
   rip->i_direntry = *dp;
   rip->i_dirref = *dirrefp;
@@ -147,6 +153,9 @@ FIXME: refcount?
 	rip->i_flags |= I_DIR;	/* before call to get_mode */
 	if (rip->i_clust == CLUST_NONE) {
 /* FIXME: Warn+fail is i_clust==CLUST_NONE(0); need to clean the error protocol
+ * Note that
+		if (IS_ROOT(dirp))
+ * should NOT be a possible case, it should have been caught by hash...
  */
 		put_inode(rip);
 		return(NULL);
@@ -365,7 +374,7 @@ DBGprintf(("match on ['%.8s.%.3s'], LFN=%d, pos=%ld\n",
 		*res_inop = enter_as_inode(&dp->d_direntry, dirp, &dirref);
 		if( *res_inop == NULL ) {
 /* FIXME: do something clever... */
-			panic("FATfs: lookup cannot create inode\n");
+			panic("FATfs: lookup_dir cannot create inode\n");
 		}
 		/* inode had its reference count incremented. */
 		put_block(bp);
