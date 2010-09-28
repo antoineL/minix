@@ -26,6 +26,11 @@
 #define FAT_NAME_MAX	LFN_NAME_MAX
 #endif
 
+/* Maximum size of files.
+ * Note this is independant of off_t as used in MINIX.
+ */
+#define FAT_FILESIZE_MAX	0xffffffff
+
 /* The FAT file system is built over a "sector" size which is
  * between 128 and 8192 (with varying sources and ranges), but at
  * the moment we only consider 512, the by far commonest value.

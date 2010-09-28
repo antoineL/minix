@@ -88,31 +88,16 @@ PUBLIC int do_stat(void)
   stat.st_size = IS_DIR(rip) ? 65535 : rip->i_size;
 #endif
 
-  if (rip->i_btime < TIME_UNKNOWN) {
-/* FIXME: if TIME_UPDATED should use now() and update the deBDate/deBTime field... */
-/* FIXME: need to deal with deBHundredth; require struct timespec */
-	rip->i_btime = TIME_UNKNOWN;
-  }
-  if (rip->i_mtime < TIME_UNKNOWN) {
-/* FIXME: if TIME_UPDATED should use now() and update the deADate field...
-	if (rip->i_atime == TIME_UPDATED)
-		unix2dostime( ??? , dp->deADate, NULL);
- */
-	rip->i_atime = dos2unixtime( dp->deADate, NULL) ;
-  }
-  if (rip->i_atime < TIME_UNKNOWN) {
-/* FIXME: if TIME_UPDATED should use now() and update the deMDate/deMTime field...
-	if (rip->i_mtime == TIME_UPDATED)
-		unix2dostime( ??? , dp->deMDate, dp->deMTime);
- */
-	rip->i_mtime = dos2unixtime(dp->deMDate, dp->deMTime) ;
-  }
-  if (rip->i_ctime < TIME_UNKNOWN) {
-/* FIXME: if TIME_UPDATED should use now()... */
-	rip->i_ctime = rip->i_mtime; /* no better idea with FAT */
-  }
-  stat.st_atime = rip->i_atime;
+  if ( rip->i_mtime < TIME_UNKNOWN
+    || rip->i_atime < TIME_UNKNOWN
+    || rip->i_ctime < TIME_UNKNOWN )
+#if 1
+	update_times(rip, rip->i_mtime, rip->i_atime, rip->i_ctime);
+#else
+	update_times(rip, 0, 0, 0);
+#endif
   stat.st_mtime = rip->i_mtime;
+  stat.st_atime = rip->i_atime;
   stat.st_ctime = rip->i_ctime;
 
 #if 1
@@ -159,24 +144,16 @@ PUBLIC int do_chmod(void)
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
 
-/* FIXME: the only thing we can do is to toggle ATTR_READONLY */
-#if 0
-  if ((r = verify_inode(ino, path, NULL)) != OK)
-	return r;
+  /* The only thing we can do is to toggle ATTR_READONLY */
+  rip->i_Attributes &= ~ATTR_READONLY; /*clear old value */
+  if ( ! (m_in.REQ_MODE & S_IWUSR) )
+	rip->i_Attributes |= ATTR_READONLY;
 
-  /* Set the new file mode. */
-  attr.a_mask = HGFS_ATTR_MODE;
-  attr.a_mode = m_in.REQ_MODE; /* no need to convert in this direction */
+  rip->i_ctime = TIME_UPDATED;
+  rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
 
-  if ((r = hgfs_setattr(path, &attr)) != OK)
-	return r;
-
-  /* We have no idea what really happened. Query for the mode again. */
-  if ((r = verify_path(path, ino, &attr, NULL)) != OK)
-	return r;
-#endif
-
-  m_out.RES_MODE = get_mode(rip);
+  /* Recalc it */
+  m_out.RES_MODE = rip->i_mode = get_mode(rip);
 
   return(OK);
 }
@@ -215,8 +192,7 @@ PUBLIC int do_chown(void)
   rip->i_ctime = TIME_UPDATED;
   rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
 
-/* FIXME: just i_mode may also do the trick... */
-  m_out.RES_MODE = get_mode(rip);
+  m_out.RES_MODE = rip->i_mode;	/* mode did not change */
 
   return(OK);
 }
@@ -229,7 +205,6 @@ PUBLIC int do_utime(void)
 /* Set file times.
  */
   struct inode *rip;
-  struct fat_direntry *dp;
   int r;
 
   if (read_only) return(EROFS);	/* paranoia */
@@ -237,10 +212,13 @@ PUBLIC int do_utime(void)
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
-  dp = & rip->i_direntry;
 
-  rip->i_atime = m_in.REQ_ACTIME;
-  if (rip->i_atime < TIME_UNKNOWN)
+  update_times(rip, 
+	m_in.REQ_MODTIME < TIME_UNKNOWN ? TIME_UNKNOWN : m_in.REQ_MODTIME, 
+	m_in.REQ_ACTIME  < TIME_UNKNOWN ? TIME_UNKNOWN : m_in.REQ_ACTIME, 
+	TIME_UPDATED);
+#if 0
+  if (rip->i_atime )
 	rip->i_atime = TIME_UNKNOWN;
   unix2dostime(rip->i_atime, dp->deADate, NULL);
 
@@ -249,10 +227,9 @@ PUBLIC int do_utime(void)
 	rip->i_mtime = TIME_UNKNOWN;
   unix2dostime(rip->i_mtime, dp->deMDate, dp->deMTime);
 
-/* FIXME: use Now(), else next call to do_stat() will reset it to i_mtime... */
-  rip->i_ctime = TIME_UPDATED;
+  rip->i_ctime = clock_time(NULL);
 
   rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
-
+#endif
   return EINVAL;
 }

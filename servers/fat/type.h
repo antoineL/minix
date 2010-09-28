@@ -105,17 +105,18 @@ typedef	zone_t	cluster_t;	/* similar concept in Minix FS */
  * does not match the actual number of the starting cluster.
  * Extra care should be exercised to avoid creating other directory
  * entries with 0 as starting cluster number.
- *
- * In addition to starting cluster number for the parent directory,
- * entries are also marked with the block number where the entry
- * actually stands, in dr_absbn; this allows quick access to the datas
- * when they need to be updated. Another optimisation is to store
- * the position of the first of the lfn_direntry which are preceding.
- * FIXME: move that stuff to normal members of struct inode.
  */
 struct direntryref {
   cluster_t	dr_parent;	/* cluster pointing the directory */
   unsigned	dr_entrypos;	/* position of the fat_direntry within */
+
+/* In addition to starting cluster number for the parent directory,
+ * entries are also marked with the block number where the entry
+ * actually stands, in dr_absbn; this allows quick access to the datas
+ * when they need to be updated. Another optimisation is to store
+ * the position of the first of the lfn_direntry which are preceding.
+ */
+/* FIXME: consider move that stuff to normal members of struct inode. */
   block_t	dr_absbn;	/* block holding the entry */
   unsigned	dr_lfnpos;	/* position of the lfn_direntry, if any */
 };
@@ -210,15 +211,15 @@ struct buf {
   /* Header portion of the buffer. */
   TAILQ_ENTRY(buf) b_next;	/* used to link all free bufs in a chain */
   LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
-  size_t b_bytes; 	        /* Number of bytes allocated in bp */
-  block_t b_blocknr;            /* block number of its (minor) device */
-/* CHECKME: is it still usefull? */
-  dev_t b_dev;                  /* major | minor device where block resides */
-  char b_dirt;                  /* CLEAN or DIRTY */
+  size_t b_bytes;		/* Number of bytes allocated in bp */
+  block_t b_blocknr;		/* block number of its (minor) device */
+/* FIXME: is it still useful? see below about IS_FREE_BLOCK()... */
+  dev_t b_dev;			/* major | minor device where block resides */
+  char b_dirt;			/* CLEAN or DIRTY */
 #define CLEAN		0	/* disk and memory copies identical */
 #define DIRTY		1	/* disk and memory copies differ */
 #define NOTREAD		2	/* just prefetched, not read in memory */
-  char b_count;                 /* number of users of this buffer */
+  char b_count;			/* number of users of this buffer */
 
 /* FIXME: we need an indication (or a hook) when the buffer is for
  * some FAT sector, and should be mirrored (written several times)
@@ -230,15 +231,22 @@ struct buf {
  */
 
 };
+/* FIXME */
+#if 0
 #define	IS_FREE_BLOCK(bp)	((bp)->b_blocknr == NO_BLOCK)
 	/* beware: MFS cache considers b_dev == NO_DEV instead. */
+	/* beware even more: 0 is a valid block number (eg for bread) */
+#elif 0
+#define	IS_FREE_BLOCK(bp)	((bp)->b_valid == VALID)
+#else
+#define	IS_FREE_BLOCK(bp)	((bp)->b_dev == NO_DEV)
+#endif
 
 /* actual content of directories */
 union direntry_u {
   struct fat_direntry d_direntry;
   struct fat_lfnentry d_lfnentry;
 };
-
 #define DIR_ENTRY_SIZE     usizeof(union direntry_u)  /* # bytes/dir entry */
 #define NR_DIR_ENTRIES(sz) ((sz)/DIR_ENTRY_SIZE)   /* # dir entries/struct */
 
@@ -256,25 +264,20 @@ union blkdata_u {
 #define b_zfat16	dp->b__fat16
 #define b_zfat32	dp->b__fat32
 
-/*
-CHECKME: refine this
- *  The fat entry cache as it stands helps make extending
- *  files a "quick" operation by avoiding having to scan
- *  the fat to discover the last cluster of the file.
- *  The cache also helps sequential reads by remembering
- *  the last cluster read from the file.  This also prevents
- *  us from having to rescan the fat to find the next cluster
- *  to read.  This cache is probably pretty worthless if a
- *  file is opened by multiple processes.
- */
 /* FIXME when stuff stable: these constants should move to const.h */
 #define	FC_SIZE		2	/* number of entries in the cache */
 #define	FC_LASTMAP	0	/* entry the last call to bmap() resolved to */
 #define	FC_LASTFC	1	/* entry for the last cluster in the file */
 
-#define	FCE_EMPTY	(cluster_t)-1	/* not an actual cluster # */
-/*
- * The fat cache structure.
+/* The FAT cache.
+ * The FAT entry cache as it stands helps make extending files a "quick"
+ * operation by avoiding having to scan the FAT to discover the last cluster
+ * of the chain.
+ * The cache also helps sequential reads by remembering the last cluster read
+ * from the file. This also prevents us from having to rescan the FAT to find
+ * the next cluster to read. Such a cache is probably pretty worthless if a
+ * file is opened by multiple processes.
+ *
  * fc_abscn is the filesystem relative cluster number that corresponds
  * to the (beginning of the) file relative cluster number (fc_frcn).
  */
@@ -283,16 +286,13 @@ struct fatcache {
   cluster_t fc_abscn;		/* (filesystem relative) cluster number	*/
   block_t fc_bn;		/* (filesystem relative) block number */
 };
+#define	FCE_EMPTY	(cluster_t)-1	/* not an actual cluster # */
 
 /* Inode structure, as managed internally.
  * This is the in memory variant of a FAT directory entry.
  */
 struct inode {
   LIST_ENTRY(inode) i_hash;	/* coordonates hashtable chain entry */
-#if 0
-  LIST_ENTRY(inode) i_hashclust; /* cluster hashtable chain entry */
-  LIST_ENTRY(inode) i_hashref;	/* dirref hashtable chain entry */
-#endif
   unsigned short i_index;	/* inode index for quick reference */
   unsigned short i_gen;		/* inode generation number */
   unsigned short i_ref;		/* VFS reference count */
@@ -300,7 +300,6 @@ struct inode {
   TAILQ_ENTRY(inode) i_free;	/* free list chain entry */
 
 /* FIXME */
-	  ino_t i_numKILL;				/* inode number for quick reference */
   struct inode *i_parent;		/* parent inode pointer */
   LIST_HEAD(child_head, inode) i_child;	/* child inode anchor */
   LIST_ENTRY(inode) i_next;		/* sibling inode chain entry */
@@ -323,20 +322,18 @@ struct inode {
 /* FIXME: useful? using malloc/free? */
   int i_lfn_alloclen;		/* size allocated to above field */
 
+  /* cached values for often used members: */
+  cluster_t i_clust;		/* number of first cluster of data */
   mode_t i_mode;		/* file type, protection, as seen by VFS */
   unsigned long i_size;		/* current file size in bytes */
-  cluster_t i_clust;		/* number of first cluster of data */
-
-  struct direntryref i_dirref;	/* coordinates of this entry */
-#define	i_parent_clust	i_dirref.dr_parent /* cluster pointing the directory*/
-#define	i_entrypos	i_dirref.dr_entrypos /* position of the entry within*/
-#define	i_actual_clust	i_dirref.dr_abscn /* cluster pointing the entry */
-
-  /* cached values for timestamps: */
   time_t i_btime;		/* when was file created (birth) */
   time_t i_mtime;		/* when was file data last changed */
   time_t i_atime;		/* when was file data last accessed */
   time_t i_ctime;		/* when was inode itself changed */
+
+  struct direntryref i_dirref;	/* coordinates of this entry */
+#define	i_parent_clust	i_dirref.dr_parent /* cluster pointing the directory*/
+#define	i_entrypos	i_dirref.dr_entrypos /* position of the entry within*/
 
   struct fatcache i_fc[FC_SIZE];	/* fat cache */
 };
@@ -344,56 +341,53 @@ struct inode {
 /* Inode flags: i_flags is the |-ing of all relevant flags */
 #define I_DIR		0x0001		/* this inode is a directory */
 #define I_ROOTDIR	0x0002		/* this inode is the root directory */
-#define I_DIRSIZED	0x0004		/* size is not estimated */
-#define I_DIRNOTSIZED	0x0008		/* size is pure guess */
+#define I_MOUNTPOINT	0x0004		/* this inode is a mount point */
+#define I_ORPHAN	0x0008		/* the path leading to this inode
+					 * was unlinked, but is still used */
 
-#define I_MOUNTPOINT	0x0010		/* this inode is a mount point */
-#define I_ORPHAN	0x0020		/* the path leading to this inode
-					 * was unlinked, but is still used
-					 */
+#define I_HASHED	0x0010		/* linked-in in dirref hastable */
+#define I_DIRSIZED	0x0020		/* size is correct, not estimated */
+#define I_DIRNOTSIZED	0x0040		/* size is pure guess */
 
-#define I_SEEK		0x0100		/* last operation incured a seek */
-#define I_MTIME		0x0200		/* touched, should update MTime */
-#define I_ACCESSED	0x0400		/* file was accessed */
-#define I_DIRTY		0x0800		/* on-disk copy differs */
+#define I_RESIZED	0x0100		/* filesize was modified */
+#define I_ACCESSED	0x0200		/* file was accessed */
+#define I_MTIME		0x0400		/* touched, should update MTime */
+#define I_CTIME		0x0800		/* inode touched */
 
-#define I_HASHED	0x1000		/* linked-in in dirref hastable */
-#define I_HASHED_CLUST	0x2000		/* linked-in in cluster hastable */
-#define I_HASHED_DIRREF	0x1000		/* linked-in in dirref hastable */
+#define I_SEEK		0x1000		/* last operation incured a seek */
+#define I_DIRTY		0x2000		/* on-disk copy differs */
+
+
+/* Special values as starting cluster */
+#define	CLUST_CONVROOT	1	/* fixed root is given a conventional number*/
 
 /* Placeholders for cached timestamps: */
 #define	TIME_UNDETERM	(time_t)0	/* the value is undeterminate */
 #define	TIME_NOT_CACHED	(time_t)1	/* compute from on-disk value */
 #define	TIME_UPDATED	(time_t)2	/* inode was updated and is dirty;
-					 * value to be retrieved from clock
-					 */
+					 * value to be retrieved from clock */
 #define	TIME_UNKNOWN	(time_t)3	/* nothing known about the value */
 	/* Upper values are real timestamps which can be used directly */
-
-/*
- *  Values for the de_flag field of the denode.
- */
-#define NO_SEEK            0	/* i_seek = NO_SEEK if last op was not SEEK */
-#define ISEEK              1	/* i_seek = ISEEK if last op was SEEK */
-
-#define I_HANDLE	0x02		/* this inode has an open handle */
-#define	DELOCKED	0x0001		/* directory entry is locked	*/
-#define	DEWANT		0x0002		/* someone wants this de	*/
-#define	DERENAME	0x0004		/* de is being renamed		*/
-	#define	DEUPD		0x0008		/* file has been modified	*/
-#define	DESHLOCK	0x0010		/* file has shared lock		*/
-#define	DEEXLOCK	0x0020		/* file has exclusive lock	*/
-#define	DELWAIT		0x0040		/* someone waiting on file lock	*/
-#define	DEMOD		0x0080		/* denode wants to be written back
-					 *  to disk			*/
-
-#define	CLUST_CONVROOT	1	/* fixed root is given a conventional number*/
 
 #define IS_DIR(i)	((i)->i_flags & I_DIR)
 #define IS_ROOT(i)	((i)->i_flags & I_ROOTDIR)
 
 #define HAS_CHILDREN(i)	(!LIST_EMPTY(& (i)->i_child))
 
-#define MODE_TO_DIRFLAG(m)	(S_ISDIR(m) ? I_DIR : 0)
+/*
+ *  Values for the de_flag field of the denode.
+ */
+#define IX_HANDLE	0x02		/* this inode has an open handle */
+#define	XDELOCKED	0x0001		/* directory entry is locked	*/
+#define	XDEWANT		0x0002		/* someone wants this de	*/
+#define	XDERENAME	0x0004		/* de is being renamed		*/
+	#define	XDEUPD		0x0008		/* file has been modified	*/
+#define	XDESHLOCK	0x0010		/* file has shared lock		*/
+#define	XDEEXLOCK	0x0020		/* file has exclusive lock	*/
+#define	XDELWAIT		0x0040		/* someone waiting on file lock	*/
+#define	XDEMOD		0x0080		/* denode wants to be written back
+					 *  to disk			*/
+
+#define XMODE_TO_DIRFLAG(m)	(S_ISDIR(m) ? I_DIR : 0)
 
 #endif

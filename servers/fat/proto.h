@@ -43,6 +43,7 @@ _PROTOTYPE( int do_getdents, (void)					);
 _PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
 _PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
+_PROTOTYPE( int update_direntry, (struct inode *)			);
 
 /* driver.c */
 _PROTOTYPE( int dev_open, (endpoint_t, dev_t, int proc, int flags)	);
@@ -57,9 +58,10 @@ _PROTOTYPE( block_t bmap, (struct inode *rip, unsigned long position)	);
 _PROTOTYPE( int clusteralloc, (cluster_t *res_clust, cluster_t fillwith));
 _PROTOTYPE( int clusterfree, (cluster_t cluster)			);
 _PROTOTYPE( cluster_t countfreeclusters, (void)				);
-_PROTOTYPE( void done_fat_bitmap, (void)					);
+_PROTOTYPE( void done_fat_bitmap, (void)				);
 _PROTOTYPE( int extendfile,
 	(struct inode *rip, struct buf **bpp, cluster_t *ncp)		);
+_PROTOTYPE( void fc_purge, (struct inode *rip, cluster_t frcn)		);
 _PROTOTYPE( int freeclusterchain, (cluster_t startcluster)		);
 _PROTOTYPE( int init_fat_bitmap, (void)					);
 
@@ -96,11 +98,13 @@ _PROTOTYPE( int do_newnode, (void)					);
 _PROTOTYPE( int do_putnode, (void)					);
 _PROTOTYPE( int do_unlink, (void)					);
 
+_PROTOTYPE( int do_rename, (void)					);
 _PROTOTYPE( int do_link, (void)						);
 _PROTOTYPE( int do_symlink, (void)					);
 _PROTOTYPE( int do_readlink, (void)					);
 
 /* main.c */
+_PROTOTYPE( time_t clock_time, (int * hundredthp)			);
 _PROTOTYPE( int do_nothing, (void)					);
 _PROTOTYPE( int main, (int argc, char *argv[])				);
 _PROTOTYPE( int readonly, (void)					);
@@ -131,6 +135,8 @@ _PROTOTYPE( int do_fstatfs, (void)					);
 _PROTOTYPE( int do_statvfs, (void)					);
 
 /* utility.c */
+_PROTOTYPE( int comp_name_lfn,
+		(char string[NAME_MAX+1], int, struct fat_lfnentry[])	);
 #ifndef CONVNAME_ENUM_
 #define CONVNAME_ENUM_
 enum convname_result_e {
@@ -141,11 +147,14 @@ enum convname_result_e {
   CONV_INVAL
 };
 #endif
-
 _PROTOTYPE( int conv_83toname,
 		(struct fat_direntry *, char string[NAME_MAX+1])	);
+_PROTOTYPE( int conv_lfntoname,
+		(int, struct fat_lfnentry[], char string[NAME_MAX+1])	);
 _PROTOTYPE( int conv_nameto83,
 		(char string[NAME_MAX+1], struct fat_direntry *)	);
+_PROTOTYPE( int conv_nametolfn, (char string[NAME_MAX+1],
+		int *, struct fat_lfnentry[], struct fat_direntry *)	);
 _PROTOTYPE( time_t dos2unixtime, (uint8_t dosdate[2],uint8_t dostime[2]));
 _PROTOTYPE( int lfn_chksum, (struct fat_direntry * fatdp)		);
 _PROTOTYPE( void unix2dostime, (time_t,

@@ -704,8 +704,8 @@ PRIVATE int set_newsize(struct inode *rip, unsigned long newsize)
 	 * We should take care of avoiding overflows.
 	 */
 	cut_mark = newsize|sb.crelmask; /* last addresseable byte after cut */
-	if (newsize >= (ULONG_MAX & ~sb.crelmask)) /* avoid overflow */
-	  	r = clear_area(rip, newsize, ULONG_MAX);
+	if (newsize >= (FAT_FILESIZE_MAX & ~sb.crelmask)) /* avoid overflow */
+	  	r = clear_area(rip, newsize, FAT_FILESIZE_MAX);
 	else 
 	  	r = clear_area(rip, newsize, cut_mark+1);
   	if (r != OK)

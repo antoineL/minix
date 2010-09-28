@@ -81,7 +81,6 @@ PUBLIC int do_mountpoint(void)
 /* Register a mount point. Nothing really extraordinary for FAT. */
   struct inode *rip;
   int r = OK;
-  mode_t bits;
   
   /* Get the inode from the request msg. Do not increase the inode refcount*/
   /*CHECKME: is it needed? is the file open anyway? should we increase ref? */
@@ -89,16 +88,19 @@ PUBLIC int do_mountpoint(void)
 	  return(EINVAL);
   
   if (rip->i_flags & I_MOUNTPOINT) r = EBUSY;
+  if (rip->i_ref != 1) {
+	DBGprintf(("FATfs: VFS passed otherwise used node as mountpoint!\n"));
+	r = EBUSY;
+  }
 
-#if 1
-  /* It may not be special. */
-  bits = rip->i_mode & S_IFMT;
-  if (bits == S_IFCHR || bits == S_IFBLK) r = ENOTDIR;
-#else
-/* !IS_DIR => ENOTDIR */
-#endif
+  /* Only allows mouting on directories; not strictly necessary. */
+  if ( ! (rip->i_flags & I_DIR) ) r = ENOTDIR;
 
   if(r == OK) rip->i_flags |= I_MOUNTPOINT;
+
+  /* The flag will be cleared when VFS will issue the PUTNODE request
+   * (at umount() time), thus freeing our inode.
+   */
 
   /* put_inode(rip);	we did not increase the refcount, no need to release*/
 
@@ -804,6 +806,9 @@ MKDIR
 	rw_inode(rip, WRITING);		/* force inode to disk now */
 
 #endif
+
+  /* The created inode does not have associated directory entry */
+  rip->i_flags |= I_ORPHAN;
 
   if (r == OK) {
 	m_out.RES_INODE_NR = INODE_NR(rip);

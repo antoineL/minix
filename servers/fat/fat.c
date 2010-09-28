@@ -76,7 +76,6 @@ FORWARD void fc_lookup(struct inode *rip,
   cluster_t findcn,
   cluster_t * frcnp,
   cluster_t * abscnp);
-FORWARD void fc_purge(struct inode *rip, cluster_t frcn);
 
 FORWARD int fatentry(
 /*	int function, */
@@ -203,6 +202,11 @@ block_t cn;
 		}
 	}
 	put_block(bp0);
+
+
+  DBGprintf(("FATfs: FAT bitmap are %u bytes\n", (sb.maxClust >> 3) + 1));
+
+
 	return 0;
 
 error_exit:;
@@ -269,11 +273,10 @@ PRIVATE void fc_lookup(struct inode *rip,
 /*===========================================================================*
  *				fc_purge				     *
  *===========================================================================*/
-PRIVATE void fc_purge(struct inode *rip, cluster_t frcn)
+PUBLIC void fc_purge(struct inode *rip, cluster_t frcn)
 {
-/*
- *  Purge the fat cache in denode dep of all entries
- *  relating to file relative cluster frcn and beyond.
+/* Purge the FAT cache of all entries relating to file relative cluster frcn
+ * and beyond.
  */
   struct fatcache * fcp;
 
@@ -321,7 +324,7 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
    * permanently allocated, of fixed size, and is not made up of clusters.
    */
   if (cn == CLUST_CONVROOT ) {
-	assert(rip->i_flags & I_ROOTDIR);
+	assert(IS_ROOT(rip));
 	if (findbn > bcc.rootBlk) {
 		return /*E2BIG*/ NO_BLOCK;
 	}
@@ -802,11 +805,10 @@ PUBLIC int freeclusterchain(cluster_t startcluster)
  *===========================================================================*/
 PUBLIC int extendfile(struct inode *rip,
   struct buf **bpp,
-  cluster_t *ncp)
+  cluster_t *cnp)
 {
-/*  Allocate a new cluster and chain it onto the end of the
- *  file.
- *  dep - the file to extend
+/* Allocate a new cluster and chain it onto the end of the file.
+ *  rip - inode of the file or directory to extend
  *  bpp - where to return the address of the buf header for the
  *        new file block
  *  ncp - where to put cluster number of the newly allocated file block
@@ -823,10 +825,8 @@ PUBLIC int extendfile(struct inode *rip,
   cluster_t cn;
   block_t bn;
 
-/*
- *  Do not try to extend the root directory
- */
-	 /* if (rip->i_flags & I_ROOTDIR) { */
+/* Do not try to extend the root directory */
+	 /* if (IS_ROOT(rip)) { */
 /* FIXME: can do it for FAT32... */
   if (rip->i_clust == CLUST_CONVROOT) {
 	DBGprintf(("extendfile(): attempt to extend root directory\n"));
@@ -900,7 +900,23 @@ PUBLIC int extendfile(struct inode *rip,
  *  Give them the filesystem relative cluster number
  *  if they want it.
  */
-	if (ncp)
-		*ncp = cn;
+	if (cnp)
+		*cnp = cn;
 	return 0;
+}
+
+/*===========================================================================*
+ *				lastcluster				     *
+ *===========================================================================*/
+PUBLIC cluster_t lastcluster(struct inode *rip,
+  cluster_t *frcnp)
+{
+}
+
+/*===========================================================================*
+ *				peek_bmap				     *
+ *===========================================================================*/
+PUBLIC block_t peek_bmap(struct inode *rip,
+  unsigned long position)
+{
 }

@@ -5,7 +5,6 @@
  * The entry points into this file are:
  *   init_inodes	initialize the inode table, return the root inode
  *   fetch_inode	find an inode based on its VFS inode number
- *   cluster_to_inode	find an inode based on its cluster number
  *   dirref_to_inode	find an inode based on its coordinates of entry
  *   get_inode		use an inode, increasing its reference count
  *   put_inode		decrease the reference count of an inode
@@ -113,7 +112,6 @@ PRIVATE struct inode inodes[NUM_INODES];
 PRIVATE TAILQ_HEAD(free_head, inode) unused_inodes;
 
   /* inode hashtables */
-PRIVATE LIST_HEAD(hashc_lists, inode) hashcluster_inodes[NUM_HASH_SLOTS];
 PRIVATE LIST_HEAD(hash_lists, inode) hash_inodes[NUM_HASH_SLOTS];
 
 /* Private functions:
@@ -137,8 +135,6 @@ PUBLIC struct inode *init_inodes(int new_num_inodes)
   /* Initialize (as empty) the hash queue. */
   for (index = 0; index < NUM_HASH_SLOTS; index++)
 	LIST_INIT(&hash_inodes[index]);
-  for (index = 0; index < NUM_HASH_SLOTS; index++)
-	LIST_INIT(&hashcluster_inodes[index]);
 
   DBGprintf(("FATfs: %d inodes (0-0%o), %u bytes each, = %u b.\n",
 	NUM_INODES, NUM_INODES-1, usizeof(struct inode), usizeof(inodes)));
@@ -233,47 +229,6 @@ PUBLIC struct inode *fetch_inode(ino_t ino_nr)
 PUBLIC struct inode *find_inode(
   cluster_t cn			/* cluster number */
 )
-{
-/* Find the inode specified by its first cluster number.
- * Do not increase its reference count.
- */
-  struct inode *rip;
-  int hashi;
-
-  hashi = (int) (cn % NUM_HASH_SLOTS);
-
-  /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hashcluster_inodes[hashi], i_hashclust) {
-      if (rip->i_ref > 0 && rip->i_clust == cn) {
-          return(rip);
-      }
-  }
-  
-  return(NULL);
-}
-
-/*===========================================================================*
- *				cluster_to_inode       			     *
- *===========================================================================*/
-PUBLIC struct inode * cluster_to_inode(cluster_t clust)
-{
-/* Find the inode specified by its first cluster number.
- * Do not increase its reference count.
- */
-  struct inode *rip;
-  int hashc;
-
-  hashc = (int) (clust % NUM_HASH_SLOTS);
-
-  /* Search inode in the hash table */
-  LIST_FOREACH(rip, &hashcluster_inodes[hashc], i_hashclust) {
-	if (rip->i_clust == clust) {
-		return(rip);
-	}
-  }
-  
-  return(NULL);
-}
 #endif
 
 /*===========================================================================*
@@ -317,17 +272,6 @@ PUBLIC void rehash_inode(struct inode *rip)
   assert(rip);
   flags = rip->i_flags;
 
-#if 0
-  if (flags & I_HASHED_CLUST)
-	LIST_REMOVE(rip, i_hashclust);
-  if (rip->i_clust != 0) {
-	hashc = (int) (rip->i_clust % NUM_HASH_SLOTS);
-	LIST_INSERT_HEAD(&hashcluster_inodes[hashc], rip, i_hashclust);
-	flags |= I_HASHED_CLUST;
-  } else
-	flags &= ~I_HASHED_CLUST;
-#endif
-
   if (flags & I_HASHED)
 	LIST_REMOVE(rip, i_hash);
   if (rip->i_parent_clust != 0) {
@@ -348,17 +292,11 @@ PRIVATE void unhash_inode(struct inode *rip)
 /* Remove from hash tables. To be done when inode goes out of cache. */
 
   assert(rip);
-#if 0
-  if (rip->i_flags & I_HASHED_CLUST) {
-	LIST_REMOVE(rip, i_hashclust);
-	/* rip->i_clust = 0; */
-  }
-#endif
   if (rip->i_flags & I_HASHED) {
 	LIST_REMOVE(rip, i_hash);
 	/* rip->i_dirref.dr_clust = 0; */
   }
-  rip->i_flags &= ~(I_HASHED_CLUST|I_HASHED);  /* clear flags */
+  rip->i_flags &= ~(I_HASHED);  /* clear flags */
 }
 
 /*===========================================================================*
@@ -408,7 +346,9 @@ FIXME: rewrite
   if (rip->i_ref > 0)
 	return;
 
+  if (rip->i_flags & I_ORPHAN) {
 /* free_cluster_chain */
+  }
 /* rw indode if DIRTY + MTIME etc. */
 /* doit appeler rw_inode(rip, WRITING), cf. flush */
 
@@ -502,6 +442,7 @@ PUBLIC struct inode *get_free_inode(void)
   TAILQ_REMOVE(&unused_inodes, rip, i_free);
 
   assert(rip->i_ref == 0);
+  assert(rip->i_flags & I_ORPHAN == 0);
   assert(!HAS_CHILDREN(rip));
 
   /* If this was a cached inode, free it first. */

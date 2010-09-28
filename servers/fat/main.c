@@ -277,6 +277,29 @@ PUBLIC int no_sys(void)
   return(EINVAL);
 }
 
+/*===========================================================================*
+ *				clock_time				     *
+ *===========================================================================*/
+PUBLIC time_t clock_time(int * hundredthp)
+{
+/* This routine returns the time in seconds since 1.1.1970.
+ *
+ * Code stolen from servers/mfs/utility.c, adapted to get 1/100 s as well
+ */
+  register int k;
+  clock_t uptime;
+  time_t boottime;
+
+  if ( (k=getuptime2(&uptime, &boottime)) != OK)
+	panic("clock_time: getuptime2 failed: %d", k);
+
+  /* If asked for cs precision (FAT birthtime), give the information */
+  if (hundredthp)
+	*hundredthp = ( uptime % sys_hz() ) * 100 / sys_hz();
+
+  return( (time_t) (boottime + (uptime/sys_hz())));
+}
+
 #ifndef INTERCEPT_SEF_SIGNAL_REQUESTS /* SEF before rev.6441... */
 /*===========================================================================*
  *                              proc_event                                   *

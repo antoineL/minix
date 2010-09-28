@@ -238,8 +238,14 @@ PRIVATE void flushall(
  * when flushed to disk... NOW!
  */
 
+#if 0
   for (bp = &buf[0], ndirty = 0; bp < &buf[num_bufs]; bp++)
 	if (bp->b_dirt == DIRTY && bp->b_dev == dev) dirty[ndirty++] = bp;
+#else
+  for (bp = &buf[0], ndirty = 0; bp < &buf[num_bufs]; bp++)
+	if (bp->b_dirt == DIRTY)
+		dirty[ndirty++] = bp;
+#endif
   rw_scattered(dev, dirty, ndirty, WRITING);
 }
 
@@ -350,6 +356,7 @@ DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
   if(bp->b_bytes < block_size) {
 	assert(!bp->dp);
 	assert(bp->b_bytes == 0);
+/* FIXME: allocate buffers using pages, to avoid wasting memory */
 	if(!(bp->dp = alloc_contig( (size_t) block_size, 0, NULL))) {
 		printf("MFS: couldn't allocate a new block.\n");
 		bp = TAILQ_FIRST(&lru);

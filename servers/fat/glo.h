@@ -36,6 +36,8 @@ EXTERN mode_t use_hidden_mask;	/* remove this rwx bits when HIDDEN */
 EXTERN mode_t use_system_mask;	/* remove this rwx bits when SYSTEM */
 EXTERN uid_t use_system_uid;	/* use this uid as owner of SYSTEM files */
 EXTERN gid_t use_system_gid;	/* use this gid as owner of SYSTEM files */
+EXTERN int veryold;		/* accept "very old" (DOS 1, no BPB) floppy */
+EXTERN int no_clean_check;	/* do not worry about need of fsck at mount */
 #endif
 
 /* Service internals */

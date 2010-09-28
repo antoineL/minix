@@ -2,11 +2,13 @@
  * system and determine the entry that goes with a given name.
  *
  *  The entry points into this file are
- *   do_getdents	perform the GETDENTS file system request
  *   lookup_dir		search for 'filename' and return inode #
  *   add_direntry	enter a new entry in a given directory/inode
  *   del_direntry	delete a entry from a given directory/inode
+ *   update_direntry	update changes to a directory entry
  *   is_empty_dir	return OK if only . and .. in dir else ENOTEMPTY
+ *   do_getdents	perform the GETDENTS file system request
+ *   update_times	update timestamps to a directory/inode
  *
  * Auteur: Antoine Leca, septembre 2010.
  * Updated:
@@ -97,7 +99,7 @@ FIXME: refcount?
 /* FIXME: it should work OK with normal case... */
 	} else if ( dirrefp->dr_entrypos == DIR_ENTRY_SIZE
 	  && memcmp(dp->deName, NAME_DOT_DOT, 8+3) != 0
-	  && dirp->i_flags&I_ROOTDIR ) {
+	  && IS_ROOT(dirp) ) {
 		/* FAT quirks: the .. entry of 1st-level subdirectories
 		 * (which points to the root directory)
 		 * has 0 as starting cluster!
@@ -174,8 +176,11 @@ DBGprintf(("FATfs: inode %d is a directory, size up to %u\n", INODE_NR(rip), sb.
 #if 1
   link_inode(dirp, rip);
 #endif
+
+  /* initialize the caches */
   memset(&rip->i_fc, '\0', sizeof(rip->i_fc));
-/* more work needed here: i_fc */
+  fc_purge(rip, 0);
+  rip->i_btime = rip->i_mtime = rip->i_atime = rip->i_ctime = TIME_NOT_CACHED;
 
   DBGprintf(("FATfs: enter_as_inode creates entry for ['%.8s.%.3s'], cluster=%ld gives %lo\n",
 		rip->i_Name, rip->i_Extension, rip->i_clust, INODE_NR(rip)));
@@ -231,6 +236,19 @@ PUBLIC int lookup_dir(
   default: /* CONV_NAMETOOLONG, CONV_TRAILINGDOT, CONV_INVAL */
 	direntry.deName[0] = '\0'; /* prevent any possible matches */
 	break;
+  }
+
+  if (IS_ROOT(dirp)) {
+	/* The root directory in a FAT file system does not have the
+	 * '.'  and '..' entries. If we are asked after them, we
+	 * need to give the correct answer.
+	 * We take the granted opportunity to detect the ELEAVEMOUNT case.
+	 */
+	if (strcmp(string, ".") == 0 || strcmp(string, "..") == 0) {
+		assert(res_inop);
+		*res_inop = dirp;
+		return string[1] == '.' ? ELEAVEMOUNT : OK;
+	}
   }
 
   /* Step through the directory one block at a time. */
@@ -533,7 +551,7 @@ PUBLIC int add_direntry(
  *===========================================================================*/
 PUBLIC int del_direntry(
   register struct inode *dirp, /* ptr to inode for dir to search */
-  struct inode *ent_ptr)	/* pointer to inode if found */
+  struct inode *rip)		/* pointer to inode to delete */
 {
 /* This function searches the directory whose inode is pointed to by 'dirp',
  * and delete the entry from the directory.
@@ -551,6 +569,16 @@ PUBLIC int del_direntry(
 /* we should use the dir_ref to check we search the correct parent,
  * and that the entries (the searched and what is on disk) match.
  */
+
+  rip->i_flags |= I_ORPHAN;
+
+}
+
+/*===========================================================================*
+ *				update_direntry				     *
+ *===========================================================================*/
+PUBLIC int update_direntry(struct inode *rip)
+{
 }
 
 /*===========================================================================*
@@ -572,7 +600,7 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
   if ( ! IS_DIR(dirp) ) return(ENOTDIR);
 
   /* Do not even think about removing the root directory... */
-  if ( dirp->i_flags & I_ROOTDIR ) return(EPERM);
+  if (IS_ROOT(dirp)) return(EPERM);
 
   /* Step through the directory one block at a time. */
   pos = 0;
@@ -691,7 +719,7 @@ PUBLIC int do_getdents(void)
   r = OK;
 
 #ifdef FAKE_DOT_ON_ROOT
-  if (dirp->i_flags & I_ROOTDIR && pos == 0) {
+  if (IS_ROOT(dirp) && pos == 0) {
   /* With FAT, the root directory does not have . and ..
    * So we need to fake them...
    */
@@ -994,4 +1022,59 @@ gdbufp->callerbuf_size));
   strlcpy(dep->d_name, name, GETDENTS_BUFSIZ-gdbufp->mybuf_off);
   gdbufp->mybuf_off += reclen;
   return(OK);
+}
+
+/*===========================================================================*
+ *				update_times				     *
+ *===========================================================================*/
+PUBLIC int update_times(struct inode *rip,	/* update this directory/inode */
+  time_t mtime, time_t atime, time_t ctime)	/* with these timestamps */
+{
+/* Update both the cached values in inode and the FAT direntry values with
+ * the indicated timestamps;
+ * some values are conventional:
+define	TIME_UNDETERM	(time_t)0	* the value is undeterminate *
+define	TIME_NOT_CACHED	(time_t)1	* compute from on-disk value *
+define	TIME_UPDATED	(time_t)2	* inode was updated and is dirty;
+					 * value to be retrieved from clock
+					 *
+define	TIME_UNKNOWN	(time_t)3	* nothing known about the value *
+ * if the function is passed 0 as argument, it looks at the cached value
+ */
+  struct fat_direntry *dp;
+  int flags = 0;
+
+  dp = & rip->i_direntry;
+
+  if (rip->i_btime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deBDate/deBTime field... */
+/* FIXME: need to deal with deBHundredth; require struct timespec */
+	rip->i_btime = dos2unixtime(dp->deBDate, dp->deBTime);
+	if (rip->i_btime > TIME_UNKNOWN && dp->deBHundredth >= 100)
+		++rip->i_btime;
+  }
+  if (mtime) {
+	rip->i_mtime = mtime;
+	flags |= I_DIRTY;
+  }
+  if (rip->i_mtime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deADate field...
+	if (rip->i_atime == TIME_UPDATED)
+		unix2dostime( ??? , dp->deADate, NULL);
+ */
+	rip->i_atime = dos2unixtime( dp->deADate, NULL) ;
+  }
+  if (rip->i_atime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now() and update the deMDate/deMTime field...
+	if (rip->i_mtime == TIME_UPDATED)
+		unix2dostime( ??? , dp->deMDate, dp->deMTime);
+ */
+	rip->i_mtime = dos2unixtime(dp->deMDate, dp->deMTime) ;
+  }
+  if (rip->i_ctime < TIME_UNKNOWN) {
+/* FIXME: if TIME_UPDATED should use now()... */
+	rip->i_ctime = rip->i_mtime; /* no better idea with FAT */
+  }
+
+  rip->i_flags |= I_DIRTY;	/* inode is thus now dirty */
 }

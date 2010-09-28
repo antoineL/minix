@@ -310,8 +310,8 @@ PRIVATE int find_sector_counts(
 	return(EINVAL);
   }
   sb.clustCnt = (sb.totalSecs - systemarea) & ~sb.crelmask;
-  sb.maxFilesize = (ULONG_MAX>>sb.snshift) < sb.clustCnt
-	? ULONG_MAX : sb.clustCnt<<sb.snshift;
+  sb.maxFilesize = (FAT_FILESIZE_MAX>>sb.snshift) < sb.clustCnt
+	? FAT_FILESIZE_MAX : sb.clustCnt<<sb.snshift;
 
   sb.resSec   = 0;
   sb.fatSec   = sb.resCnt;

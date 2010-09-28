@@ -485,3 +485,42 @@ PUBLIC int lfn_chksum(struct fat_direntry * fatdp)
 	sum = (sum << 7)|(sum >> 1);
   return sum;
 }
+
+/*===========================================================================*
+ *				conv_lfntoname				     *
+ *===========================================================================*/
+PUBLIC int conv_lfntoname(int count, /* number of LFN entries */
+  struct fat_lfnentry lfnda[],	/* array of LFN entries, as read on disk */
+  char string[NAME_MAX+1])	/* where to put the equivalent name */
+{
+/* ...
+ * This functions returns
+ *   CONV_OK if conversion was trouble free,
+ *   CONV_INVAL if invalid characters were encountered.
+ */
+  return(CONV_INVAL); /*fails*/
+}
+
+/*===========================================================================*
+ *				comp_name_lfn				     *
+ *===========================================================================*/
+PUBLIC int comp_name_lfn(
+  char string[NAME_MAX+1],	/* some file name (passed by VFS) */
+  int count,			/* number of LFN entries, as read on disk */
+  struct fat_lfnentry lfnda[])	/* array of LFN entries, as read on disk */
+{
+  return 1; /*fails*/
+}
+
+/*===========================================================================*
+ *				conv_nametolfn				     *
+ *===========================================================================*/
+PUBLIC int conv_nametolfn(
+  char string[NAME_MAX+1],	/* some file name (passed by VFS) */
+  int * count,			/* number of LFN entries to be written */
+  struct fat_lfnentry lfnda[],	/* array of LFN entries to write on disk */
+  struct fat_direntry *fatdp)	/* where to put the 8.3 compliant equivalent
+				 * with resulting LCase attribute also */
+{
+  return(CONV_INVAL); /*fails*/
+}
