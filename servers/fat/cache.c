@@ -328,7 +328,7 @@ PUBLIC struct buf *get_block(
   assert(req_dev == dev || (req_dev == NO_DEV && block == NO_BLOCK) );
   assert(block_size > 0);
 
-DBGprintf(("FATfs: get_block %ld ...", block));
+DBGprintf(("get_blockM%d %ld:", only_search, block));
 
   /* Search the hash chain for (dev, block). */
   assert(dev != NO_DEV);
@@ -351,7 +351,7 @@ DBGprintf(("found in cache! returns %d @ %p\n", bp-buf, bp->dp));
   if ((bp = TAILQ_FIRST(&lru)) == NULL)
 	panic("all buffers in use: %d", num_bufs);
 
-DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
+DBGprintf(("!cache; Old=%d ", bp-buf));
 
   if(bp->b_bytes < block_size) {
 	assert(!bp->dp);
@@ -367,7 +367,7 @@ DBGprintf(("not in cache!\nOldest was %d ...", bp-buf));
 		}
 DBGprintf(("cannot alloc, so will try %p ...", bp));
 	} else {
-DBGprintf(("allocated...", bp->dp));
+DBGprintf(("+alloc "));
 		bp->b_bytes = block_size;
 	}
   }
@@ -378,7 +378,7 @@ DBGprintf(("allocated...", bp->dp));
   assert(bp->b_count == 0);
 
   rm_lru(bp);
-DBGprintf(("@ %.8p...", bp->dp));
+DBGprintf(("@%.8p", bp->dp));
 
   /* Remove the block that was just taken from its hash chain. */
 /*
@@ -405,7 +405,7 @@ DBGprintf(("@ %.8p...", bp->dp));
 	bp->b_blocknr = NO_BLOCK;
 	bp->b_dev = NO_DEV;
 #endif
-DBGprintf(("old flushed..."));
+DBGprintf(("(old flushed) "));
   }
 
   /* Fill in block's parameters and add it to the hash chain where it goes. */
@@ -471,12 +471,12 @@ DBGprintf(("read..."));
 	bp->b_dev = NO_DEV;
 /* FIXME: 
 	bp->b_blocknr = NO_BLOCK;
- */
 	bp->b_dirt = NOTREAD;
+ */
 	break;
   case NORMAL:
 	rw_block(bp, READING);
-DBGprintf(("read..."));
+DBGprintf(("+read "));
 	break;
   case NO_READ:
 #ifdef USE_VMCACHE
@@ -495,7 +495,7 @@ DBGprintf(("read..."));
 #endif
   assert(bp->dp);
 
-DBGprintf(("and returned!\n"));
+DBGprintf(("=ret!\n"));
   return(bp);			/* return the newly acquired block */
 }
 
@@ -645,7 +645,6 @@ PUBLIC void rw_scattered(
 		iop->iov_addr = (vir_bytes) bp->dp;
 		iop->iov_size = (vir_bytes) block_size;
 	}
-/* WORK NEEDED ? */
 	pos = mul64u(bufq[0]->b_blocknr, block_size);
 	r = scattered_dev_io(rw_flag == WRITING ? DEV_SCATTER_S : DEV_GATHER_S,
 		iovec, pos, j);
@@ -672,7 +671,7 @@ PUBLIC void rw_scattered(
 			bp->b_dev = dev;	/* validate block */
 			put_block(bp);
 		} else {
-			bp->b_dirt = CLEAN;
+			bp->b_dirt = CLEAN;	/* was DIRTY */
 		}
 	}
 	bufq += i;

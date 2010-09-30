@@ -144,7 +144,13 @@ PUBLIC int do_chmod(void)
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
 
-  /* The only thing we can do is to toggle ATTR_READONLY */
+/* FIXME: what to do if I_ORPHAN ? */ 
+
+  /* The only thing we can do is to toggle ATTR_READONLY;
+   * and we even cannot consider doing it on directories.
+   */
+/* FIXME: abort the call if IS_DIR and ATTR_EADONLY and S_IWUSR disagree */
+
   rip->i_Attributes &= ~ATTR_READONLY; /*clear old value */
   if ( ! (m_in.REQ_MODE & S_IWUSR) )
 	rip->i_Attributes |= ATTR_READONLY;
@@ -212,6 +218,8 @@ PUBLIC int do_utime(void)
   /* Don't increase the inode refcount: it's already open anyway */
   if ((rip = fetch_inode(m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
+
+/* FIXME: consider directories */
 
   update_times(rip, 
 	m_in.REQ_MODTIME < TIME_UNKNOWN ? TIME_UNKNOWN : m_in.REQ_MODTIME, 

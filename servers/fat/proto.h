@@ -34,16 +34,21 @@ _PROTOTYPE( void rw_scattered, (dev_t dev,
 			struct buf **bufq, int bufqsize, int rw_flag)	);
 _PROTOTYPE( void zero_block, (struct buf *bp)				);
 
+/* directory.c */
+_PROTOTYPE( int do_getdents, (void)					);
+_PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
+_PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
+	char string[NAME_MAX], struct inode **res_inop)			);
+
 /* direntry.c */
 _PROTOTYPE( int add_direntry, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
 _PROTOTYPE( int del_direntry, (struct inode *dir_ptr,
 				struct inode *ent_ptr)			);
-_PROTOTYPE( int do_getdents, (void)					);
-_PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
-_PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
-	char string[NAME_MAX], struct inode **res_inop)			);
+_PROTOTYPE( struct inode *direntry_to_inode,
+	(struct fat_direntry*, struct inode* dirp, struct direntryref*)	);
 _PROTOTYPE( int update_direntry, (struct inode *)			);
+_PROTOTYPE( int update_startclust, (struct inode *, cluster_t)		);
 
 /* driver.c */
 _PROTOTYPE( int dev_open, (endpoint_t, dev_t, int proc, int flags)	);
@@ -59,8 +64,9 @@ _PROTOTYPE( int clusteralloc, (cluster_t *res_clust, cluster_t fillwith));
 _PROTOTYPE( int clusterfree, (cluster_t cluster)			);
 _PROTOTYPE( cluster_t countfreeclusters, (void)				);
 _PROTOTYPE( void done_fat_bitmap, (void)				);
-_PROTOTYPE( int extendfile,
-	(struct inode *rip, struct buf **bpp, cluster_t *ncp)		);
+_PROTOTYPE( int extendfile, (struct inode*, struct buf* *, cluster_t *)	);
+_PROTOTYPE( int extendfileclear, (struct inode*rip, 
+	unsigned long, struct buf * *bpp, cluster_t *ncp)		);
 _PROTOTYPE( void fc_purge, (struct inode *rip, cluster_t frcn)		);
 _PROTOTYPE( int freeclusterchain, (cluster_t startcluster)		);
 _PROTOTYPE( int init_fat_bitmap, (void)					);

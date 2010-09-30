@@ -35,11 +35,12 @@ PRIVATE char user_path[PATH_MAX+1];  /* pathname to be processed */
  */
 /* useful only with symlinks... dropped ATM
 FORWARD _PROTOTYPE( int ltraverse, (struct inode *rip, char *suffix)	);
+ * useful only with permissions... dropped ATM
+FORWARD _PROTOTYPE( int get_mask, (vfs_ucred_t *)			);
  */
 
-FORWARD _PROTOTYPE( int get_mask, (vfs_ucred_t *)			);
-FORWARD _PROTOTYPE( int parse_path, (ino_t dir, ino_t root, int flags,
-	struct inode **res_inop, size_t *offsetp, int *symlinkp)	);
+FORWARD _PROTOTYPE( int parse_path, (ino_t dir, ino_t root,
+	struct inode **res_inop, size_t *offsetp)			);
 
 FORWARD _PROTOTYPE( char *get_name, (char *name, char string[NAME_MAX+1]) );
 FORWARD _PROTOTYPE( int remove_dir,
@@ -115,85 +116,67 @@ PUBLIC int do_lookup(void)
 /* Perform the LOOKUP file system request. Crack the parameters and defer
  * to parse_path which will crunch the path passed.
  */
-  cp_grant_id_t grant, grant2;
-  int r, r1, flags, symlinks;
-  unsigned int len;
+  cp_grant_id_t gid, gid2;
+  int r, flags;
+  int path_len;
   size_t offset = 0, path_size, cred_size;
-/* CHECKME:
+/* FIXME:
  * should be moved to globals? to inode?
- * its use is to be around when used by other ops
- * which might not include all the details...
- * _but_ how can we do the mapping?
+ * its use is to be around when used by other ops which might not include
+ * all the details... but how can we do the mapping and avoid race conditions
+ * particularly if/when VFS became multi-tasked...
  */
   vfs_ucred_t credentials;
-  mode_t mask;
   ino_t dir_ino, root_ino;
   struct inode *rip;
 
-  grant		= (cp_grant_id_t) m_in.REQ_GRANT;
+  gid		= (cp_grant_id_t) m_in.REQ_GRANT;
   path_size	= (size_t) m_in.REQ_PATH_SIZE; /* Size of the buffer */
-  len		= (int) m_in.REQ_PATH_LEN; /* including terminating nul */
+  path_len	= (int) m_in.REQ_PATH_LEN; /* including terminating nul */
   dir_ino	= (ino_t) m_in.REQ_DIR_INO;
   root_ino	= (ino_t) m_in.REQ_ROOT_INO;
-  flags		= (int) m_in.REQ_FLAGS;
 
   /* Check length. */
-  if(len > sizeof(user_path)) return(E2BIG);	/* too big for buffer */
-  if(len == 0) return(EINVAL);			/* too small */
+  if(path_len > sizeof(user_path)) return(E2BIG);	/* too big for buffer */
+  if(path_len <= 0) return(EINVAL);			/* too small */
 
   /* Copy the pathname and set up caller's user and group id */
-  r = sys_safecopyfrom(m_in.m_source, grant, /*offset*/ (vir_bytes) 0, 
-            (vir_bytes) user_path, (size_t) len, D);
+  r = sys_safecopyfrom(m_in.m_source, gid, (vir_bytes) 0, 
+            (vir_bytes) user_path, (size_t) path_len, D);
   if(r != OK) return(r);
 
   /* Verify this is a null-terminated path. */
-  if(user_path[len - 1] != '\0') return(EINVAL);
+  if(user_path[path_len - 1] != '\0') return(EINVAL);
 
-  if(flags & PATH_GET_UCRED) { /* Do we have to copy uid/gid credentials? */
-  	grant2 = (cp_grant_id_t) m_in.REQ_GRANT2;
+  /* FIXME: drop all that credentials stuff? */
+  if(m_in.REQ_FLAGS & PATH_GET_UCRED) {
+	/* We have to copy uid/gid credentials */
+  	gid2 = (cp_grant_id_t) m_in.REQ_GRANT2;
   	cred_size = (size_t) m_in.REQ_UCRED_SIZE;
 
   	if (cred_size > sizeof(credentials)) return(EINVAL); /* Too big. */
-  	r = sys_safecopyfrom(m_in.m_source, grant2, (vir_bytes) 0,
+  	r = sys_safecopyfrom(m_in.m_source, gid2, (vir_bytes) 0,
   			 (vir_bytes) &credentials, cred_size, D);
   	if (r != OK) return(r);
-/*
-  	caller_uid = credentials.vu_uid;
-  	caller_gid = credentials.vu_gid;
- */
   } else {
   	memset(&credentials, 0, sizeof(credentials));
 	credentials.vu_uid = m_in.REQ_UID;
 	credentials.vu_gid = m_in.REQ_GID;
 	credentials.vu_ngroups = 0;
-/*
-	caller_uid	= (uid_t) m_in.REQ_UID;
-	caller_gid	= (gid_t) m_in.REQ_GID;
- */
   }
-  mask = get_mask(&credentials);	/* CHEKCME: what is it for? */
 
   DBGprintf(("FATfs: enter lookup dir=%lo, root=%lo, <%.*s>...\n",
-	dir_ino, root_ino, len, user_path));
+	dir_ino, root_ino, path_len, user_path));
 
   /* Lookup inode */
   rip = NULL;
-  r = parse_path(dir_ino, root_ino, flags, &rip, &offset, &symlinks);
+  r = parse_path(dir_ino, root_ino, &rip, &offset);
 
-  if(symlinks != 0 && (r == ELEAVEMOUNT || r == EENTERMOUNT || r == ESYMLINK)){
-	len = strlen(user_path)+1;
-	if(len > path_size) return(ENAMETOOLONG);
-
-	r1 = sys_safecopyto(m_in.m_source, grant, (vir_bytes) 0,
-			(vir_bytes) user_path, (size_t) len, D);
-	if(r1 != OK) return(r1);
-  }
-
-  if(r == ELEAVEMOUNT || r == ESYMLINK) {
+  assert(r != ESYMLINK);
+  if(r == ELEAVEMOUNT) {
 	/* Report offset and the error */
 	m_out.RES_OFFSET = offset;
-	m_out.RES_SYMLOOP = symlinks;
-
+	m_out.RES_SYMLOOP = 0;	/* no symlink in FAT */
 	return(r);
   }
 
@@ -205,15 +188,15 @@ PUBLIC int do_lookup(void)
   m_out.RES_FILE_SIZE_HI = 0;
   m_out.RES_UID = use_uid;
   m_out.RES_GID = use_gid;
-  m_out.RES_SYMLOOP		= symlinks;
+  m_out.RES_SYMLOOP = 0;
   
-  /* This is only valid for block and character specials. But it doesn't
-   * cause any harm to set RES_DEV always.
+  /* This is only valid for block and character specials.
+   * But it does not cause any harm to set RES_DEV always.
    */
   m_out.RES_DEV = dev;
 
   if(r == EENTERMOUNT) {
-	m_out.RES_OFFSET	= offset;
+	m_out.RES_OFFSET = offset;
 	put_inode(rip); /* Only return a reference to the final object */
   }
 
@@ -224,35 +207,13 @@ PUBLIC int do_lookup(void)
 }
 
 /*===========================================================================*
- *				get_mask				 *
- *===========================================================================*/
-PRIVATE int get_mask(vfs_ucred_t *ucred)	/* credentials of the caller */
-{
-  /* Given the caller's credentials, precompute a search access mask to test
-   * against directory modes.
-   */
-  int i;
-
-  if (ucred->vu_uid == use_uid) return S_IXUSR;
-
-  if (ucred->vu_gid == use_gid) return S_IXGRP;
-
-  for (i = 0; i < ucred->vu_ngroups; i++)
-	if (ucred->vu_sgroups[i] == use_gid) return S_IXGRP;
-
-  return S_IXOTH;
-}
-
-/*===========================================================================*
  *                             parse_path				   *
  *===========================================================================*/
-PRIVATE int parse_path(dir_ino, root_ino, flags, res_inop, offsetp, symlinkp)
-ino_t dir_ino;
-ino_t root_ino;
-int flags;
-struct inode **res_inop;
-size_t *offsetp;
-int *symlinkp;
+PRIVATE int parse_path(
+  ino_t dir_ino,
+  ino_t root_ino,
+  struct inode **res_inop,
+  size_t *offsetp)
 {
 /* Parse the path in user_path, starting at dir_ino. If the path is the empty
  * string, just return dir_ino. It is upto the caller to treat an empty
@@ -262,26 +223,21 @@ int *symlinkp;
  * leading slashes. 
  */
   int r, leaving_mount;
-  struct inode *rip, *dir_ip;
+  struct inode *dirp, *rip;
   char *cp, *next_cp; /* component and next component */
   char component[NAME_MAX+1];
 
   /* Start parsing path at the first component in user_path */
   cp = user_path;  
 
-  /* No symlinks encountered yet */
-  *symlinkp = 0;
-
   /* Find starting inode inode according to the request message */
-  if((rip = fetch_inode( /*fs_dev,*/ dir_ino)) == NULL) {
+  if((rip = fetch_inode(dir_ino)) == NULL) {
 	DBGprintf(("FATfs: parse_path cannot locate dir inode %lo...\n", dir_ino));
 	return(ENOENT);
   }
 
   /* If dir has been removed return ENOENT. */
-/*CHECKME
-  if (rip->i_nlinks == NO_LINK) return(ENOENT);
- */
+  if (rip->i_flags & I_ORPHAN) return(ENOENT);
  
   /* Increase the inode refcount. */
   get_inode(rip);
@@ -292,25 +248,13 @@ int *symlinkp;
    */
   leaving_mount = rip->i_flags & I_MOUNTPOINT; /* True iff rip is mountpoint*/
 
+  r = OK;		/* assume success without comments */
+
   /* Scan the path component by component. */
-  while (TRUE) {
-	if(cp[0] == '\0') {
-		/* We're done; either the path was empty or we've parsed all 
-		 components of the path */
-
-DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
-		
-		*res_inop = rip;
-		*offsetp += cp - user_path;
-
-		/* Return EENTERMOUNT if we are at a mount point */
-		if (rip->i_flags & I_MOUNTPOINT) return(EENTERMOUNT);
-		
-		return(OK);
-	}
-
+  while (cp[0] != '\0') {
 	next_cp = get_name(cp, component);
 
+#if 0
 	/* Special code for '..'. A process is not allowed to leave a chrooted
 	 * environment. A lookup of '..' at the root of a mounted filesystem
 	 * has to return ELEAVEMOUNT. In both cases, the caller needs search
@@ -325,7 +269,7 @@ DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
 		}
  */
 /* CHECK INDEX? *? */
-		if (rip->i_index == root_ino) {
+		if (INODE_NR(rip) == root_ino) {
 			cp = next_cp;
 			continue;	/* Ignore the '..' at a process' root 
 					 and move on to the next component */
@@ -337,42 +281,73 @@ DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
 			/* Climbing up to parent FS */
 
 			put_inode(rip);
-			*offsetp += cp - user_path; 
+			*offsetp = cp - user_path; 
 			return(ELEAVEMOUNT);
 		}
 	}
+#else
+	/* Special case: a process is not allowed to leave a chrooted environment.
+	 * A lookup of '..' when pointing at the user's root directory should
+	 * not be allowed to go upper.
+	 */
+	if ( (INODE_NR(rip) == root_ino) && (strcmp(component, "..") == 0) ) {
+	/* Ignore the '..' at a process' root and move on to the next comp. */
+		cp = next_cp;
+		continue;	
+				
+	}
+#endif
+
 
 	/* Only check for a mount point if we are not coming from one. */
 	if (!leaving_mount && rip->i_flags & I_MOUNTPOINT) {
 		/* Going to enter a child FS */
-
-		*res_inop = rip;
-		*offsetp += cp - user_path;
-		return(EENTERMOUNT);
-	}
-
-	/* There is more path.  Keep parsing.
-	 * If we're leaving a mountpoint, skip directory permission checks.
-	 */
-	dir_ip = rip;
 #if 0
-	r = advance(dir_ip, &rip, leaving_mount ? dot2 : component, CHK_PERM);
+		*res_inop = rip;
+		*offsetp = cp - user_path;
+		return(EENTERMOUNT);
 #else
-	r = advance(dir_ip, &rip, leaving_mount ? ".." : component, CHK_PERM);
+		break;
 #endif
-	if(r == ELEAVEMOUNT || r == EENTERMOUNT)
-		r = OK;
-
-	if (r != OK) {
-		put_inode(dir_ip);
-		return(r);
 	}
+
+	/* There is more path.  Keep parsing. */
+	dirp = rip;
+#if 0
+	r = advance(dirp, &rip, leaving_mount ? dot2 : component, CHK_PERM);
+#elif 0
+	r = advance(dirp, &rip, leaving_mount ? ".." : component, CHK_PERM);
+/* Given a directory and a component of a path, look up the component in
+ * the directory, find the inode, open it, and return a pointer to its inode
+ * slot.
+ */
+#else
+	assert(component[0] != '\0');
+	r = lookup_dir(dirp, component, &rip);
+#endif
+
+	if (r != OK) break;
 	leaving_mount = 0;
 
-	/* The call to advance() succeeded.  Fetch next component. */
-	put_inode(dir_ip);	/* release the current inode */
+	/* The call to lookup_dir() succeeded.  Fetch next component. */
+	put_inode(dirp);	/* release the current inode */
 	cp = next_cp;
   }
+
+  /* We are done; either the path was empty, or we have parsed all 
+   * components of the path, or we are changing to another FS.
+   */
+
+  if (r == OK || r == ELEAVEMOUNT || r == EENTERMOUNT) {
+	assert(res_inop);
+	*res_inop = rip;
+	*offsetp = cp - user_path;
+DBGprintf(("FATfs: parse path returned inode %lo\n", INODE_NR(rip)));
+
+	/* Return EENTERMOUNT if we are at a mount point */
+	if (rip->i_flags & I_MOUNTPOINT) r = EENTERMOUNT;
+  }	
+  return(r);
 }
 
 /*===========================================================================*
@@ -414,7 +389,7 @@ FIXME: changed interface...
   }
 
   /* The component has been found in the directory.  Get inode. */
-  /* get_inode(rip); */	/* alread done before. */
+  /* get_inode(rip); */	/* already done before. */
 
   r = OK;		/* assume success without comments */
 
@@ -523,33 +498,12 @@ PUBLIC int do_create(void)
 
   /* Read request message */
   newnode_mode = (mode_t) m_in.REQ_MODE;
-/*
-  newnode_uid = (uid_t) m_in.REQ_UID;
-  newnode_gid = (gid_t) m_in.REQ_GID;
-  */
-  /* Are we creating a directory, a regular file,
-   * or something else (which will fail)?
-   */
-  if (S_ISDIR(newnode_mode)) {
-	/* Directories need allocation of space now (even if using MKNOD)
-	 * for the server to work, since we rely on the fact
-	 * directories have a non-zero start cluster number.
-	 */
-  } else if (S_ISREG(newnode_mode)) {
-  } else
-	return(EINVAL);
-
-  /* Try to make the file. */
 
   /* Copy the last component (i.e., file name) */
-#if 0
-  len = min( (unsigned) m_in.REQ_PATH_LEN, sizeof(string));
-#else
   len = m_in.REQ_PATH_LEN;
   if (len > sizeof(string) || len > NAME_MAX+1) {
 	return(ENAMETOOLONG);
   }
-#endif
   memset(string, 0, sizeof(string));
   r = sys_safecopyfrom(VFS_PROC_NR, (cp_grant_id_t) m_in.REQ_GRANT,
 		    (vir_bytes) 0, (vir_bytes) string, len, D);
@@ -565,63 +519,21 @@ PUBLIC int do_create(void)
   /*CHECKME: is it needed? is the dir open anyway? should we increase ref? */
   /* get_inode(dirp); */
 
-/* Create a new inode by calling new_node(). 
- * New_node() is called by do_open(), do_mknod(), and do_mkdir().  
- * In all cases it allocates a new inode, makes a directory entry for it in
- * the dirp directory with string name, and initializes it.  
- * It returns a pointer to the inode if it can do this; 
- * otherwise it returns NULL.  It always sets 'err_code'
- * to an appropriate value (OK or an error code).
- * 
- * The parsed path rest is returned in 'parsed' if parsed is nonzero. It
- * has to hold at least NAME_MAX bytes.
- */
-
-  /* Get final component of the path. */
-#if 0
-  rip = advance(dirp, string /*, IGN_PERM */ );
-#else
-  r = advance(dirp, &rip, string, IGN_PERM );
-#endif
-
-#if 0
-  if (S_ISDIR(newnode_mode) && (ldirp->i_nlinks >= LINK_MAX)) {
-        /* New entry is a directory, alas we can't give it a ".." */
-        put_inode(rip);
-        err_code = EMLINK;
-        return(NULL);
-  }
-#endif
+  assert(string[0] != '\0');
+  r = lookup_dir(dirp, string, &rip);
 
   if ( rip == NULL && r == ENOENT) {
-  } else if (r == EENTERMOUNT || r == ELEAVEMOUNT) {
-  	r = EEXIST;
-  } else { 
-	/* Either last component exists, or there is some problem. */
-	if (rip != NULL)
-		r = EEXIST;
-/*
-	else
-		r = err_code;
- */
-  }
-
-  if ( rip == NULL && r == ENOENT) {
+	/* Things look good so far... */
 	/* Last path component does not exist.  Make new directory entry. */
-#if 0
-	if ( (rip = alloc_inode((ldirp)->i_dev, bits)) == NULL) {
-		/* Cannot creat new inode: out of inodes. */
-		return(NULL);
-	}
-
-	/* Force inode to the disk before making directory entry to make
-	 * the system more robust in the face of a crash: an inode with
-	 * no directory entry is much better than the opposite.
+  /* Are we creating a directory, a regular file,
+   * or something else (which will fail)?
+   */
+  if (S_ISDIR(newnode_mode)) {
+	/* Directories need allocation of space now (even if using MKNOD)
+	 * for the server to work, since we rely on the fact
+	 * directories have a non-zero start cluster number.
 	 */
-pour FAT, pour MKDIR, l´ordre est le suivant:
- -creer inode vide (get_free_inode)
- -allouer cluster, remplir avec . et ..
- -add_entry
+	/* make_fat_dir(dirp, string, &cn); */
 #if 0  
 MKDIR
   /* Get the inode numbers for . and .. to enter in the directory. */
@@ -650,23 +562,15 @@ MKDIR
   }
   rip->i_dirt = DIRTY;		/* either way, i_nlinks has changed */
 #endif
- 
-	rip->i_nlinks++;
-/* MKNOD:
-(zone_t) m_in.REQ_DEV
- */
-	rip->i_zone[0] = z0;		/* major/minor device numbers */
-	rw_inode(rip, WRITING);		/* force inode to disk now */
+  } else if (S_ISREG(newnode_mode)) {
+	/* cn = 0; */
+  } else
+	return(EINVAL);
 
-	/* New inode acquired.  Try to make directory entry. */
-	if((r=search_dir(ldirp, string, &rip->i_num, ENTER, IGN_PERM)) != OK) {
-		rip->i_nlinks--;	/* pity, have to free disk inode */
-		rip->i_dirt = DIRTY;	/* dirty inodes are written out */
-		put_inode(rip);	/* this call frees the inode */
-		err_code = r;
-		return(NULL);
-	}
-#endif
+  /* Try to make the file. */
+  r = add_direntry(dirp, string, &rip /*, cn */ );
+
+  /* FIXME: chmod READONLY */
 
   } else if (r == EENTERMOUNT || r == ELEAVEMOUNT) {
   	r = EEXIST;
@@ -674,25 +578,10 @@ MKDIR
 	/* Either last component exists, or there is some problem. */
 	if (rip != NULL)
 		r = EEXIST;
-/*
-	else
-		r = err_code;
- */
   }
-
-  /* The caller has to return the directory inode (*dirp).  */
-/*
-  err_code = r;
-  r = err_code;
- */
 
   /* If an error occurred, release inode. */
 /* MKDIR also execs if rip==NULL */
-  if (r != OK) {
-	  /* put_inode(dirp); */
-	  put_inode(rip);
-	  return(r);
-  }
 
   /* Reply message (solo CREATE) */
   if (m_in.m_type == REQ_CREATE) {
@@ -951,6 +840,7 @@ PRIVATE int remove_dir(
 /* FIXME: is it really necessary for FAT? */
   (void) unlink_file(rip, NULL, /*dot1*/ ".");
   (void) unlink_file(rip, NULL, /*dot2*/ "..");
+/* truncate(0); free clusters... */
   return(OK);
 }
 

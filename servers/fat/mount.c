@@ -68,7 +68,7 @@ PRIVATE int reco_bootsector(
   struct fat_extbpb * *extbpbpp) /* where to put the extension if found */
 {
 /* Do the basic check of the boot sector, and locate the extended BPB (if any)
- * Also may set sb.fatmask according to the indicated FStype.
+ * Also may set sb.fatMask according to the indicated FStype.
  *
  * Possible improvements:
  * could be splitted in 2, one to recognize FAT32 and the other for FAT12/16
@@ -100,12 +100,12 @@ PRIVATE int reco_bootsector(
 	return(EINVAL);
   }
 
-  sb.fatmask = 0;
+  sb.fatMask = 0;
   *extbpbpp = NULL;
   /* Try to recognize an extended BPB; first tries FAT32 ones */
   if (reco_extbpb(& bs->u.f32bpb.ExtBPB32, FAT32_FSTYPE)) {
 	*extbpbpp = & bs->u.f32bpb.ExtBPB32;
-	sb.fatmask = FAT32_MASK;
+	sb.fatMask = FAT32_MASK;
 	return(OK);
   }
   if (reco_extbpb(& bs->u.f32bpb.ExtBPB32, FAT_FSTYPE)) {
@@ -115,12 +115,12 @@ PRIVATE int reco_bootsector(
   /* it didn't work; then try FAT12/FAT16, at a different place */
   if (reco_extbpb(& bs->u.ExtBPB, FAT16_FSTYPE)) {
 	*extbpbpp = & bs->u.ExtBPB;
-	sb.fatmask = FAT16_MASK;
+	sb.fatMask = FAT16_MASK;
 	return(OK);
   }
   if (reco_extbpb(& bs->u.ExtBPB, FAT12_FSTYPE)) {
 	*extbpbpp = & bs->u.ExtBPB;
-	sb.fatmask = FAT12_MASK;
+	sb.fatMask = FAT12_MASK;
 	return(OK);
   }
   if (reco_extbpb(& bs->u.ExtBPB, FAT_FSTYPE)) {
@@ -202,49 +202,50 @@ PRIVATE int find_basic_sizes(struct fat_bootsector *bs)
   int i;
   unsigned long bit;
 
-  sb.bpsector = get_le16(bs->bpbBytesPerSec);
-  if (sb.bpsector < MIN_SECTOR_SIZE) {
+  sb.bpSector = get_le16(bs->bpbBytesPerSec);
+  if (sb.bpSector < MIN_SECTOR_SIZE) {
 	DBGprintf(("mounting failed: sector size %lu too small\n",
-		(unsigned long) sb.bpsector));
+		(unsigned long) sb.bpSector));
 	return(EINVAL);
-  } else if (sb.bpsector > MAX_SECTOR_SIZE) {
+  } else if (sb.bpSector > MAX_SECTOR_SIZE) {
 	DBGprintf(("mounting failed: sector size %lu too big\n",
-		(unsigned long) sb.bpsector));
+		(unsigned long) sb.bpSector));
 	return(EINVAL);
   }
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
-	if (bit & sb.bpsector) {
-		assert(! (bit ^ sb.bpsector));	/* should be power-of-2 */
-		sb.snshift = i;
+	if (bit & sb.bpSector) {
+		assert(! (bit ^ sb.bpSector));	/* should be power-of-2 */
+		sb.snShift = i;
 		break;
 	}
   }
-  sb.srelmask = sb.bpsector-1;
-  sb.secpcluster = bs->bpbSecPerClust;
+  sb.sMask = sb.bpSector-1;
+  sb.secpCluster = bs->bpbSecPerClust;
   bit = 1;
   for (i=0; i<8; bit<<=1,++i) {
-	if (bit & sb.secpcluster) {
-		assert(! (bit ^ sb.secpcluster)); /* should be power-of-2 */
-		sb.cnshift = sb.snshift + i;
+	if (bit & sb.secpCluster) {
+		assert(! (bit ^ sb.secpCluster)); /* should be power-of-2 */
+		sb.cnShift = sb.snShift + i;
 		break;
 	}
   }
-  if (sb.cnshift>15) {
+  if (sb.cnShift>15) {
 	DBGprintf(("mounting failed: clusters too big (%d KiB)\n",
-		1<<(sb.cnshift-10)));
+		1<<(sb.cnShift-10)));
 	return(EINVAL);
   }
-  sb.csshift = sb.cnshift - sb.snshift;
-  assert(bs->bpbSecPerClust == (1<<sb.csshift));
-  sb.bpcluster = sb.secpcluster * sb.bpsector;
-  assert(sb.bpcluster == (1<<sb.cnshift)); /* paranoia */
-  sb.crelmask = sb.bpcluster-1;
+  sb.csShift = sb.cnShift - sb.snShift;
+  assert(bs->bpbSecPerClust == (1<<sb.csShift));
+  sb.bpCluster = sb.secpCluster * sb.bpSector;
+  assert(sb.bpCluster == (1<<sb.cnShift)); /* paranoia */
+  sb.cMask = sb.bpCluster-1;
   assert(sizeof(struct fat_direntry) == 32); /* paranoia */
   assert(sizeof(struct fat_lfnentry) == 32);
   assert(DIR_ENTRY_SIZE == 32);
-  sb.depsec = sb.bpsector / DIR_ENTRY_SIZE;
-  sb.depclust = sb.depsec << sb.cnshift;
+  assert( (sb.bpSector % DIR_ENTRY_SIZE) == 0);
+  sb.depSector = sb.bpSector / DIR_ENTRY_SIZE;
+  sb.depCluster = sb.depSector << sb.cnShift;
   return OK;
 }
 
@@ -261,16 +262,16 @@ PRIVATE int find_sector_counts(
   sb.nFATs = bs->bpbFATs;
 
   sb.resCnt = get_le16(bs->bpbResSectors);
-  if ( (sb.secpfat = get_le16(bs->bpbFATsecs)) == 0) {
+  if ( (sb.secpFat = get_le16(bs->bpbFATsecs)) == 0) {
 	if (extbpbp == &bs->u.ExtBPB
-	 || sb.fatmask && sb.fatmask != FAT32_MASK) {
+	 || sb.fatMask && sb.fatMask != FAT32_MASK) {
 		DBGprintf(("mounting failed: needs at least 1 sector/FAT\n"));
 		return(EINVAL);
 	}
 	if (extbpbp != &bs->u.f32bpb.ExtBPB32)
 		DBGprintf(("warning: mounting FAT32 without extended BPB\n"));
-	sb.secpfat = get_le32(bs->u.f32bpb.bpbBigFATsecs);
-	if (sb.secpfat <= 0) {
+	sb.secpFat = get_le32(bs->u.f32bpb.bpbBigFATsecs);
+	if (sb.secpFat <= 0) {
 		/* still 0 ??? */
 		DBGprintf(("mounting failed: needs at least 1 sector/FAT\n"));
 		return(EINVAL);
@@ -282,7 +283,7 @@ PRIVATE int find_sector_counts(
 	return(EINVAL);
   }
   sb.rootEntries = get_le16(bs->bpbRootDirEnts);
-  sb.rootCnt = (sb.rootEntries+sb.depsec-1) / sb.depsec;
+  sb.rootCnt = (sb.rootEntries + sb.depSector-1) / sb.depSector;
 #if 0
 /* FIXME: rewrite (FAT32MASK) or move later */
   if (extbpbp == &bs->u.f32bpb.ExtBPB32) {
@@ -301,17 +302,17 @@ PRIVATE int find_sector_counts(
   if ( (sb.totalSecs = get_le16(bs->bpbSectors)) == 0) {
 	sb.totalSecs = get_le32(bs->bpbHugeSectors);
   }
-  sb.fatsCnt = sb.nFATs * sb.secpfat;
+  sb.fatsCnt = sb.nFATs * sb.secpFat;
   systemarea = sb.resCnt + sb.fatsCnt + sb.rootCnt;
-  if ( (systemarea + sb.secpcluster) >= sb.totalSecs) {
+  if ( (systemarea + sb.secpCluster) >= sb.totalSecs) {
 	DBGprintf(("mounting failed: incoherent sizes, "
 		"sysarea=%lu total=%lu\n",
 		(unsigned long)systemarea, (unsigned long)sb.totalSecs));
 	return(EINVAL);
   }
-  sb.clustCnt = (sb.totalSecs - systemarea) & ~sb.crelmask;
-  sb.maxFilesize = (FAT_FILESIZE_MAX>>sb.snshift) < sb.clustCnt
-	? FAT_FILESIZE_MAX : sb.clustCnt<<sb.snshift;
+  sb.clustCnt = (sb.totalSecs - systemarea) & ~sb.cMask;
+  sb.maxFilesize = (FAT_FILESIZE_MAX>>sb.snShift) < sb.clustCnt
+	? FAT_FILESIZE_MAX : sb.clustCnt<<sb.snShift;
 
   sb.resSec   = 0;
   sb.fatSec   = sb.resCnt;
@@ -331,15 +332,15 @@ PRIVATE int chk_fatsize(
 /* Final check about FAT sizes */
   sector_t slack;	/* number of useless sector(s) in each FAT */
 
-  sb.maxClust = (sb.clustCnt / sb.secpcluster) + 1;
+  sb.maxClust = (sb.clustCnt / sb.secpCluster) + 1;
   if (sb.maxClust > CLUSTMASK_EOF32) {
 	DBGprintf(("mounting failed: too much clusters, maxClust=%lu=0x%.8lx\n",
 		(unsigned long)sb.maxClust, (unsigned long)sb.maxClust));
 	return(EINVAL);
   }
-  if (sb.fatmask == FAT12_MASK && ! FS_IS_FAT12(sb.maxClust)
-   || sb.fatmask == FAT16_MASK && ! FS_IS_FAT16(sb.maxClust)
-   || sb.fatmask == FAT32_MASK && ! FS_IS_FAT32(sb.maxClust)) {
+  if (sb.fatMask == FAT12_MASK && ! FS_IS_FAT12(sb.maxClust)
+   || sb.fatMask == FAT16_MASK && ! FS_IS_FAT16(sb.maxClust)
+   || sb.fatMask == FAT32_MASK && ! FS_IS_FAT32(sb.maxClust)) {
 	DBGprintf(("mounting failed: extended BPB says "
 		"FStype=<%.8s> but maxClust=%lu, not compatible\n",
 		extbpbp->exFileSysType, (unsigned long)sb.maxClust));
@@ -347,41 +348,41 @@ PRIVATE int chk_fatsize(
   }
 
   if (FS_IS_FAT12(sb.maxClust)) {
-	sb.fatmask = FAT12_MASK;	sb.eofmask = CLUSTMASK_EOF12;
+	sb.fatMask = FAT12_MASK;	sb.eofMask = CLUSTMASK_EOF12;
 	assert(!FS_IS_FAT16(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT32(sb.maxClust));
 	sb.nibbles = 3;
 /* FIXME: PLUS virtual methods... +++ */
   }
   else if (FS_IS_FAT16(sb.maxClust)) {
-	sb.fatmask = FAT16_MASK;	sb.eofmask = CLUSTMASK_EOF16;
+	sb.fatMask = FAT16_MASK;	sb.eofMask = CLUSTMASK_EOF16;
 	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT32(sb.maxClust));
 	sb.nibbles = 4;
   }
   else if (FS_IS_FAT12(sb.maxClust)) {
-	sb.fatmask = FAT32_MASK;	sb.eofmask = CLUSTMASK_EOF32;
+	sb.fatMask = FAT32_MASK;	sb.eofMask = CLUSTMASK_EOF32;
 	assert(!FS_IS_FAT12(sb.maxClust));	/* paranoia */
 	assert(!FS_IS_FAT16(sb.maxClust));
 	sb.nibbles = 8;
   }
-  assert(sb.fatmask != 0);
-  assert(sb.maxClust < sb.fatmask);
-  assert( (sb.maxClust & ~sb.fatmask) == 0);
-  assert(sb.maxClust < (sb.fatmask & CLUST_BAD) );
-  if ( (sb.maxClust*sb.nibbles+1)/2 >= sb.secpfat*sb.bpsector) {
+  assert(sb.fatMask != 0);
+  assert(sb.maxClust < sb.fatMask);
+  assert( (sb.maxClust & ~sb.fatMask) == 0);
+  assert(sb.maxClust < (sb.fatMask & CLUST_BAD) );
+  if ( (sb.maxClust*sb.nibbles+1)/2 >= sb.secpFat*sb.bpSector) {
 	DBGprintf(("mounting failed: "
 		"FAT%d with only %ld sectors/FAT but %ld clusters\n",
-		sb.nibbles*4, (long)sb.secpfat, (long) sb.maxClust));
+		sb.nibbles*4, (long)sb.secpFat, (long) sb.maxClust));
 	return(EINVAL);
   }
   DBGprintf(("FATfs: mounting on %s, %ld clusters, %d rootdir entries\n",
 		fs_dev_label, (long)sb.maxClust-1, sb.rootEntries));
 
-  slack = sb.secpfat
-        - ( (sb.maxClust*sb.nibbles+1)/2 -1 + sb.bpsector ) / sb.bpsector;
+  slack = sb.secpFat
+        - ( (sb.maxClust*sb.nibbles+1)/2 -1 + sb.bpSector ) / sb.bpSector;
   DBGprintf(("FATfs: FATs are %ld sectors, slack=%ld\n",
-		(long)sb.secpfat, (long)slack));
+		(long)sb.secpFat, (long)slack));
 
   return OK;
 }
@@ -418,7 +419,7 @@ PRIVATE int calc_block_size(void)
   int i;
   unsigned long bit;
 
-  bsize = sb.bpsector;
+  bsize = sb.bpSector;
   shift = 0;
   /* First, reduce bsize to fit the maximum manageable size for cache. */
   while (bsize > MAX_BLOCK_SIZE) {
@@ -431,7 +432,7 @@ PRIVATE int calc_block_size(void)
 
   relmask = 0;
   /* Now try to increase the size while keeping everything block-aligned */
-  while (bsize < MAX_BLOCK_SIZE && bsize < sb.bpcluster) {
+  while (bsize < MAX_BLOCK_SIZE && bsize < sb.bpCluster) {
 	/* If possible, we will try to double bsize. */
 
 	 /* Compute the resulting relmask, and see what would happen */
@@ -444,7 +445,7 @@ PRIVATE int calc_block_size(void)
 	 *   This one could be dropped, but would require
 	 *   special handling to update the (unaligned) FAT mirror(s).
 	 */
-	if ( sb.secpfat & relmask)
+	if ( sb.secpFat & relmask)
 		break;
 	/* The root directory, if any, should begin on a block boundary */
 	if (sb.rootCnt && sb.rootSec & relmask)
@@ -467,7 +468,7 @@ PRIVATE int calc_block_size(void)
 	/* OK, all tests are positive, double the block_size */
 	bsize *= 2;
 	shift++;
-	assert(bsize <= MAX_BLOCK_SIZE && bsize <= sb.bpcluster);
+	assert(bsize <= MAX_BLOCK_SIZE && bsize <= sb.bpCluster);
   }
 
   if (bsize < MIN_BLOCK_SIZE) {
@@ -475,27 +476,27 @@ PRIVATE int calc_block_size(void)
 	return(EINVAL);
   }
 
-  bcc.bpblock = bsize;
+  bcc.bpBlock = bsize;
   bit = 1;
   for (i=0; i<16; bit<<=1,++i) {
-	if (bit & bcc.bpblock) {
-		assert(! (bit ^ bcc.bpblock));	/* should be power-of-2 */
-		bcc.bnshift = i;
+	if (bit & bcc.bpBlock) {
+		assert(! (bit ^ bcc.bpBlock));	/* should be power-of-2 */
+		bcc.bnShift = i;
 		break;
 	}
   }
-  assert(bcc.bnshift == sb.snshift + shift);
-  bcc.brelmask = bcc.bpblock-1;
-  bcc.blkpcluster = sb.secpcluster >>shift;
+  assert(bcc.bnShift == sb.snShift + shift);
+  bcc.bMask = bcc.bpBlock-1;
+  bcc.blkpCluster = sb.secpCluster >>shift;
 
-  bcc.cbshift = sb.csshift + shift;
-  assert(bcc.cbshift == sb.cnshift - bcc.bnshift);
-  assert(bcc.blkpcluster == (1<<bcc.cbshift));
-  bcc.depblk = bcc.bpblock / DIR_ENTRY_SIZE;
+  bcc.cbShift = sb.csShift + shift;
+  assert(bcc.cbShift == sb.cnShift - bcc.bnShift);
+  assert(bcc.blkpCluster == (1<<bcc.cbShift));
+  bcc.depBlock = bcc.bpBlock / DIR_ENTRY_SIZE;
 
   bcc.resBlk = sb.resSec;
   bcc.resSiz = bcc.fatBlk = sb.resCnt >>shift;
-  bcc.blkpfat = sb.secpfat >>shift;
+  bcc.blkpFat = sb.secpFat >>shift;
 /* Because of possible unalignment of mirror FAT, do not do
  * bcc.fatsSiz = sb.nFATs * bcc.blkpfat;
  */
@@ -584,20 +585,20 @@ PUBLIC int do_readsuper(void)
   /* Compute block_sizes */
   if ( (r = calc_block_size()) != OK )
 	return(r);
-  if (bcc.bpblock < MIN_BLOCK_SIZE) 
+  if (bcc.bpBlock < MIN_BLOCK_SIZE) 
 	return(EINVAL);
-  if ((bcc.bpblock % 512) != 0) 
+  if ((bcc.bpBlock % 512) != 0) 
 	return(EINVAL);
 
 /* FIXME: compute num_blocks (bcc.nbufs) with knowledge of global FS size...*/
-  init_cache(bcc.nbufs=NUM_BUFS, bcc.bpblock);
+  init_cache(bcc.nBufs=NUM_BUFS, bcc.bpBlock);
 
   if ( (r = init_fat_bitmap()) != OK )
 	return(r);
 
   root_ip = init_inodes(NUM_INODES);
 
-/* FIXME: use sb.rootCluster */
+/* FIXME: use sb.rootClust */
   if (rootDirSize) {
 	/* the fixed root directory exists */
 	root_ip->i_clust = CLUST_CONVROOT;	/* conventionally 1 */
@@ -616,12 +617,12 @@ PUBLIC int do_readsuper(void)
 	 * and just place a faked value of one cluster;
 	 * anyway this directory will be looked up quickly...
 	 */
-	root_ip->i_size == sb.bpcluster;
+	root_ip->i_size == sb.bpCluster;
 	root_ip->i_flags |= I_DIRNOTSIZED;
   }
   root_ip->i_mode = get_mode(root_ip);
 /* FIXME above... */
-  sb.rootCluster = root_ip->i_clust;
+  sb.rootClust = root_ip->i_clust;
 
 /* FIXME: fake entries . and .. in root dir; will fix
   root_ip->i_entrypos = ???

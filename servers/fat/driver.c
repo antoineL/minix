@@ -240,7 +240,6 @@ PUBLIC int scattered_dev_io(
   static cp_grant_id_t gids[NR_IOREQS];
   static iovec_t grants_vec[NR_IOREQS];
   int vec_grants;
-/* FIXME: need to document the protocol with the driver... */
 
   assert(cnt<=NR_IOREQS);
 
@@ -269,7 +268,6 @@ PUBLIC int scattered_dev_io(
   m.IO_ENDPT = SELF_E;
   m.DEVICE   = (dev >> MINOR) & BYTE;
   m.IO_GRANT = (char *) gid;
-/*  m.ADDRESS  = (void *) grants_vec; */
   m.POSITION = ex64lo(pos);
   m.HIGHPOS  = ex64hi(pos);
   m.COUNT    = cnt;
@@ -280,8 +278,10 @@ PUBLIC int scattered_dev_io(
   /* As block I/O never SUSPENDs, safecopies cleanup must be done
    * whether the I/O succeeded or not. */
   cpf_revoke(gid);
-  for(j = 0; j < cnt; j++)
+  for(j = 0, v = iovec; j < cnt; ++j, ++v) {
 	cpf_revoke(gids[j]);
+	v->iov_size = grants_vec[j].iov_size; /* grab results */
+  }
 
   /* Task has completed.  See how call completed. */
   return(update_dev_status(r, driver_e, &m));

@@ -84,9 +84,9 @@ PUBLIC int do_read(void)
   cum_bytes = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (rem_bytes > 0) {
-	off = position & bcc.brelmask; /* offset in blk*/
-	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
-DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, file_size));
+	off = position & bcc.bMask; /* offset in blk*/
+	chunk = rem_bytes < (bcc.bpBlock-off) ? rem_bytes : bcc.bpBlock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%x)\n", chunk, position, bcc.bpBlock, file_size));
 
 	bytes_left = file_size - position;
 	if (position >= file_size) break;	/* we are beyond EOF */
@@ -102,7 +102,6 @@ DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpbloc
 		zero_block(bp);
 	} else {
 		/* Read and read ahead if convenient. */
-/* FIXME: peek for possible blocks according to cached FAT clusters */
 		bp = rahead(rip, b, cvul64(position), rem_bytes);
 	}
 	
@@ -128,7 +127,7 @@ DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpbloc
 
   /* Check to see if read-ahead is called for, and if so, set it up. */
   if ( (rip->i_flags & I_SEEK)==0
-    && (position & bcc.brelmask) == 0) {
+    && (position & bcc.bMask) == 0) {
 	rdahed_inode = rip;
 	rdahedpos = position;
   }
@@ -200,14 +199,14 @@ PUBLIC int do_bread(void)
 #endif
 
   cum_bytes = 0;
-  b = div64u(position, bcc.bpblock);
-  off = rem64u(position, bcc.bpblock); /* offset in block */
+  b = div64u(position, bcc.bpBlock);
+  off = rem64u(position, bcc.bpBlock); /* offset in block */
   /* Split the transfer into chunks that don't span two blocks. */
   while (rem_bytes > 0) {
-	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+	chunk = rem_bytes < (bcc.bpBlock-off) ? rem_bytes : bcc.bpBlock - off;
 	
 	/* Read and read ahead if convenient. */
-/*FIXME*/ rip = &blk_rip;
+/*FIXME!!!*/ rip = &blk_rip;
 	bp = rahead(rip, b, position, rem_bytes);
 	
 	/* In all cases, bp now points to a valid buffer. */
@@ -277,8 +276,8 @@ PUBLIC void read_ahead(void)
 #endif
   assert(rdahedpos > 0); /* So we can safely cast it to unsigned below */
 
-DBGprintf(("read_ahead:: rahead(rip, b=%d, cvul64( (unsigned long) rdahedpos=%ld), bcc.bpblock=%d)\n", b, rdahedpos, bcc.bpblock));
-  bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), bcc.bpblock);
+DBGprintf(("read_ahead:: rahead(rip, b=%d, cvul64( (unsigned long) rdahedpos=%ld), bcc.bpBlock=%d)\n", b, rdahedpos, bcc.bpBlock));
+  bp = rahead(rip, b, cvul64( (unsigned long) rdahedpos), bcc.bpBlock);
   put_block(bp);
 }
 
@@ -306,21 +305,19 @@ PRIVATE struct buf *rahead(
   unsigned int blocks_ahead, fragment;
   block_t block, blocks_left;
   off_t ind1_pos;
-/*
-  dev_t dev;
- */
   struct buf *bp;
   static unsigned int readqsize = 0;
   static struct buf **read_q;
 
-  if(readqsize != bcc.nbufs) {
+  if(readqsize != bcc.nBufs) {
 	if(readqsize > 0) {
 		assert(read_q != NULL);
 		free(read_q);
 	}
-	if(!(read_q = malloc(sizeof(read_q[0]) * bcc.nbufs)))
+	if(!(read_q = malloc(sizeof(read_q[0]) * bcc.nBufs)))
 		panic("couldn't allocate read_q");
-	readqsize = bcc.nbufs;
+	readqsize = bcc.nBufs;
+DBGprintf(("allocated %d bytes for read_q at %p\n", sizeof(read_q[0]) * bcc.nBufs, read_q));
   }
 
 /*
@@ -333,7 +330,14 @@ PRIVATE struct buf *rahead(
 
   block = baseblock;
   bp = get_block(dev, block, PREFETCH);
+#if 0
   if (bp->b_dev != NO_DEV) return(bp);
+#else
+  if (bp->b_dev == dev) {
+DBGprintf(("rahead found block %d in cache, return direct %p!\n", block, bp->dp));
+	return(bp);
+  }
+#endif
 
   /* The best guess for the number of blocks to prefetch:  A lot.
    * It is impossible to tell what the device looks like, so we don't even
@@ -355,24 +359,26 @@ PRIVATE struct buf *rahead(
    * indirect blocks (but don't call bmap!).
    */
 
-  fragment = rem64u(position, bcc.bpblock);
+  fragment = rem64u(position, bcc.bpBlock);
   position = sub64u(position, fragment);
   bytes_ahead += fragment;
 
-  blocks_ahead = (bytes_ahead + bcc.bpblock - 1) / bcc.bpblock;
+  blocks_ahead = (bytes_ahead + bcc.bpBlock - 1) / bcc.bpBlock;
+
+DBGprintf(("rahead1 prefetching from %ld... max %ld (%ld b.)\n", block, blocks_ahead, bytes_ahead));
 
 #if 0
 /* Change to peeking the FAT... */
   if (block_spec && rip->i_size == 0) {
 	blocks_left = (block_t) NR_IOREQS;
   } else {
-	blocks_left = (block_t) (rip->i_size-ex64lo(position)+bcc.bpblock-1) /
-								bcc.bpblock;
+	blocks_left = (block_t) (rip->i_size-ex64lo(position)+bcc.bpBlock-1) /
+								bcc.bpBlock;
 
 	/* Go for the first indirect block if we are in its neighborhood. */
 	if (!block_spec) {
 		scale = rip->i_sp->s_log_zone_size;
-		ind1_pos = (off_t) rip->i_ndzones * (bcc.bpblock << scale);
+		ind1_pos = (off_t) rip->i_ndzones * (bcc.bpBlock << scale);
 		if ((off_t) ex64lo(position) <= ind1_pos &&
 		   rip->i_size > ind1_pos) {
 			blocks_ahead++;
@@ -392,7 +398,10 @@ PRIVATE struct buf *rahead(
 #endif
 
   /* Can't go past end of file. */
+/*
   if (blocks_ahead > blocks_left) blocks_ahead = blocks_left;
+ */
+DBGprintf(("rahead2 prefetching from %ld... max %ld (%ld b.)\n", block, blocks_ahead, bytes_ahead));
 
   read_q_size = 0;
 
@@ -403,7 +412,7 @@ PRIVATE struct buf *rahead(
 	if (--blocks_ahead == 0) break;
 
 	/* Don't trash the cache, leave some free. */
-	if (bufs_in_use >= bcc.nbufs - KEPT_BUFS) break;
+	if (bufs_in_use >= bcc.nBufs - KEPT_BUFS) break;
 
 	block++;
 
@@ -449,6 +458,8 @@ PUBLIC int do_write(void)
   /* Get the values from the request msg. Do not increase the inode refcount*/
   if ((rip = fetch_inode((ino_t) m_in.REQ_INODE_NR)) == NULL)
 	return(EINVAL);
+  if (rip->i_Attributes & ATTR_READONLY) return(EPERM);
+
 /*
   position64 = make64((unsigned long) m_in.REQ_SEEK_POS_LO,
   		    (unsigned long) m_in.REQ_SEEK_POS_HI);
@@ -480,9 +491,9 @@ PUBLIC int do_write(void)
   cum_bytes = 0;
   /* Split the transfer into chunks that don't span two blocks. */
   while (rem_bytes > 0) {
-	off = position & bcc.brelmask; /* offset in blk*/
-	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
-DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpblock, file_size));
+	off = position & bcc.bMask; /* offset in blk*/
+	chunk = rem_bytes < (bcc.bpBlock-off) ? rem_bytes : bcc.bpBlock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpBlock, file_size));
 
 #if 0
 	bytes_left = file_size - position;
@@ -505,7 +516,7 @@ DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpbloc
 		 * If it is already in the cache, acquire it, otherwise just
 		 * acquire a free buffer.
 		 */
-		n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
+		n = (chunk == bcc.bpBlock ? NO_READ : NORMAL);
 		if (off == 0 && position >= rip->i_size) 
 			n = NO_READ;
 		bp = get_block(dev, b, n);
@@ -520,7 +531,7 @@ DBGprintf(("chunk is %u bytes, at %lx (BS=%d, EOF=%u)\n", chunk, off, bcc.bpbloc
  */
 
 #if 0	
-	if (chunk != bcc.bpblock &&
+	if (chunk != bcc.bpBlock &&
 	    (off_t) ex64lo(position64) >= rip->i_size && off == 0) {
 		zero_block(bp);
 	}
@@ -604,18 +615,18 @@ PUBLIC int do_bwrite(void)
 #endif
 
   cum_bytes = 0;
-  b = div64u(position, bcc.bpblock);
-  off = rem64u(position, bcc.bpblock);	/* offset in blk*/
+  b = div64u(position, bcc.bpBlock);
+  off = rem64u(position, bcc.bpBlock);	/* offset in blk*/
   /* Split the transfer into chunks that don't span two blocks. */
   while (rem_bytes > 0) {
-	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
+	chunk = rem_bytes < (bcc.bpBlock-off) ? rem_bytes : bcc.bpBlock - off;
 
 	/* Normally an existing block to be partially overwritten is first
 	 * read in. However, a full block need not be read in.
 	 * If it is already in the cache, acquire it, otherwise just
 	 * acquire a free buffer.
 	 */
-	bp = get_block(dev, b, chunk == bcc.bpblock ? NO_READ : NORMAL);
+	bp = get_block(dev, b, chunk == bcc.bpBlock ? NO_READ : NORMAL);
 
 	/* In all cases, bp now points to a valid buffer. */
 	assert(bp != NULL);
@@ -703,15 +714,15 @@ PRIVATE int set_newsize(struct inode *rip, unsigned long newsize)
 	/* Zeroes the remaining part of the last allocated block.
 	 * We should take care of avoiding overflows.
 	 */
-	cut_mark = newsize|sb.crelmask; /* last addresseable byte after cut */
-	if (newsize >= (FAT_FILESIZE_MAX & ~sb.crelmask)) /* avoid overflow */
+	cut_mark = newsize|sb.cMask; /* last addresseable byte after cut */
+	if (newsize >= (FAT_FILESIZE_MAX & ~sb.cMask)) /* avoid overflow */
 	  	r = clear_area(rip, newsize, FAT_FILESIZE_MAX);
 	else 
 	  	r = clear_area(rip, newsize, cut_mark+1);
   	if (r != OK)
   		return(r);
 	/* Now unchain all remaining clusters (if any) */
-	if ( (newsize>>sb.cnshift) < (file_size>>sb.cnshift) ) {
+	if ( (newsize>>sb.cnShift) < (file_size>>sb.cnShift) ) {
 		/* freechain */
 	}
   }
@@ -769,9 +780,9 @@ PRIVATE int clear_area(struct inode *rip,
 
   /* Split the operation into chunks that don't span two blocks. */
   while (rem_bytes > 0) {
-	off = position & bcc.brelmask; /* offset in blk*/
-	chunk = rem_bytes < (bcc.bpblock-off) ? rem_bytes : bcc.bpblock - off;
-DBGprintf(("chunk is %u bytes, at %lx (BS=%d)\n", chunk, off, bcc.bpblock));
+	off = position & bcc.bMask; /* offset in blk*/
+	chunk = rem_bytes < (bcc.bpBlock-off) ? rem_bytes : bcc.bpBlock - off;
+DBGprintf(("chunk is %u bytes, at %lx (BS=%d)\n", chunk, off, bcc.bpBlock));
 
 	b = bmap(rip, position);
 
@@ -779,7 +790,7 @@ DBGprintf(("chunk is %u bytes, at %lx (BS=%d)\n", chunk, off, bcc.bpblock));
 	 * read in. However, a full block need not be read in.  If it is already in
 	 * the cache, acquire it, otherwise just acquire a free buffer.
 	 */
-	n = (chunk == bcc.bpblock ? NO_READ : NORMAL);
+	n = (chunk == bcc.bpBlock ? NO_READ : NORMAL);
 
 	if (b == NO_BLOCK || (bp = get_block(dev, b, n)) == NULL ) {
 #if 0

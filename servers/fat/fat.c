@@ -1,17 +1,15 @@
-/* This file contains the procedures that deals with FATs.
+/* This file deals with FAT, file allocation tables.
  *
  *  The entry points into this file are
- *   init_fat_bitmap
- *   done_fat_bitmap
- *   fc_purge
+ *   init_fat_bitmap	initialize the use bitmap
+ *   done_fat_bitmap	dispose of resources
+ *   fc_purge		reset FAT cache when file size changes
  *   bmap		map a file-relative offset into a block number
- *   peek_bmap		map a file-relative offset into a block number
- *			without doing I/O
- *   clusteralloc
- *   clusterfree
- *   freeclusterchain
- *   extendfile
- *   + extendfile_many
+ *   peek_bmap		map offset into block number without doing I/O
+ *   clusteralloc	allocate one cluster
+ *   clusterfree	return one cluster to allocation pool
+ *   clusterfreechain	free a chain of clusters
+ *   extendfile		extend a file up to a new size
  *
  * Auteur: Antoine Leca, septembre 2010.
  * The basis for this file is the PCFS package targetting 386BSD 0.1,
@@ -55,11 +53,17 @@ PRIVATE unsigned char * inuse_bitmap;
  *   get_mask		?
  */
 FORWARD _PROTOTYPE( void fc_setcache, (struct inode *,
-	 int slot, cluster_t frcn, cluster_t abscn, block_t bn)		);
+	 int slot, cluster_t frcn, cluster_t abscn)			);
 FORWARD _PROTOTYPE( void fc_lookup, (struct inode *,
 	  cluster_t findcn, cluster_t * frcnp, cluster_t * abscnp)	);
 FORWARD _PROTOTYPE( int fatentry, (cluster_t cluster, 
 	cluster_t *oldcontents, cluster_t newcontents)		);
+
+#define C_TO_B(cn)	( (((cn)-CLUST_FIRST) << bcc.cbShift) + bcc.clustBlk )
+
+/* warning: the following will not work if cluster_t/zone_t is signed */
+#define IS_VALID_CLUST(cn)		\
+	( (cluster_t)((cn) - CLUST_FIRST) > (sb.maxClust - CLUST_FIRST))
 
 /* warning: the following lines are not failsafe macros */
 #define	get_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
@@ -110,8 +114,8 @@ PUBLIC int init_fat_bitmap(void)
 	sb.nextClust = -1;
 	for (cn = CLUST_FIRST; cn <= sb.maxClust; cn++) {
 		byteoffset = cn * sb.nibbles / 2;
-		bn = (byteoffset >> bcc.bnshift) + bcc.fatBlk;
-		bo = byteoffset & bcc.brelmask;
+		bn = (byteoffset >> bcc.bnShift) + bcc.fatBlk;
+		bo = byteoffset & bcc.bMask;
 		if (bn != bp0_bn) {
 			if (bp0)
 				put_block(bp0);
@@ -123,7 +127,7 @@ PUBLIC int init_fat_bitmap(void)
 			}
 			bp0_bn = bn;
 		}
-		switch (sb.fatmask) {
+		switch (sb.fatMask) {
 		case FAT12_MASK:
 /* FIXME: give pointer to explanations  */
 			x = get_le16(bp0->b_zfat16[bo]);
@@ -137,13 +141,19 @@ PUBLIC int init_fat_bitmap(void)
 			x = get_le32(bp0->b_zfat32[bo]);
 			break;
 		default:
-			panic("unexpected value for sb.fatmask");
+			panic("unexpected value for sb.fatMask");
 		}
-		if ( (x & sb.fatmask) == 0) {
+		x &= sb.fatMask;
+		if ( x == CLUST_FREE) {
 			sb.freeClust++;
 			inuse_bitmap[cn >> 3] &= ~(1 << (cn & 0x07));
 			if (sb.nextClust < 0)
 				sb.nextClust = cn;
+		} else if ( (x > sb.maxClust && x < (sb.fatMask&CLUST_BAD))
+		          || x < CLUST_FIRST ) {
+			DBGprintf(("FATfs: init_fat_bitmap encounters "
+				"invalid cluster number %ld\n", (long)x));
+			/* FIXME: FS is not clean */
 		}
 	}
 	put_block(bp0);
@@ -172,14 +182,12 @@ PUBLIC void done_fat_bitmap(void)
  *===========================================================================*/
 PRIVATE void fc_setcache(struct inode *rip, int slot,
   cluster_t frcn,
-  cluster_t abscn,
-  block_t bn)
+  cluster_t abscn)
 {
 /* Set a slot in the fat cache. */
 
   rip->i_fc[slot].fc_frcn = frcn;
   rip->i_fc[slot].fc_abscn = abscn;
-  rip->i_fc[slot].fc_bn = bn;
 }
 
 /*===========================================================================*
@@ -247,15 +255,12 @@ PUBLIC block_t bmap(struct inode *rip, unsigned long position)
 
   cn = rip->i_clust;
 
-DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
-	INODE_NR(rip), position, findcn, boff, cn));
-
   /* The "file" that makes up the FAT12/16 root directory is contiguous,
    * permanently allocated, of fixed size, and is not made up of clusters.
    */
   if (cn == CLUST_CONVROOT) {
 	assert(IS_ROOT(rip));
-	findbn = position >> bcc.bnshift;
+	findbn = position >> bcc.bnShift;
 	if (findbn > bcc.rootSiz) {
 		/* DBGprintf? */
 		return NO_BLOCK;
@@ -264,36 +269,51 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
   }
 
   i = 0;
-  findcn = position >> sb.cnshift;
-  boff = (position & sb.crelmask) >> bcc.bnshift;
+  findcn = position >> sb.cnShift;
+  boff = (position & sb.cMask) >> bcc.bnShift;
+
+DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for FR%ld+%ld, start at %ld",
+	INODE_NR(rip), position, findcn, boff, cn));
 
   /* Rummage around in the fat cache, maybe we can avoid tromping
    * thru every fat entry for the file.
    */
   fc_lookup(rip, findcn, &i, &cn);
 
+DBGprintf((", up to FR%d at %ld\n", i, cn));
+
   /* Handle all other files or directories the normal way. */
 
   for (; i < findcn; i++) {
-/* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
-	if (ATEOF(cn, sb.eofmask)) {
+	if (ATEOF(cn, sb.eofMask)) {
 #if 1
 		goto hiteof;
 #else
 		break;
 #endif
 	}
+	if (cn < CLUST_FIRST || cn > sb.maxClust) {
+		DBGprintf(("FATfs: bmap encounters "
+			"invalid cluster number %ld\n", (long)cn));
+		if (bp0)
+			put_block(bp0);
+		/* FIXME: FS is not clean */
+		return(NO_BLOCK);
+	}
 	/* Note this cannot overflow, even with FAT32:
 	 * cn is less than 1<<28, and nibbles is 8
 	 */
 	byteoffset = cn * sb.nibbles / 2;
-	bn = (byteoffset >> bcc.bnshift) + bcc.fatBlk;
-	bo = byteoffset & bcc.brelmask;
+	bn = (byteoffset >> bcc.bnShift) + bcc.fatBlk;
+	bo = byteoffset & bcc.bMask;
 	if (bn != bp0_bn) {
 		if (bp0)
 			put_block(bp0);
+DBGprintf(("\n!Need blk %ld; ", bn));
 		bp0 = get_block(dev, bn, NORMAL);
-		if (bp0 == NO_BLOCK) {
+DBGprintf(("done bp0=%.8p bp0->dp=%.8p\n", bp0, bp0->dp));
+
+		if (bp0 == NULL) {
 			DBGprintf(("FATfs: bmap unable to get "
 				"FAT block %ld\n", (long)bn));
 			return(NO_BLOCK);
@@ -301,51 +321,7 @@ DBGprintf(("FATfs: bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 		bp0_bn = bn;
 	}
 	prevcn = cn;
-#if 0
-		switch (sb.fatmask) {
-		case FAT12_MASK:
-/*  If the first byte of the fat entry was the last byte
- *  in the block, then we must read the next block in the
- *  fat.  We hang on to the first block we read to insure
- *  that some other process doesn't update it while we
- *  are waiting for the 2nd block.
- *  Note that we free bp1 even though the next iteration of
- *  the loop might need it.
- */
-/*
-			x.byte[0] = bp0->b_data[bo];
-
-			if (bo == bcc.bpblock-1) {
-				if (error = bread(pmp->pm_devvp, bn+1,
-				    bcc.bpblock, NOCRED, &bp1)) {
-					put_block(bp0);
-					return error;
-				}
-				x.byte[1] = bp1->b_data[0];
-				put_block(bp1);
-			} else {
-				x.byte[1] = bp0->b_data[bo+1];
-			}
-			if (cn & 1)
-				x.word >>= 4;
- */
-		break;
-	case FAT16_MASK:
-		cn = get_le16(bp0->b_zfat16[bo]);
-		break;
-	case FAT32_MASK:
-#if 0
-		cn = *(uint32_t *)(bp0->b_data+bo);
-#else
-		cn = get_le32(bp0->b_zfat32[bo]);
-#endif
-		break;
-	default:
-		panic("unexpected value for sb.fatmask");
-	}
-	cn &= sb.fatmask;
-#elif 1
-	switch (sb.fatmask) {
+	switch (sb.fatMask) {
 	case FAT12_MASK:
 /*  If the first byte of the fat entry was the last byte
  *  in the block, then we must read the next block in the
@@ -365,67 +341,40 @@ FIXME: explain
 			cn >>= 4;
 		break;
 	case FAT16_MASK:
+DBGprintf(("exam %.8p[bo=%x]=+%x => @%.8p [0]@%.8p=%.2X [1]@%.8p=%.2X ", bp0->dp, bo, bo*2, &bp0->b_zfat16[bo],
+	&bp0->b_zfat16[bo][0], bp0->b_zfat16[bo][0], &bp0->b_zfat16[bo][1], bp0->b_zfat16[bo][1], get_le16(bp0->b_zfat16[bo])));
+
 		cn = get_le16(bp0->b_zfat16[bo]);
 		break;
 	case FAT32_MASK:
 		cn = get_le32(bp0->b_zfat32[bo]);
 		break;
 	default:
-		panic("unexpected value for sb.fatmask");
+		panic("unexpected value for sb.fatMask");
 	}
-	cn &= sb.fatmask;
-#else
-	cn = get_le16(bp0->b_zfat16[bo]);
-	switch (sb.fatmask) {
-	case FAT12_MASK:
-/*  If the first byte of the fat entry was the last byte
- *  in the block, then we must read the next block in the
- *  fat. 
-
-WAS
- We hang on to the first block we read to insure
- *  that some other process doesn't update it while we
- *  are waiting for the 2nd block.
- *  Note that we free bp1 even though the next iteration of
- *  the loop might need it.
-NOW IS !=
-FIXME: explain
- */
-		if (prevcn & 1)
-			cn >>= 4;
-		break;
-	case FAT16_MASK:
-		/* work is done */
-		break;
-	case FAT32_MASK:
-#if 0
-		cn = get_le32(bp0->b_zfat32[bo]);
-#else
-		cn |= get_le16(bp0->b_zfat16[bo+1])<<16;
-#endif
-		break;
-	default:
-		panic("unexpected value for sb.fatmask");
-	}
-	cn &= sb.fatmask;
-#endif
-
-/* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
+	cn &= sb.fatMask;
   }
 
 #if 1
-	if (!ATEOF(cn, sb.eofmask)) {
+	if (!ATEOF(cn, sb.eofMask)) {
 		if (bp0)
 			put_block(bp0);
-		fc_setcache(rip, FC_LASTMAP, i, cn, bn);
-		return ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk + boff;
+		if (cn < CLUST_FIRST || cn > sb.maxClust) {
+			DBGprintf(("FATfs: bmap finds "
+				"invalid cluster number %ld\n", (long)cn));
+			/* FIXME: FS is not clean */
+			return(NO_BLOCK);
+		}
+		fc_setcache(rip, FC_LASTMAP, i, cn);
+DBGprintf((" => cn=%ld bn=%ld\n", cn, C_TO_B(cn) + boff));
+		return C_TO_B(cn) + boff;
 	}
 
 hiteof:
 	if (bp0)
 		put_block(bp0);
 	/* update last file cluster entry in the fat cache */
-	fc_setcache(rip, FC_LASTFC, i-1, prevcn, 0);
+	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
 	return /*E2BIG*/ NO_BLOCK;
 #else
 hiteof:
@@ -437,8 +386,8 @@ FIXME: beware LASTMAP/LASTFC, i/i-1, cn/prevcn...
 		fc_setcache(rip, FC_LASTMAP, i, cn);
 	fc_setcache(rip, FC_LASTFC, i-1, prevcn);
  */
-	return ATEOF(cn, sb.eofmask) ? /*E2BIG*/ NO_BLOCK
-	       : ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk;
+	return ATEOF(cn, sb.eofMask) ? /*E2BIG*/ NO_BLOCK
+	       : C_TO_B(cn) + boff;
 #endif
 }
 
@@ -473,7 +422,7 @@ DBGprintf(("FATfs: peek_bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
    */
   if (cn == CLUST_CONVROOT) {
 	assert(IS_ROOT(rip));
-	findbn = position >> bcc.bnshift;
+	findbn = position >> bcc.bnShift;
 	if (findbn > bcc.rootSiz) {
 		/* DBGprintf? */
 		return NO_BLOCK;
@@ -482,8 +431,8 @@ DBGprintf(("FATfs: peek_bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
   }
 
   i = 0;
-  findcn = position >> sb.cnshift;
-  boff = (position & sb.crelmask) >> bcc.bnshift;
+  findcn = position >> sb.cnShift;
+  boff = (position & sb.cMask) >> bcc.bnShift;
 
   /* Rummage around in the fat cache, maybe we can avoid tromping
    * thru every fat entry for the file.
@@ -494,26 +443,34 @@ DBGprintf(("FATfs: peek_bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 
   for (; i < findcn; i++) {
 /* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
-	if (ATEOF(cn, sb.eofmask)) {
+	if (ATEOF(cn, sb.eofMask)) {
 		if (bp0)
 			put_block(bp0);
 		/* do NOT update the FC_LASTFC entry of the cache */
 		/* CHECKME: really? if we do, carry back prevcn... */
 		return NO_BLOCK;
 	}
+	if (cn < CLUST_FIRST || cn > sb.maxClust) {
+		DBGprintf(("FATfs: peek_bmap encounters "
+			"invalid cluster number %ld\n", (long)cn));
+		if (bp0)
+			put_block(bp0);
+		/* FIXME: FS is not clean */
+		return(NO_BLOCK);
+	}
 	byteoffset = cn * sb.nibbles / 2;
-	bn = (byteoffset >> bcc.bnshift) + bcc.fatBlk;
-	bo = byteoffset & bcc.brelmask;
+	bn = (byteoffset >> bcc.bnShift) + bcc.fatBlk;
+	bo = byteoffset & bcc.bMask;
 	if (bn != bp0_bn) {
 		if (bp0)
 			put_block(bp0);
 		bp0 = get_block(dev, bn, PREFETCH);
-		if (bp0 == NO_BLOCK || bp0->b_dev == NO_DEV)
+		if (bp0 == NULL || bp0->b_dev != dev)
 			/* do NOT update the cache */
 			return(NO_BLOCK);
 		bp0_bn = bn;
 	}
-	switch (sb.fatmask) {
+	switch (sb.fatMask) {
 	case FAT12_MASK:
 		if (cn & 1)
 			cn = get_le16(bp0->b_zfat16[bo]) >> 4;
@@ -527,18 +484,22 @@ DBGprintf(("FATfs: peek_bmap in %lo, off %ld; init lookup for %ld+%ld at %ld\n",
 		cn = get_le32(bp0->b_zfat32[bo]);
 		break;
 	default:
-		panic("unexpected value for sb.fatmask");
+		panic("unexpected value for sb.fatMask");
 	}
-	cn &= sb.fatmask;
-
-/* WARNING: if we receive 0 (or 1) as next cluster... BOUM! */
+	cn &= sb.fatMask;
   }
 
   if (bp0)
 	put_block(bp0);
+  if (cn < CLUST_FIRST || cn > sb.maxClust) {
+	DBGprintf(("FATfs: peek_bmap finds "
+			"invalid cluster number %ld\n", (long)cn));
+	/* FIXME: FS is not clean */
+	return(NO_BLOCK);
+  }
   /* this result is correct, we can update the cache */
-  fc_setcache(rip, FC_LASTMAP, i, cn, bn);
-  return ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk + boff;
+  fc_setcache(rip, FC_LASTMAP, i, cn);
+  return C_TO_B(cn) + boff;
 }
 
 /*===========================================================================*
@@ -615,20 +576,24 @@ PRIVATE int fatentry(cluster_t cluster,
   /* Be sure the requested cluster is in the filesystem. */
   if (cluster < CLUST_FIRST || cluster > sb.maxClust)
 	return EINVAL;
+  /* Be sure we are not shooting ourselves in the foot. */
+  if ( (newcontents > sb.maxClust && newcontents < (sb.fatMask&CLUST_BAD))
+    ||  newcontents == CLUST_FIRST )
+	return EINVAL;
 
   byteoffset = cluster * sb.nibbles / 2;
-  bn = (byteoffset >> bcc.bnshift) + bcc.fatBlk;
-  bo = byteoffset & bcc.brelmask;
+  bn = (byteoffset >> bcc.bnShift) + bcc.fatBlk;
+  bo = byteoffset & bcc.bMask;
   bp0 = get_block(dev, bn, NORMAL);
-  if (bp0 == NO_BLOCK) {
+  if ( bp0 == NULL || !IS_VALID_BLOCK(bp0) ) {
 	DBGprintf(("FATfs: fatentry unable to get "
 				"FAT for cluster %ld\n", (long)cluster));
 	return(EIO);
   }
-  switch (sb.fatmask) {
+  switch (sb.fatMask) {
   case FAT12_MASK:
 	/* If the first byte of the fat entry was the last byte in the block,
-	 * then we must read the next block in the FAT. 
+	 * then we must also access the next block in the FAT.
 WAS
  We hang on to the first block we read to insure
  *  that some other process doesn't update it while we
@@ -689,10 +654,10 @@ FIXME: explain
 		| (bp0->b_zfat32[bo][3] & 0xF0); /* keep higher four bits */
 	break;
   default:
-	panic("unexpected value for sb.fatmask");
+	panic("unexpected value for sb.fatMask");
   }
-  if (bp0)
-	put_block(bp0);
+  bp0->b_dirt = DIRTY;
+  put_block(bp0);
   return(OK);
 }
 
@@ -764,9 +729,12 @@ PUBLIC int clusterfree(cluster_t cluster)
 }
 
 /*===========================================================================*
- *				freeclusterchain			     *
+ *				clusterfreechain			     *
  *===========================================================================*/
+/*
 PUBLIC int freeclusterchain(cluster_t startcluster)
+ */
+PUBLIC int clusterfreechain(cluster_t startcluster)
 {
 /* Free a chain of clusters.
  * startcluster - number of the 1st cluster in the chain
@@ -800,138 +768,79 @@ PUBLIC int freeclusterchain(cluster_t startcluster)
 /*===========================================================================*
  *				extendfile				     *
  *===========================================================================*/
-PUBLIC int extendfile(struct inode *rip,
-  struct buf **bpp,
-  cluster_t *cnp)
+PUBLIC int extendfile(
+  struct inode *rip,		/* inode of the file or directory to extend */
+  struct buf **bpp,		/* where to return the buf for 1st new block*/
+  cluster_t *newcnp)		/* where to put newly allocated cluster numb*/
 {
-/* Allocate a new cluster and chain it onto the end of the file.
- *  rip - inode of the file or directory to extend
- *  bpp - where to return the address of the buf header for the
- *        new file block
- *  ncp - where to put cluster number of the newly allocated file block
- *        If this pointer is 0, do not return the cluster number.
+/* Allocate a new cluster and chain it at the end of the file.
+ * May returns the buf for the first block of the newly allocated cluster,
+ * and may also return the cluster number.
  *
- *  NOTE:
- *   This function is not responsible for turning on the DEUPD
- *   bit if the de_flag field of the denode and it does not
- *   change the de_FileSize field.  This is left for the caller
- *   to do.
+ * Note: This function is not responsible for updating the i_filesize value
+ * of the inode. This is left for the caller to do.
  */
-	int error = 0;
+  int r;
   cluster_t frcn;
   cluster_t cn;
-  block_t bn;
-
-#if 0 /* MFS interface(s) */
-/*===========================================================================*
- *				clear_zone				     *
- *===========================================================================*/
-PUBLIC void clear_zone(rip, pos, flag)
-register struct inode *rip;	/* inode to clear */
-off_t pos;			/* points to block to clear */
-int flag;			/* 1 if called by new_block, 0 otherwise */
-{
-/* Zero a zone, possibly starting in the middle.  The parameter 'pos' gives
- * a byte in the first block to be zeroed.  Clearzone() is called from 
- * fs_readwrite(), truncate_inode(), and new_block().
- */
-
-/*===========================================================================*
- *				new_block				     *
- *===========================================================================*/
-PUBLIC struct buf *new_block(rip, position)
-register struct inode *rip;	/* pointer to inode */
-off_t position;			/* file pointer */
-{
-/* Acquire a new block and return a pointer to it.  Doing so may require
- * allocating a complete zone, and then returning the initial block.
- * On the other hand, the current zone may still have some unused blocks.
- */
-#endif
+  block_t bnx;
 
   /* Do not try to extend the fixed root directory */
   if (rip->i_clust == CLUST_CONVROOT) {
 	DBGprintf(("extendfile(): attempt to extend root directory\n"));
-	return ENOSPC;
+	return(ENOSPC);
   }
 
-/*
-	fc_fileextends++;
- */
-#if 0 /* using lastcluster() below instead */
-/* If the "file last cluster" cache entry is empty,
- * and the file is not empty,
- * then fill the cache entry by calling bmap().
- */
-	if (rip->i_fc[FC_LASTFC].fc_frcn == FCE_EMPTY  &&
-	    rip->i_clust != CLUST_NONE) {
-/*
-		fc_lfcempty++;
-		error = pcbmap(dep, 0xffff, 0, &cn);
- */
-		/* we expect it to return E2BIG */
-		if (error != E2BIG)
-			return error;
-		error = 0;
-	}
-#endif
+  /* Allocate another cluster. */
+  if ( (r = clusteralloc(&cn, CLUST_EOFE)) != OK)
+	return r;
 
-/*
- *  Allocate another cluster and chain onto the end of the file.
- *  If the file is empty we make de_StartCluster point to the
- *  new block.  Note that de_StartCluster being 0 is sufficient
- *  to be sure the file is empty since we exclude attempts to
- *  extend the root directory above, and the root dir is the
- *  only file with a startcluster of 0 that has blocks allocated
- *  (sort of).
- */
-  if (error = clusteralloc(&cn, CLUST_EOFE))
-	return error;
+  if (bpp) {
+  /* Get the buf header for the (first) new block of the file
+   * if they want it.
+   */
+	*bpp = get_block(dev, C_TO_B(cn), NO_READ);
+	if (*bpp == NULL) {
+		/* DBGprintf */
+		clusterfree(cn);
+		return(EIO);
+	}
+	zero_block(*bpp);
+  }
+
+  /* Chain onto the end of the file.
+   * If the file is (was) empty we make i_clust point to the new cluster.
+   */
   if (rip->i_clust == 0) {
 	rip->i_clust = cn;
+	update_startclust(rip, cn);
 	frcn = 0;
   } else {
-	error = fatentry(lastcluster(rip, &frcn), NULL, cn);
-	if (error) {
-		clusterfree(/*pmp,*/ cn);
-		return error;
+	r = fatentry(lastcluster(rip, &frcn), NULL, cn);
+	if (r != OK) {
+		if (bpp) put_block(*bpp);
+		clusterfree(cn);
+		return r;
 	}
 	++frcn;
   }
 
-/*
- *  Get the buf header for the (first) new block of the file.
- */
-  assert(bpp);
-  *bpp = get_block(dev, ((cn-CLUST_FIRST) << bcc.cbshift) + bcc.clustBlk, NO_READ);
-  if (*bpp == NULL) {
-	/* DBGprintf */
-	/* undo alloc, undo fatentry */
-	return(EIO);
-  }
-  zero_block(*bpp);
-  /* FIXME: should we zero the rest of the cluster? */
-/*
- 	if (rip->i_Attributes & ATTR_DIRECTORY) {
- 		*bpp = getblk(pmp->pm_devvp, cntobn(pmp, cn),
-			pmp->pm_bpcluster);
-	} else {
-		*bpp = getblk(DETOV(dep), frcn,
-			pmp->pm_bpcluster);
-	}
-	clrbuf(*bpp);
-*/
-/*
- *  Update the "last cluster of the file" entry in the denode's
- *  fat cache.
- */
-  fc_setcache(rip, FC_LASTFC, frcn, cn, /****/0 );
+  /* Update the "last cluster of the file" entry in the fat cache. */
+  fc_setcache(rip, FC_LASTFC, frcn, cn);
 
-/*
- *  Give them the filesystem relative cluster number
- *  if they want it.
- */
-  if (cnp)
-	*cnp = cn;
+  /* Give them the filesystem relative cluster number if they want it. */
+  if (newcnp)
+	*newcnp = cn;
   return(OK);
+}
+
+/*===========================================================================*
+ *				extendfileclear				     *
+ *===========================================================================*/
+PUBLIC int extendfileclear(
+  struct inode *rip,		/* inode of the file or directory to extend */
+  unsigned long position,	/* ... */
+  struct buf **bpp,		/* where to return the buf for 1st new block*/
+  cluster_t *cnp)		/* where to put newly allocated cluster numb*/
+{
 }

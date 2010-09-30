@@ -125,18 +125,18 @@ struct direntryref {
  * The unique instance of this structure is the global variable 'sb'.
  */
 struct superblock {
-  unsigned bpsector;		/* bytes per sector */
-  int snshift;			/* shift off_t (file offset) right this
+  unsigned bpSector;		/* bytes per sector */
+  int snShift;			/* shift off_t (file offset) right this
 				 *  amount to get a sector rel number */
-  off_t srelmask;		/* and a file offset with this mask
+  off_t sMask;			/* and a file offset with this mask
 				 *  to get sector rel offset */
-  unsigned bpcluster;		/* bytes per cluster */
-  unsigned secpcluster;		/* sectors per cluster */
-  int cnshift;			/* shift off_t (file offset) right this
+  unsigned bpCluster;		/* bytes per cluster */
+  unsigned secpCluster;		/* sectors per cluster */
+  int cnShift;			/* shift off_t (file offset) right this
 				 *  amount to get a cluster rel number */
-  off_t crelmask;		/* and a file offset with this mask
+  off_t cMask;			/* and a file offset with this mask
 				 *  to get cluster rel offset */
-  int csshift;			/* shift a sector number right this
+  int csShift;			/* shift a sector number right this
 				 *  amount to get a cluster number */
 
   sector_t resSec, resCnt,	/* reserved zone: sector nr (=0) and size */
@@ -146,13 +146,13 @@ struct superblock {
 	          totalSecs;	/* file system: total size in sectors */
 
   int nFATs;			/* number of FATs */
-  int secpfat;			/* sectors per FAT (each one) */
+  int secpFat;			/* sectors per FAT (each one) */
   int nibbles;			/* count of nibble (half-byte) per FAT entry*/
-  unsigned fatmask;		/* FATxx_MASK; gives the kind of FAT */
-  unsigned eofmask;		/* CLUSTMASK_EOFxx, accordingly */
+  unsigned fatMask;		/* FATxx_MASK; gives the kind of FAT */
+  unsigned eofMask;		/* CLUSTMASK_EOFxx, accordingly */
 
   int rootEntries;		/* number of entries in root dir (!FAT32) */
-  cluster_t rootCluster;	/* cluster for root direntries */
+  cluster_t rootClust;		/* cluster number for root directory */
 
   cluster_t maxClust;		/* number of last allocatable cluster */
   int freeClustValid;		/* indicates that next 2 values are valid: */
@@ -160,8 +160,8 @@ struct superblock {
   cluster_t nextClust;		/* number of next free cluster */
 
   unsigned long maxFilesize;	/* maximum possible size for a file */
-  int depsec;			/* directory entries per sector */
-  int depclust;			/* directory entries per cluster */
+  int depSector;		/* directory entries per sector */
+  int depCluster;		/* directory entries per cluster */
 };
 
 /* Buffer (block) cache control values.
@@ -169,13 +169,13 @@ struct superblock {
  * The unique instance of this structure is the global variable 'bcc'.
  */
 struct bufcache_ctrl {
-  unsigned bpblock;		/* bytes per block */
-  int bnshift;			/* shift off_t (file offset) right this
+  unsigned bpBlock;		/* bytes per block */
+  int bnShift;			/* shift off_t (file offset) right this
 				 *  amount to get a block rel number */
-  off_t brelmask;		/* and a file offset with this mask
+  off_t bMask;			/* and a file offset with this mask
 				 *  to get block rel offset */
-  unsigned blkpcluster;		/* blocks per cluster */
-  int cbshift;			/* shift a block number right this
+  unsigned blkpCluster;		/* blocks per cluster */
+  int cbShift;			/* shift a block number right this
 				 *  amount to get a cluster number */
 
   block_t resBlk, resSiz,	/* reserved zone: block nr (=0) and count */
@@ -184,10 +184,10 @@ struct bufcache_ctrl {
 	clustBlk, clustSiz,	/* data: starting block nr and total count */
 	          totalBlks;	/* file system: total size in blocks */
 
-  int blkpfat;			/* blocks per FAT */
-  int depblk;			/* directory entries per block */
+  int blkpFat;			/* blocks per FAT */
+  int depBlock;			/* directory entries per block */
 
-  int nbufs;			/* total number of buffers in cache */
+  int nBufs;			/* total number of buffers in cache */
 };
 
 /* Buffer (block) cache.
@@ -200,9 +200,10 @@ struct bufcache_ctrl {
  * put_block() is done. If a block is modified, the modifying routine must
  * set b_dirt to DIRTY, so the block will eventually be written to the disk.
  *
- * A free buffer is indicated with b_blocknr == NO_BLOCK (0); this is OK
- * with FAT, since the block or sector 0 is only read once at mounting,
- * and its content is never updated by the file system server.
+ * A free buffer (no data) is indicated with b_dev == NO_DEV (0);
+ * a valid block is indicated with b_dev == dev (a global variable);
+ * any other value indicates a block which does not pertain to this file
+ * system server (this could only happen if using a central cache).
  */
 struct buf {
   /* Data portion of the buffer. Uninterpreted by cache. */
@@ -213,7 +214,6 @@ struct buf {
   LIST_ENTRY( buf) b_hash;	/* used to link bufs on hash chains */
   size_t b_bytes;		/* Number of bytes allocated in bp */
   block_t b_blocknr;		/* block number of its (minor) device */
-/* FIXME: is it still useful? see below about IS_FREE_BLOCK()... */
   dev_t b_dev;			/* major | minor device where block resides */
   char b_dirt;			/* CLEAN or DIRTY */
 #define CLEAN		0	/* disk and memory copies identical */
@@ -231,16 +231,8 @@ struct buf {
  */
 
 };
-/* FIXME */
-#if 0
-#define	IS_FREE_BLOCK(bp)	((bp)->b_blocknr == NO_BLOCK)
-	/* beware: MFS cache considers b_dev == NO_DEV instead. */
-	/* beware even more: 0 is a valid block number (eg for bread) */
-#elif 0
-#define	IS_FREE_BLOCK(bp)	((bp)->b_valid == VALID)
-#else
 #define	IS_FREE_BLOCK(bp)	((bp)->b_dev == NO_DEV)
-#endif
+#define	IS_VALID_BLOCK(bp)	((bp)->b_dev == dev)
 
 /* actual content of directories */
 union direntry_u {
@@ -254,8 +246,8 @@ union direntry_u {
 union blkdata_u {
   char b__data[MAX_BLOCK_SIZE];	     /* ordinary user data */
   union direntry_u b__dir[NR_DIR_ENTRIES(MAX_BLOCK_SIZE)];
-  unsigned char b__fat16[2][MAX_BLOCK_SIZE/2]; /* FAT16 chains */
-  unsigned char b__fat32[4][MAX_BLOCK_SIZE/4]; /* FAT32 chains */
+  unsigned char b__fat16[MAX_BLOCK_SIZE/2][2]; /* FAT16 chains */
+  unsigned char b__fat32[MAX_BLOCK_SIZE/4][4]; /* FAT32 chains */
 };
 /* These defs make it possible to use to bp->b_data instead of bp->dp->b__data */
 #define b_data		dp->b__data
