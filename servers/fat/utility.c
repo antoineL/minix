@@ -491,7 +491,9 @@ PUBLIC int lfn_chksum(struct fat_direntry * fatdp)
  *===========================================================================*/
 PUBLIC int conv_lfntoname(int count, /* number of LFN entries */
   struct fat_lfnentry lfnda[],	/* array of LFN entries, as read on disk */
-  char string[NAME_MAX+1])	/* where to put the equivalent name */
+  char string[],		/* where to put the equivalent name */
+  size_t *len)			/* input:  sizeof(string);
+				 * output: strlen(string); */
 {
 /* ...
  * This functions returns

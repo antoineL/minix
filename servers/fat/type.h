@@ -338,12 +338,11 @@ struct inode {
 					 * was unlinked, but is still used */
 
 #define I_HASHED	0x0010		/* linked-in in dirref hastable */
-#define I_DIRSIZED	0x0020		/* size is correct, not estimated */
-#define I_DIRNOTSIZED	0x0040		/* size is pure guess */
+#define I_DIRNOTSIZED	0x0020		/* dirsize is pure guess, faked */
 
 #define I_RESIZED	0x0100		/* filesize was modified */
 #define I_ACCESSED	0x0200		/* file was accessed */
-#define I_MTIME		0x0400		/* touched, should update MTime */
+#define I_MTIME		0x0400		/* file written, should update MTime*/
 #define I_CTIME		0x0800		/* inode touched */
 
 #define I_SEEK		0x1000		/* last operation incured a seek */

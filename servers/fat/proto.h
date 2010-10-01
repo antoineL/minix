@@ -36,6 +36,8 @@ _PROTOTYPE( void zero_block, (struct buf *bp)				);
 
 /* directory.c */
 _PROTOTYPE( int do_getdents, (void)					);
+_PROTOTYPE( int find_slots,
+  	(struct inode *dir_ptr, int slots, struct direntryref *)	);
 _PROTOTYPE( int is_empty_dir, (struct inode *dir_ptr)			);
 _PROTOTYPE( int lookup_dir, (struct inode *dir_ptr,
 	char string[NAME_MAX], struct inode **res_inop)			);
@@ -156,7 +158,7 @@ enum convname_result_e {
 _PROTOTYPE( int conv_83toname,
 		(struct fat_direntry *, char string[NAME_MAX+1])	);
 _PROTOTYPE( int conv_lfntoname,
-		(int, struct fat_lfnentry[], char string[NAME_MAX+1])	);
+		(int, struct fat_lfnentry[], char string[], size_t *)	);
 _PROTOTYPE( int conv_nameto83,
 		(char string[NAME_MAX+1], struct fat_direntry *)	);
 _PROTOTYPE( int conv_nametolfn, (char string[NAME_MAX+1],

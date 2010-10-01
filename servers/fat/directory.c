@@ -27,18 +27,12 @@
 #include <minix/syslib.h>	/* sys_safecopies{from,to} */
 #include <minix/sysutil.h>	/* panic */
 
-/* EOVERFLOW is the official POSIX answer when we find a name too long to be
- * sent back to the user process; but it was only recently put in MINIX.
- */
-#ifndef EOVERFLOW
-#define EOVERFLOW	ENAMETOOLONG	/* replace by something vaguely close... */
-#endif
-
 /* FIXME: goto const.h */
 #ifndef GETDENTS_BUFSIZ
 #define GETDENTS_BUFSIZ  (usizeof(struct dirent) + NAME_MAX + usizeof(long))
 #endif
 
+/* Private type: */
 struct getdents_buf {
   char dents_buf[GETDENTS_BUFSIZ];
   size_t mybuf_off;
@@ -46,20 +40,15 @@ struct getdents_buf {
   size_t callerbuf_size, callerbuf_off;
 };
 
-/* Private global variables: */
-
 /* Private functions:
  *   enter_as_inode	?
  */
-FORWARD _PROTOTYPE( void reset_dents_buf, (struct getdents_buf *, cp_grant_id_t gid, size_t size)	);
+FORWARD _PROTOTYPE( void reset_dents_buf,
+	(struct getdents_buf *, cp_grant_id_t gid, size_t size)		);
 FORWARD _PROTOTYPE( int flush_dents_buf, (struct getdents_buf *)	);
 FORWARD _PROTOTYPE( size_t dents_buf_written, (struct getdents_buf *)	);
 FORWARD _PROTOTYPE( int write_dent,
-	(struct getdents_buf*, off_t, ino_t, const char * name)		);
-
-/* warning: the following lines are not failsafe macros */
-#define	Qget_le16(arr) ((u16_t)( (arr)[0] | ((arr)[1]<<8) ))
-#define	Qget_le32(arr) ( get_le16(arr) | ((u32_t)get_le16((arr)+2)<<16) )
+	(struct getdents_buf *, off_t, ino_t, const char * name)	);
 
 /*===========================================================================*
  *				lookup_dir				     *
@@ -78,13 +67,14 @@ PUBLIC int lookup_dir(
  */
   register union direntry_u * dp;
   register struct buf *bp = NULL;
+  unsigned long pos;
+  int r;
+  unsigned char slot_mark, chksum;
+  struct direntryref deref;	/* structure to locate entry later */
   struct fat_direntry direntry;	/* shortFN entry to match */
   struct fat_lfnentry lfnda[LFN_ORD+1]; /* LFN entries read */
-  int count_lfn_entries;	/* count of entries in lfnda */
-  int expected_lfn_ord;		/* next entry to fetch */
-  struct direntryref dirref;	/* structure to locate entry later */
-  unsigned long pos;
-  unsigned char slot_mark, lfnChksum;
+  int count;			/* count of entries in lfnda */
+  int ord;			/* LFN_ORD of next entry to fetch */
 
   /* If 'dirp' is not a pointer to a dir inode, error. */
   if ( ! IS_DIR(dirp) ) return(ENOTDIR);
@@ -94,22 +84,10 @@ PUBLIC int lookup_dir(
 /* FIXME: we currently assume FAT directories are always searchable...
  * A well-behaved way would be to honour use_dir_mask vs. credentials,
  * even more to honour the SYSTEM attribute and use_system_uid etc.
- *
- *   Note: if 'string' is dot1 or dot2, no access permissions are checked.
  */
   
   DBGprintf(("FATfs: lookup in dir=%lo, looking for <%s>...\n",
 	INODE_NR(dirp), string));
-
-  memset(&direntry, '\0', sizeof direntry);	/* Avoid leaking any data */
-  switch (conv_nameto83(string, &direntry)) {
-  case CONV_OK: case CONV_HASLOWER:
-	/* we can use the 8.3 name entry for matching */
-	break;
-  default: /* CONV_NAMETOOLONG, CONV_TRAILINGDOT, CONV_INVAL */
-	direntry.deName[0] = '\0'; /* prevent any possible matches */
-	break;
-  }
 
   if (IS_ROOT(dirp)) {
 	/* The root directory in a FAT file system does not have the
@@ -124,298 +102,277 @@ PUBLIC int lookup_dir(
 	}
   }
 
-  /* Step through the directory one block at a time. */
-/*
-  for (; pos < dirp->i_size; pos += bcc.bpblock) {
- *
- * FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
- * we should NOT rely on the same logic (enlarging if needed),
- * and TRUST sb.rootEntries!
- */
-  pos = 0;
-  expected_lfn_ord = count_lfn_entries = 0; /* reset LFN processing */
-  while (TRUE) {
-	dirref.dr_absbn = bmap(dirp, pos); /* get next block number */
-	if (dirref.dr_absbn == NO_BLOCK) { /* no more data... */
-/* FIXME: record the EOF? (+ i_flags) */
-		return(ENOENT);
-	}
-	bp = get_block(dev, dirref.dr_absbn, NORMAL); /* get directory block*/
-
-	assert(bp != NULL);
-
-	/* Search a directory block. */
-	for (dp = &bp->b_dir[0];
-	     dp < &bp->b_dir[bcc.depBlock];
-	     dp++, pos+=DIR_ENTRY_SIZE) {
-		slot_mark=dp->d_direntry.deName[0];
-
-		/* is the EndOfDirectory mark found? */
-		if ( slot_mark == SLOT_EMPTY) {
-			put_block(bp);
-/* FIXME: record the EOF? (+ i_flags) */
-			return(ENOENT);
-		}
-
-		assert(slot_mark == dp->d_lfnentry.lfnOrd);
-		/* is this entry the next part of long name? */
-		if ( slot_mark == expected_lfn_ord
-		  && dp->d_lfnentry.lfnAttributes == ATTR_LFN
-		  && dp->d_lfnentry.lfnChksum == lfnChksum) {
-			/* Next (really previous) part of LFN filename;
-			 * accumulate all the entries in the array
-			 */
-			lfnda[--expected_lfn_ord] = dp->d_lfnentry;
-			continue;
-		}
-
-		/* is this slot out of use? */
-		if (slot_mark == SLOT_DELETED) {
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-		}
-
-		/* is this entry for long names? */
-		if(dp->d_lfnentry.lfnAttributes == ATTR_LFN
-		  && dp->d_lfnentry.lfnOrd & LFN_LAST
-		  && ! (dp->d_lfnentry.lfnOrd & LFN_DELETED) ) {
-			/* We found the last part of a long filename.
-			 * Since long filenames can lay accross
-			 * many entries, possibily crossing blocks,
-			 * we will accumulate all the entries in
-			 * an array (lfnda), and will process it later.
-			 * expected_lfn_ord is the value of the next
-			 * entry to be fetched.
-			 */
-			count_lfn_entries = dp->d_lfnentry.lfnOrd & LFN_ORD;
-			expected_lfn_ord = count_lfn_entries;
-			lfnda[--expected_lfn_ord] = dp->d_lfnentry;
-			lfnChksum = dp->d_lfnentry.lfnChksum;
-			continue;
-		}
-
-		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
-		/* skip any entry with volume attribute set */
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-		}
-
-		if (count_lfn_entries) {
-			/* we have LFN entries before*/
-			if (expected_lfn_ord != 0
-			 || lfnChksum != lfn_chksum(& dp->d_direntry)) {
-			/* not all the entries were there
-			 * or the checksums do not match
-			 */
-				count_lfn_entries = 0;	/* invalid LFN */
-			} else {
-/* WORK NEEDED: match mixed case lfnda / string
-
- */
-				count_lfn_entries = 0;	/* invalid LFN */
-			}
-		}
-
-		if (count_lfn_entries == 0) {
-		/* Either we do not have LFN entries before,
-	???	 * or the file name was somewhat invalid;
-		 * let try to match the "short" 8.3 name
-		 */
-			if (memcmp(dp->d_direntry.deName,
-				   direntry.deName, 8+3) != 0) {
-			/* short name do not match */
-				expected_lfn_ord = 0; /* reset LFN*/
-				continue;
-			}
-		}
-
-		/* we have a match! */
-DBGprintf(("match on ['%.8s.%.3s'], LFN=%d, pos=%ld\n",
-	dp->d_direntry.deName, dp->d_direntry.deExtension, count_lfn_entries, pos));
-		dirref.dr_entrypos = pos;
-		dirref.dr_lfnpos = pos - count_lfn_entries*DIR_ENTRY_SIZE;
-		assert(res_inop);
-		*res_inop = direntry_to_inode(&dp->d_direntry, dirp, &dirref);
-		if( *res_inop == NULL ) {
-/* FIXME: do something clever... */
-			panic("FATfs: lookup_dir cannot create inode\n");
-		}
-		/* inode had its reference count incremented. */
-		put_block(bp);
-		return(OK);
-	}
-
-	/* The whole block has been searched. */
-	assert( (pos & bcc.bMask) == 0); /* block completed */
-	put_block(bp);
-	/* continue searching dir... */
+  /* Build the equivalent (short name) directory entry */
+  memset(&direntry, '\0', sizeof direntry);	/* Avoid leaking any data */
+  switch (conv_nameto83(string, &direntry)) {
+  case CONV_OK: case CONV_HASLOWER:
+	/* we can use the 8.3 name entry for matching */
+	break;
+  default: /* CONV_NAMETOOLONG, CONV_TRAILINGDOT, CONV_INVAL */
+	direntry.deName[0] = '\0'; /* prevent any possible matches */
+	break;
   }
 
-/* Cannot happen!
- * We should have exited when we encounter the 0 (SLOT_EMPTY) marker,
- * or when we exhausted the cluster chain.
- */
-  panic("FATfs: broke out of direntry!lookup loop\n");
+  /* Step through the directory one entry at a time.
+   * It is done this way because in the case of a fixed root directory,
+   * we must obey the sb.rootEntries as found in the first sector, and
+   * we are not sure this number is a integer divisor of the number of
+   * directory entries per block (bcc.depBlk).
+   *
+   * Also remember that except the particular case of the fixed root,
+   * FAT directories do not have explicit sizes: end of directory lookup
+   * is because there are no more clusters allocated to it, or because
+   * we found the SLOT_EMPTY (which is a marker to not look further.)
+   */
+  ord = count = 0; /* reset LFN processing */
+  for(pos = 0;
+      dirp->i_flags & I_DIRNOTSIZED || pos<dirp->i_size;
+      pos+=DIR_ENTRY_SIZE, dp++) {
+
+	if ( (pos & bcc.bMask) == 0) {
+		/* start of a new block */
+		if (bp) put_block(bp);
+		deref.dr_absbn = bmap(dirp, pos); /* next block number */
+		if (deref.dr_absbn == NO_BLOCK) { /* no more data... */
+/* FIXME: can be EIO... */
+			break;
+		}
+		/* get directory block */
+		bp = get_block(dev, deref.dr_absbn, NORMAL);
+/* FIXME: can raise EIO... */
+		dp = &bp->b_dir[0];
+	}
+	assert(bp != NULL);
+
+	slot_mark=dp->d_direntry.deName[0];
+
+	if ( slot_mark == SLOT_EMPTY)
+		/* the EndOfDirectory mark is found */
+		break;
+
+	assert(slot_mark == dp->d_lfnentry.lfnOrd);
+	/* is this entry the next part of long name? */
+	if ( slot_mark == ord
+	  && dp->d_lfnentry.lfnAttributes == ATTR_LFN
+	  && dp->d_lfnentry.lfnChksum == chksum) {
+		/* Next (really previous) part of LFN filename;
+		 * accumulate all the entries in the array
+		 */
+		lfnda[--ord] = dp->d_lfnentry;
+		continue;
+	}
+
+	if (slot_mark == SLOT_DELETED) {
+		/* this slot is out of use */
+		ord = count = 0; /* reset LFN*/
+		continue;
+	}
+
+	/* is this entry for long names? */
+	if ( dp->d_lfnentry.lfnAttributes == ATTR_LFN
+	  && dp->d_lfnentry.lfnOrd & LFN_LAST
+	  && ! (dp->d_lfnentry.lfnOrd & LFN_DELETED) ) {
+		/* We found the last part of a long filename.
+		 * Since long filenames can lay accross many entries,
+		 * possibily crossing blocks, we will accumulate all the
+		 * entries in an array (lfnda), and will process it later.
+		 *
+		 * ord is the value of the next entry to be fetched (1-N);
+		 * it is also used as index into lfnda (0 to N-1).
+		 */
+		count = dp->d_lfnentry.lfnOrd & LFN_ORD;
+		chksum = dp->d_lfnentry.lfnChksum;
+		ord = count;
+		lfnda[--ord] = dp->d_lfnentry;
+		continue;
+	}
+
+	if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		/* skip any entry with volume attribute set */
+		ord = count = 0; /* reset LFN*/
+		continue;
+	}
+
+	/* so this entry is a regular one! */
+
+	if ( count == 0		/* we do not have LFN entries before */
+	  || ord != 0		/* or not all the LFN entries were there */
+	  || chksum != lfn_chksum(& dp->d_direntry) ) {/*or chksums no match*/
+		ord = count = 0; /* reset LFN*/
+		/* let try to match the "short" 8.3 name */
+		r = memcmp(dp->d_direntry.deName, direntry.deName, 8+3);
+	} else
+		r = comp_name_lfn(string, count, lfnda);
+			
+	if (r != 0) {
+		/* names do not match */
+		ord = count = 0; /* reset LFN*/
+		continue;
+	}
+
+	/* we have a match! */
+	deref.dr_entrypos = pos;
+	deref.dr_lfnpos = pos - count*DIR_ENTRY_SIZE;
+	assert(res_inop);
+	*res_inop = direntry_to_inode(&dp->d_direntry, dirp, &deref);
+	if( *res_inop == NULL ) {
+/* FIXME: do something clever... */
+		panic("FATfs: lookup_dir cannot create inode\n");
+	}
+	/* inode had its reference count incremented. */
+	put_block(bp);
+	return(OK);		/* work is done */
+  }
+
+  /* We broke out of the loop, or we reached the end of the directory.
+   * In any case, the search is unsuccessful.
+   */
+  if (bp) put_block(bp);
+  if (dirp->i_flags & I_DIRNOTSIZED) {
+	dirp->i_size = pos;
+	dirp->i_flags &= ~I_DIRNOTSIZED;
+  }
+  return(ENOENT);
 }
 
 /*===========================================================================*
  *				find_slots				     *
  *===========================================================================*/
-PUBLIC int find_slots(
-  register struct inode *dirp, /* ptr to inode for dir to search */
-  char string[NAME_MAX],	/* component to search for */
-  struct inode **res_inop)	/* pointer to inode if added */
+PUBLIC int find_slots(struct inode *dirp, /* ptr to inode for dir to search */
+  int slots,			/* number of needed slots (1+LFN entries) */
+  struct direntryref *derefp)	/* pointer to structure to locate entry */
 {
-/* This function searches the directory whose inode is pointed to by 'dirp':
- * and enter 'string' in the directory with inode # '*numb'
+/* This function searches into the directory whose inode is pointed to by
+ * 'dirp' for enough space to enter a new entry.
+ * It will extend the directory if needed.
  */
-/*
-  register struct direct *dp = NULL;
- */
+  register union direntry_u * dp;
   register struct buf *bp = NULL;
-  int i, r, e_hit, t, match;
-  off_t pos;
-  unsigned new_slots, old_slots;
+  unsigned long pos, newsize;
+  int count;			/* count of free entries found */
+  unsigned char slot_mark;
+  int r;
   block_t b;
-/*
-  struct super_block *sp;
- */
-  int extended = 0;
 
-#if 0
+  unsigned char chksum;
+  struct direntryref deref;	/* structure to locate entry later */
+  struct fat_direntry direntry;	/* shortFN entry to match */
+  struct fat_lfnentry lfnda[LFN_ORD+1]; /* LFN entries read */
+  int ord;			/* LFN_ORD of next entry to fetch */
+
   /* If 'dirp' is not a pointer to a dir inode, error. */
   if ( ! IS_DIR(dirp) ) return(ENOTDIR);
-  
-  r = OK;
 
-  if (flag != IS_EMPTY) {
-#if 0
-  mode_t bits;
-	bits = (flag == LOOK_UP ? X_BIT : W_BIT | X_BIT);
-#endif
+  assert(slots > 0);
+  count = 0;
 
-	if (string == dot1 || string == dot2) {
-		if (flag != LOOK_UP && read_only) r = EROFS;
-				   /* only a writable device is required. */
-#if 0
-        } else if(check_permissions) {
-		r = forbidden(ldirp, bits); /* check access permissions */
-#endif
+  /* Step through the directory one entry at a time. See notes above. */
+  for(pos = 0;
+      dirp->i_flags & I_DIRNOTSIZED || pos<dirp->i_size;
+      pos+=DIR_ENTRY_SIZE, dp++) {
+
+	if ( (pos & bcc.bMask) == 0) {
+		/* start of a new block */
+		if (bp) put_block(bp);
+		deref.dr_absbn = bmap(dirp, pos); /* next block number */
+		if (deref.dr_absbn == NO_BLOCK) { /* no more data... */
+/* FIXME: can be EIO... */
+		}
+		/* get directory block */
+		bp = get_block(dev, deref.dr_absbn, NORMAL);
+/* FIXME: can raise EIO... */
+		dp = &bp->b_dir[0];
 	}
-  }
-  if (r != OK) return(r);
-  
-  /* Step through the directory one block at a time. */
-  old_slots = (unsigned) (ldirp->i_size/ DIR_ENTRY_SIZE );
-  new_slots = 0;
-  e_hit = FALSE;
-  match = 0;			/* set when a string match occurs */
-
-/* FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
- * we should NOT rely on the logic "enlarging if needed",
- * and TRUST sb.rootEntries!
- */
-  for (pos = 0; pos < ldirp->i_size; pos += /*FIXME ldirp->i_sp->s_block_size*/ 512 ) {
-	b = bmap(ldirp, pos);	/* get next block number */
-
-	/* Since directories don't have holes, 'b' cannot be NO_BLOCK. */
-	bp = get_block(dev, b, NORMAL);	/* get the directory block */
-
 	assert(bp != NULL);
 
-#if 0
-	/* Search a directory block. */
-	for (dp = &bp->b_dir[0];
-		dp < &bp->b_dir[NR_DIR_ENTRIES(ldirp->i_sp->s_block_size)];
-		dp++) {
-		if (++new_slots > old_slots) { /* not found, but room left */
-			if (flag == ENTER) e_hit = TRUE;
-			break;
-		}
+	slot_mark = dp->d_direntry.deName[0];
 
-		/* Match occurs if string found. */
-		if (flag != ENTER && dp->d_ino != NO_ENTRY) {
-			if (flag == IS_EMPTY) {
-				/* If this test succeeds, dir is not empty. */
-				if (strcmp(dp->d_name, "." ) != 0 &&
-				  strcmp(dp->d_name, "..") != 0) match = 1;
-			} else {
-				if (strncmp(dp->d_name, string, NAME_MAX) == 0){
-					match = 1;
-				}
-			}
-		}
+	if ( slot_mark == SLOT_EMPTY)
+		/* the EndOfDirectory mark is found */
+		break;
 
-		if (match) {
-			/* LOOK_UP or DELETE found what it wanted. */
-			r = OK;
-			if (flag == IS_EMPTY) r = ENOTEMPTY;
-			else if (flag == DELETE) {
-				/* Save d_ino for recovery. */
-				t = NAME_MAX - sizeof(ino_t);
-				*((ino_t *) &dp->d_name[t]) = dp->d_ino;
-				dp->d_ino = NO_ENTRY;	/* erase entry */
-				bp->b_dirt = DIRTY;
-				ldirp->i_update |= CTIME | MTIME;
-				ldirp->i_dirt = DIRTY;
-			} else {
-				sp = ldirp->i_sp;	/* 'flag' is LOOK_UP */
-				*numb = (ino_t) conv4(sp->s_native,
-						    (int) dp->d_ino);
-			}
-			put_block(bp, DIRECTORY_BLOCK);
+	if ( slot_mark == SLOT_DELETED
+	  || ( dp->d_lfnentry.lfnAttributes == ATTR_LFN
+	    && dp->d_lfnentry.lfnOrd & LFN_DELETED ) ) {
+		/* this slot is free to use */
+		if (++count >= slots)
+			break;	/* found enough space */
+		continue;
+	}
+
+	/* Note: a borderline case have not been considered: orphaned
+	 * LFN entries without LFN_DELETED set will be considered in use
+	 * while really they could be re-used; detection involves the
+	 * 'ord' and 'count' variables' logic as used in lookup_dir().
+	 *
+	 * TODO: check if some important OS is leaving such orphans hanging.
+	 */
+
+	/* anything else is used in some way */
+	count = 0;
+  }
+
+  if (bp) put_block(bp);
+
+  if (count < slots) {
+	/* Not enough contiguous free slots has been found so far.
+	 * So we will append the new entry at the end.
+	 * We might need to extend the directory's allocation.
+	 */
+	if ( (pos/DIR_ENTRY_SIZE) - count + slots
+	     >= (dirp->i_clust==CLUST_ROOT ? sb.rootEntries : 1L<<16) )
+		/* Do not go beyond the fixed size of FAT12/16 root directory.
+		 * Also some FAT drivers have a 16-bit limit on the number of
+		 * directory entries they can deal with. Do not martyrize them
+		 */
+		return(ENOSPC);
+
+	newsize = pos + (slots - count) * DIR_ENTRY_SIZE;
+	pos = newsize - DIR_ENTRY_SIZE;
+	deref.dr_absbn = bmap(dirp, pos); /* block number for fat_direntry */
+	if (deref.dr_absbn == NO_BLOCK) {
+/* FIXME: can be EIO... */
+		/* We need to try to extend directory on disk
+		 * Note that the appended area is zeroed, so any lookup
+		 * while creating the entries will not return garbage.
+		 */
+		assert(dirp->i_clust != CLUST_ROOT);
+		if ( (r = extendfileclear(dirp, newsize, NULL, NULL)) != OK)
 			return(r);
-		}
-
-		/* Check for free slot for the benefit of ENTER. */
-		if (flag == ENTER && dp->d_ino == 0) {
-			e_hit = TRUE;	/* we found a free slot */
-			break;
+		deref.dr_absbn = bmap(dirp, pos);
+		if (deref.dr_absbn == NO_BLOCK) {
+/* FIXME: can be EIO... */
+/* FIXME: do something clever... */
+			panic("FATfs: find_slots cannot extend file flawlessly\n");
 		}
 	}
+	if ( (b = bmap(dirp, newsize)) != NO_BLOCK) {
+		/* There is more space in the allocated space after our new
+		 * entry; so we need to write the new EndOfDirectory mark.
+		 */
+		bp = get_block(dev, b, NORMAL);
+		if (bp==NULL) {
+/* FIXME: can raise EIO... */
+/* FIXME: do something clever... */
+			panic("FATfs: find_slots cannot get block\n");
+		}
+#if 0 /* overkill */
+		memset(&bp->b_dir[newsize & bcc.bMask], 0, 
+			bcc.depBlock - (newsize & bcc.bMask));
+#else
+		bp->b_dir[newsize & bcc.bMask].d_direntry.deName[0] = SLOT_EMPTY;
 #endif
-
-	/* The whole block has been searched or ENTER has a free slot. */
-	if (e_hit) break;	/* e_hit set if ENTER can be performed now */
-	put_block(bp);		/* otherwise, continue searching dir */
+		bp->b_dirt = DIRTY;
+		if (bp) put_block(bp);
+	}
   }
 
-  /* The whole directory has now been searched. */
-  if (flag != ENTER) {
-  	return(flag == IS_EMPTY ? OK : ENOENT);
-  }
-#endif
+  /* All is in place. Gives all the details to caller. */
+  deref.dr_parent = dirp->i_clust;
+  deref.dr_entrypos = pos;
+  deref.dr_lfnpos = pos - (count-1)*DIR_ENTRY_SIZE;
+  if (derefp) *derefp = deref;
 
-  /* This call is for ENTER.  If no free slot has been found so far, try to
-   * extend directory.
-   */
-  if (e_hit == FALSE) { /* directory is full and no room left in last block */
-	new_slots++;		/* increase directory size by 1 entry */
-	if (new_slots == 0) return(EFBIG); /* dir size limited by slot count */
-#if 0
-	if ( (bp = new_block(ldirp, ldirp->i_size)) == NULL)
-		return(err_code);
-	dp = &bp->b_dir[0];
-#endif
-	extended = 1;
-  }
-
-#if 0
-  /* 'bp' now points to a directory block with space. 'dp' points to slot. */
-  (void) memset(dp->d_name, 0, (size_t) NAME_MAX); /* clear entry */
-  for (i = 0; i < NAME_MAX && string[i]; i++) dp->d_name[i] = string[i];
-  sp = ldirp->i_sp; 
-  dp->d_ino = conv4(sp->s_native, (int) *numb);
-  bp->b_dirt = DIRTY;
-  put_block(bp, DIRECTORY_BLOCK);
-  ldirp->i_update |= CTIME | MTIME;	/* mark mtime for update later */
-  ldirp->i_dirt = DIRTY;
-  if (new_slots > old_slots) {
-	ldirp->i_size = (off_t) new_slots * DIR_ENTRY_SIZE;
-	/* Send the change to disk if the directory is extended. */
-	if (extended) rw_inode(ldirp, WRITING);
-  }
-#endif
   return(OK);
 }
 
@@ -440,23 +397,29 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
   /* Do not even think about removing the root directory... */
   if (IS_ROOT(dirp)) return(EPERM);
 
-  /* Step through the directory one block at a time. */
+  /* Step through the directory one block at a time.
+   * Note we avoided the case of the root directory above.
+   */
   pos = 0;
-  dp = &bp->b_dir[0];
-/*
- if ! root dir && pos = 0 && dp = [0] && dp->Name=".      " 
-	continue;
- if ! root dir && pos = 0 && dp = [1] && dp->Name="..     " 
-	continue;
- */
   while (TRUE) {
 	b = bmap(dirp, pos);	/* get next block number */
 	if (b == NO_BLOCK) {	/* no more data... */
-/* FIXME: record the EOF? (+ i_flags) */
-		return(OK);	/* it was empty! */
+		return(OK);	/* it was empty indeed! */
 	}
 	bp = get_block(dev, b, NORMAL);	/* get the directory block */
 	assert(bp != NULL);
+
+	dp = &bp->b_dir[0];	/* start from beginning of block */
+
+	if (pos==0) {
+		/* Skip entries '.' and '..' at start */
+		if ( memcmp(dp->d_direntry.deName, NAME_DOT, 8+3) == 0
+		  && ! (dp->d_direntry.deAttributes & ATTR_DIRECTORY) )
+			++dp;
+		if ( memcmp(dp->d_direntry.deName, NAME_DOT_DOT, 8+3) == 0
+		  && ! (dp->d_direntry.deAttributes & ATTR_DIRECTORY) )
+			++dp;
+	}
 
 	/* Search a directory block. */
 	for ( ; dp < &bp->b_dir[bcc.depBlock]; dp++) {
@@ -464,7 +427,6 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
 
 		/* is the EndOfDirectory mark found? */
 		if (slot_mark == SLOT_EMPTY) {
-/* FIXME: record the EOF? (+ i_flags) */
 			put_block(bp);
 			return(OK);	/* it was empty! */
 		}
@@ -474,14 +436,7 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
 			continue;
 		}
 
-/*
- if ! root dir && pos = 0 && dp = [0] && dp->Name=".      " 
-	continue;
- if ! root dir && pos = 0 && dp = [1] && dp->Name="..     " 
-	continue;
- */
-
-		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		if (dp->d_direntry.deAttributes & ATTR_VOLUME) {
 		/* skip any entry with volume attribute set;
 		 * this includes any LFN entries, which we are
 		 * not interested about at the moment
@@ -497,7 +452,6 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
 	/* The whole block has been searched. */
 	put_block(bp);
 	pos += bcc.bpBlock;	/* continue searching dir */
-	dp = &bp->b_dir[0];	/* from very start of block */
   }
 
 /* Cannot happen!
@@ -513,23 +467,26 @@ PUBLIC int is_empty_dir(struct inode *dirp) /* ptr to dir inode to search */
 PUBLIC int do_getdents(void)
 {
 /* Return as much Directory ENTries as possible in the user buffer. */
-  int r, i, done, len;
+  union direntry_u * dp;
+  struct buf *bp = NULL;
+  unsigned long pos, off;
+  int r, iX;
+  enum {BEGIN, LOOPING, BUFFULL, END} state;
+  unsigned char slot_mark, chksum;
   struct inode *dirp, *newip;
   struct getdents_buf gdbuf;
-  struct buf *bp;
-  union direntry_u * dp;
-  struct fat_direntry *fatdp;
   char filename[LFN_NAME_MAX + 1];
-  struct fat_lfnentry lfnda[LFN_ORD+1];
-  int count_lfn_entries;	/* count of entries in lfnda */
-  int expected_lfn_ord;		/* next entry to fetch */
-  struct direntryref dirref;	/* structure to locate entry later */
-  off_t pos, off, block_pos, new_pos;
-  unsigned char slot_mark, lfnChksum;
+  size_t len;
+  struct direntryref deref;	/* structure to locate entry later */
+  struct fat_lfnentry lfnda[LFN_ORD+1]; /* LFN entries read */
+  int count;			/* count of entries in lfnda */
+  int ord;			/* LFN_ORD of next entry to fetch */
+
+  struct fat_direntry direntry;	/* shortFN entry to match */
 
   /* Get the values from the request message. */
   reset_dents_buf(&gdbuf, (gid_t) m_in.REQ_GRANT, (size_t) m_in.REQ_MEM_SIZE);
-  pos = (off_t) m_in.REQ_SEEK_POS_LO;
+  pos = (unsigned long) m_in.REQ_SEEK_POS_LO;
 
   DBGprintf(("FATfs: getdents in %lo, off %ld, maxsize:%u\n", m_in.REQ_INODE_NR, pos, (unsigned)m_in.REQ_MEM_SIZE));
 
@@ -540,20 +497,18 @@ PUBLIC int do_getdents(void)
    * 	  get_inode(rip);
    */
 
-  done = FALSE;			/* Stop processing blocks when done is set */
+  state = BEGIN;		/* Initialize satte machine */
 
   /* Check whether the position is properly aligned */
   if( (unsigned int) pos % DIR_ENTRY_SIZE)
 	return(ENOENT);
   if (m_in.REQ_SEEK_POS_HI || pos<0 || pos>sb.maxFilesize) {
-	done = TRUE;		/* position is too high */
+	state = END;		/* position is too high */
   }
-
+#if 0
   off = pos & bcc.bMask;	/* Offset in block */
-  block_pos = pos - off;
-  i = off / DIR_ENTRY_SIZE;
-  expected_lfn_ord = count_lfn_entries = 0; /* reset LFN processing */
-
+  i = (pos & bcc.bMask) / DIR_ENTRY_SIZE;
+#endif
   r = OK;
 
 #ifdef FAKE_DOT_ON_ROOT
@@ -567,198 +522,177 @@ PUBLIC int do_getdents(void)
   }
 #endif /*FAKE_DOT_ON_ROOT*/
 
-/* FIXME: with FAT, dir size are unknown */
-/* The default position for the next request is EOF. If the user's buffer
- * fills up before EOF, new_pos will be modified.
- *
- * We may not believe the size registered in the inode, since
- * we are required to perform a full pass through all the entries anyway.
- *
- * FIXME: if sb.rootEntries*sb.depblk != sb.rootSiz (for fixed root dir),
- * we should NOT rely on the same logic (looking up anything),
- * and TRUST sb.rootEntries!
+/* FIXME: we currently assume FAT directories are always readable...
+ * A well-behaved way would be to honour use_dir_mask vs. credentials,
+ * even more to honour the SYSTEM attribute and use_system_uid etc.
  */
-/* CHECKME: this value is always erased... */
-  new_pos = sb.maxFilesize;
+  
+  /* Step through the directory one entry at a time. */
+  ord = count = 0; /* reset LFN processing */
+  for(;
+      state<=LOOPING && (dirp->i_flags & I_DIRNOTSIZED || pos<dirp->i_size);
+      pos+=DIR_ENTRY_SIZE, dp++) {
 
-  while (! done) {
-	dirref.dr_absbn = bmap(dirp, pos); /* get next block number */
-	if (dirref.dr_absbn == NO_BLOCK) { /* no more data... */
-/* FIXME: record the EOF? (+ i_flags) */
-/* FIXME: note that pos might be bigger;
- * and in fact, we should read the FAT cache to learn the allocated size...
- */
-		new_pos = block_pos;
-		done = TRUE;
-		break;
-	}
-/* FIXME else augmente new_pos/i_size ? see above = maxfilesize... */
-	bp = get_block(dev, dirref.dr_absbn, NORMAL); /* get directory block*/
-	assert(bp != NULL);
-
-	/* Search a directory block. */
-	for (dp = &bp->b_dir[i];
-	     i < bcc.depBlock;
-	     ++i, ++dp, pos += DIR_ENTRY_SIZE) {
-		assert((void*) dp == (void*) &bp->b_data[pos & bcc.bMask]);
-		slot_mark=dp->d_direntry.deName[0];
-
-DBGprintf(("FATfs: seen ['%.8s.%.3s'], #0=\\%.3o\n",
-	dp->d_direntry.deName, dp->d_direntry.deExtension, slot_mark));
-
-		/* is the EndOfDirectory mark found? */
-		if (slot_mark == SLOT_EMPTY) {
-			done = TRUE;
-/* FIXME: record the EOF? (+ i_flags) */
-			new_pos = pos;
+	if ( state == BEGIN || (pos & bcc.bMask) == 0) {
+		/* start of a new block */
+		if (bp) put_block(bp);
+		deref.dr_absbn = bmap(dirp, pos); /* next block number */
+		if (deref.dr_absbn == NO_BLOCK) { /* no more data... */
+/* FIXME: can be EIO... */
+			state = END;
 			break;
 		}
+		/* get directory block */
+		bp = get_block(dev, deref.dr_absbn, NORMAL);
+/* FIXME: can raise EIO... */
+		dp = &bp->b_dir[(pos & bcc.bMask) / DIR_ENTRY_SIZE];
+		state = LOOPING;
+	}
+	assert(bp != NULL);
 
-		assert(slot_mark == dp->d_lfnentry.lfnOrd);
-		/* is this entry the next part of long name? */
-		if ( slot_mark == expected_lfn_ord
-		  && dp->d_lfnentry.lfnAttributes == ATTR_LFN
-		  && dp->d_lfnentry.lfnChksum == lfnChksum) {
-			/* Next (really previous) part of LFN filename;
-			 * accumulate all the entries in the array
-			 */
-			lfnda[--expected_lfn_ord] = dp->d_lfnentry;
-			continue;
-		}
+	slot_mark=dp->d_direntry.deName[0];
 
-		/* is this slot out of use? */
-		if (slot_mark == SLOT_DELETED) {
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-		}
+	if ( slot_mark == SLOT_EMPTY) {
+		/* the EndOfDirectory mark is found */
+		state = END;
+		break;
+	}
 
-		/* is this entry for long names? */
-		if(dp->d_lfnentry.lfnAttributes == ATTR_LFN
-		  && dp->d_lfnentry.lfnOrd & LFN_LAST
-		  && ! (dp->d_lfnentry.lfnOrd & LFN_DELETED) ) {
-			/* We found the last part of a long filename.
-			 * Since long filenames can lay accross
-			 * many entries, possibily crossing blocks,
-			 * we will accumulate all the entries in
-			 * an array (lfnda), and will process it later.
-			 * expected_lfn_ord is the value of the next
-			 * entry to be fetched.
-			 */
-			count_lfn_entries = dp->d_lfnentry.lfnOrd & LFN_ORD;
-			expected_lfn_ord = count_lfn_entries;
-			lfnda[--expected_lfn_ord] = dp->d_lfnentry;
-			lfnChksum = dp->d_lfnentry.lfnChksum;
-			continue;
-		}
-
-		if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
-		/* skip any entry with volume attribute set */
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-		}
-
-		fatdp = & dp->d_direntry;
-		if (count_lfn_entries) {
-			/* we have LFN entries before*/
-			if (expected_lfn_ord != 0
-			 || lfnChksum != lfn_chksum(fatdp)) {
-			/* not all the entries were there
-			 * or the checksums do not match
-			 */
-				count_lfn_entries = 0;	/* invalid LFN */
-			} else {
-/* WORK NEEDED: convert lfnda -> filename
-				len = conv_lfntoname(lfnda,
-					filename, sizeof(filename) - 1);
- */
-				count_lfn_entries = 0;	/* invalid LFN */
-			}
-		}
-
-		if (count_lfn_entries == 0) {
-		/* Either we do not have LFN entries before,
-		 * or the file name was somewhat invalid;
-		 * let try to parse the "short" 8.3 name
+	assert(slot_mark == dp->d_lfnentry.lfnOrd);
+	/* is this entry the next part of long name? */
+	if ( slot_mark == ord
+	  && dp->d_lfnentry.lfnAttributes == ATTR_LFN
+	  && dp->d_lfnentry.lfnChksum == chksum) {
+		/* Next (really previous) part of LFN filename;
+		 * accumulate all the entries in the array
 		 */
-			assert(sizeof(filename) > NAME_MAX+1);
-			if (conv_83toname(fatdp, filename) != CONV_OK) {
+		lfnda[--ord] = dp->d_lfnentry;
+		continue;
+	}
+
+	if (slot_mark == SLOT_DELETED) {
+		/* this slot is out of use */
+		ord = count = 0; /* reset LFN*/
+		continue;
+	}
+
+	/* is this entry for long names? */
+	if ( dp->d_lfnentry.lfnAttributes == ATTR_LFN
+	  && dp->d_lfnentry.lfnOrd & LFN_LAST
+	  && ! (dp->d_lfnentry.lfnOrd & LFN_DELETED) ) {
+		/* We found the last part of a long filename.
+		 * Since long filenames can lay accross many entries,
+		 * possibily crossing blocks, we will accumulate all the
+		 * entries in an array (lfnda), and will process it later.
+		 *
+		 * ord is the value of the next entry to be fetched (1-N);
+		 * it is also used as index into lfnda (0 to N-1).
+		 */
+		count = dp->d_lfnentry.lfnOrd & LFN_ORD;
+		chksum = dp->d_lfnentry.lfnChksum;
+		ord = count;
+		lfnda[--ord] = dp->d_lfnentry;
+		continue;
+	}
+
+	if(dp->d_direntry.deAttributes & ATTR_VOLUME) {
+		/* skip any entry with volume attribute set */
+		ord = count = 0; /* reset LFN*/
+		continue;
+	}
+
+	/* so this entry is a regular one! */
+
+	if ( count == 0		/* we do not have LFN entries before */
+	  || ord != 0		/* or not all the LFN entries were there */
+	  || chksum != lfn_chksum(& dp->d_direntry) ) {/*or chksums no match*/
+		ord = count = 0; /* reset LFN*/
+		assert(sizeof(filename) > NAME_MAX+1);
+		if (conv_83toname(&dp->d_direntry, filename) != CONV_OK) {
 			/* Unable to convert 8.3 name into a name like
 			 * the ones MINIX accepts (probably a / embedded).
 			 * Skip the entry.
 			 */
-				DBGprintf(("FATfs: getdents unable to "
-					"convert FAT entry <%.8s.%.3s>, skip\n",
-					fatdp->deName, fatdp->deExtension));
-				expected_lfn_ord = 0; /* reset LFN */
-				continue;
-			}
-			len = strlen(filename);
+			DBGprintf(("FATfs: getdents unable to convert "
+				"FAT entry <%.8s.%.3s>, skip\n",
+				dp->d_direntry.deName,
+				dp->d_direntry.deExtension));
+			continue;
 		}
+		len = strlen(filename);
+	} else {
+		len = sizeof(filename);
+		if (conv_lfntoname(count, lfnda, filename, &len) != CONV_OK) {
+			/* Unable to convert long file name into a name like
+			 * the ones MINIX accepts (probably a / embedded).
+			 * Very strange. Skip the entry.
+			 */
+			DBGprintf(("FATfs: getdents unable to "
+				"convert LFN entry, skip\n"));
+			continue;
+		}
+	}
 
-		assert(len > 0);
-		if (len > NAME_MAX) {
+	assert(len > 0);
+	if (len > NAME_MAX) {
 		/* we discovered a name longer than what MINIX can handle;
 		 * it would be a violation of POSIX to return a larger name
 		 * and a potential cause of failure in user code;
 		 * truncating is not a better option, since it is likely
-		 * to cause problems later, like duplicate filenames.
+		 * to cause problems later, like duplicate filenames;
+		 * returning an error like EOVERFLOW, as Posix is suggesting,
+		 * is not really better, since it will prevent enumerating all
+		 * the valid entries after this one.
 		 * So we silently skip the entry.
 		 */
-#if 0
-/* CHECKME... ? */
-		 * So we end the request with an error.
-		 */
-
-			/* put_inode(dirp); */
-			put_block(bp);
-			return(EOVERFLOW);
-#else
-			DBGprintf(("FATfs: met directory entry with too "
-					"large file name (%d), skip\n", len));
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-#endif
-		}
-		
-		dirref.dr_entrypos = pos;
-		dirref.dr_lfnpos = pos - count_lfn_entries * DIR_ENTRY_SIZE;
-		newip = direntry_to_inode(fatdp, dirp, &dirref);
-		if( newip == NULL ) {
-			DBGprintf(("FATfs: getdents cannot create some "
-				"virtual inode, skip %.40s\n", filename));
-			expected_lfn_ord= count_lfn_entries= 0; /* reset LFN*/
-			continue;
-		}
-		r = write_dent(&gdbuf, pos, INODE_NR(newip), filename);
-		put_inode(newip);
-		if (r == -ENAMETOOLONG) {
-		/* Record the position of this entry, it is the starting
-		 * point of the next request (unless modified with lseek).
-		 */
-			new_pos = pos;
-			done = TRUE;
-			break;
-		} else if (r != OK) {
-			/* put_inode(dirp); */
-			put_block(bp);
-			return(r);
-		}
-
-		expected_lfn_ord = count_lfn_entries = 0; /* reset LFN */
+		DBGprintf(("FATfs: met directory entry with too "
+				"large file name (%d), skip\n", len));
+		ord= count= 0; /* reset LFN*/
+		continue;
+	}
+	
+	deref.dr_entrypos = pos;
+	deref.dr_lfnpos = pos - count*DIR_ENTRY_SIZE;
+	newip = direntry_to_inode(&dp->d_direntry, dirp, &deref);
+	if( newip == NULL ) {
+		DBGprintf(("FATfs: getdents cannot create some "
+			"virtual inode, skip %.40s\n", filename));
+		ord= count= 0; /* reset LFN*/
+		continue;
+	}
+	r = write_dent(&gdbuf, pos, INODE_NR(newip), filename);
+	put_inode(newip);
+	if (r == -ENAMETOOLONG) {
+	/* Record the position of this entry, it is the starting
+	 * point of the next request (unless modified with lseek).
+	 */
+		state = BUFFULL;
+		break;
+	} else if (r != OK) {
+	/* some error occurred while writing in buffer; inform VFS.*/
+		/* put_inode(dirp); */
+		put_block(bp);
+		return(r);
 	}
 
-	put_block(bp);
-	if(done)
-		break;
-	block_pos += bcc.bpBlock;
-	assert(block_pos == pos);
-	i = 0;			/* on next loop, start at beginning of block*/
+	ord = count = 0; /* reset LFN for next iteration */
   }
-			
+
+  /* We broke out of the loop, or we reached the end of the directory,
+   * or the user buffer filled up. In any case, the work is done.
+   */
+  if (bp) put_block(bp);
+
+  if (state==END && (dirp->i_flags & I_DIRNOTSIZED) ) {
+	/* we reached the end of the directory, remember it */
+	dirp->i_size = pos;
+	dirp->i_flags &= ~I_DIRNOTSIZED;
+  }
+
   r = flush_dents_buf(&gdbuf);
   if (r == OK) {
 	m_out.RES_NBYTES = dents_buf_written(&gdbuf);
-	m_out.RES_SEEK_POS_LO = new_pos;
+	m_out.RES_SEEK_POS_LO = pos;
 	m_out.RES_SEEK_POS_HI = m_in.REQ_SEEK_POS_HI;
 	dirp->i_flags |= I_DIRTY | I_ACCESSED;
 	dirp->i_atime = TIME_UPDATED; 
@@ -792,7 +726,6 @@ PRIVATE int flush_dents_buf(struct getdents_buf * gdbufp)
   int r;
 
   if(gdbufp->mybuf_off != 0) {
-DBGprintf(("flush: off=%d->%d\n", gdbufp->mybuf_off, gdbufp->callerbuf_off));
 	r = sys_safecopyto(VFS_PROC_NR, gdbufp->callerbuf_gid,
 			   (vir_bytes) gdbufp->callerbuf_off,
 			   (vir_bytes) gdbufp->dents_buf,
@@ -837,14 +770,11 @@ PRIVATE int write_dent(
 	/* the buffer has been cleared before */
 
   if (gdbufp->mybuf_off + reclen > GETDENTS_BUFSIZ) {
-DBGprintf(("flush: off=%d->%d, reclen=%d, max=%u\n", gdbufp->mybuf_off, gdbufp->callerbuf_off, reclen, GETDENTS_BUFSIZ));
 	r = flush_dents_buf(gdbufp);
 	if (r != OK) return(r);
   }
 
   if(gdbufp->callerbuf_off + gdbufp->mybuf_off + reclen > gdbufp->callerbuf_size) {
-DBGprintf(("not enough space: caller_off=%d, off=%d, reclen=%d, max=%u\n", gdbufp->callerbuf_off, gdbufp->mybuf_off, reclen, 
-gdbufp->callerbuf_size));
 	/* The user has no space for one more record */
 	if (gdbufp->callerbuf_off == 0 && gdbufp->mybuf_off == 0)
 	/* The user's buffer is too small for 1 record */

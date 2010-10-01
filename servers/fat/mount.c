@@ -330,6 +330,12 @@ PRIVATE int chk_fatsize(
   struct fat_extbpb *extbpbp)
 {
 /* Final check about FAT sizes */
+
+/* CHECKME: it seems that Atari TOS used the same format as MS-DOS back when
+ * it was the 3.x version, with a slight difference in the algorithm to choose
+ * the kind of FAT: on Atari, floppies (bpbMedia>0xF8) are always FAT12, and
+ * harddisks are always FAT16. This is not taken in account here.
+ */
   sector_t slack;	/* number of useless sector(s) in each FAT */
 
   sb.maxClust = (sb.clustCnt / sb.secpCluster) + 1;
@@ -604,7 +610,6 @@ PUBLIC int do_readsuper(void)
 	root_ip->i_clust = CLUST_CONVROOT;	/* conventionally 1 */
 	assert(rootDirSize <= 0xffffffff);
 	root_ip->i_size = rootDirSize;
-	root_ip->i_flags |= I_DIRSIZED;
   } else {
 	/* better be FAT32 and have long BPB... */
 	assert(extbpbp == &bs->u.f32bpb.ExtBPB32);
