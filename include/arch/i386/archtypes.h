@@ -39,7 +39,9 @@ struct fpu_state_s {
 	char fpu_image[527];
 };
 
-#define INMEMORY(p) (!p->p_seg.p_cr3 || ptproc == p)
+#define INMEMORY(p) (!p->p_seg.p_cr3 || get_cpulocal_var(ptproc) == p)
+
+typedef u32_t atomic_t;	/* access to an aligned 32bit value is atomic on i386 */
 
 #endif /* #ifndef _I386_TYPES_H */
 

@@ -147,7 +147,7 @@ PRIVATE int map_sanitycheck_pt(struct vmproc *vmp,
 	else
 		rw = 0;
 
-	r = pt_writemap(&vmp->vm_pt, vr->vaddr + pr->offset,
+	r = pt_writemap(vmp, &vmp->vm_pt, vr->vaddr + pr->offset,
 	  pb->phys, pb->length, PTF_PRESENT | PTF_USER | rw, WMF_VERIFY);
 
 	if(r != OK) {
@@ -319,7 +319,7 @@ PRIVATE int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 	else
 		rw = 0;
 
-	if(pt_writemap(&vmp->vm_pt, vr->vaddr + pr->offset,
+	if(pt_writemap(vmp, &vmp->vm_pt, vr->vaddr + pr->offset,
 	  pb->phys, pb->length, PTF_PRESENT | PTF_USER | rw,
 #if SANITYCHECKS
 	  	!pr->written ? 0 :
@@ -1683,7 +1683,7 @@ PUBLIC int map_unmap_region(struct vmproc *vmp, struct vir_region *region,
 
 	SANITYCHECK(SCL_DETAIL);
 
-	if(pt_writemap(&vmp->vm_pt, regionstart,
+	if(pt_writemap(vmp, &vmp->vm_pt, regionstart,
 	  MAP_NONE, len, 0, WMF_OVERWRITE) != OK) {
 	    printf("VM: map_unmap_region: pt_writemap failed\n");
 	    return ENOMEM;
@@ -1823,6 +1823,19 @@ PUBLIC int map_get_ref(struct vmproc *vmp, vir_bytes addr, u8_t *cnt)
 		*cnt = ph->ph->refcount;
 
 	return OK;
+}
+
+/*========================================================================*
+ *				get_stats_info				  *
+ *========================================================================*/
+PUBLIC void get_stats_info(struct vm_stats_info *vsi)
+{
+	yielded_t *yb;
+
+	vsi->vsi_cached = 0L;
+
+	for(yb = lru_youngest; yb; yb = yb->older)
+		vsi->vsi_cached += yb->len / VM_PAGE_SIZE;
 }
 
 /*========================================================================*
@@ -1994,7 +2007,7 @@ PRIVATE int do_map_memory(struct vmproc *vms, struct vmproc *vmd,
                         if(flag < 0) {                  /* COW share */
                                 pb->share_flag = PBSH_COW;
                                 /* Update the page table for the src process. */
-                                pt_writemap(&vms->vm_pt, offset_s + vrs->vaddr,
+                                pt_writemap(vms, &vms->vm_pt, offset_s + vrs->vaddr,
                                         pb->phys, pb->length,
                                         pt_flag, WMF_OVERWRITE);
                         }
@@ -2002,7 +2015,7 @@ PRIVATE int do_map_memory(struct vmproc *vms, struct vmproc *vmd,
                                 pb->share_flag = PBSH_SMAP;
                         }
                         /* Update the page table for the destination process. */
-                        pt_writemap(&vmd->vm_pt, offset_d + vrd->vaddr,
+                        pt_writemap(vmd, &vmd->vm_pt, offset_d + vrd->vaddr,
                                 pb->phys, pb->length, pt_flag, WMF_OVERWRITE);
                 }
 

@@ -120,13 +120,25 @@ struct loadinfo {
   clock_t last_clock;
 };
 
+struct cpu_type {
+	u8_t	vendor;
+	u8_t	family;
+	u8_t	model;
+	u8_t	stepping;
+};
+
 struct machine {
   int pc_at;
   int ps_mca;
   int processor;
-  int padding;	/* used to be protected */
+  unsigned processors_count;	/* how many cpus are available */
+  unsigned bsp_id;		/* id of the bootstrap cpu */
+  int padding;			/* used to be protected */
   int vdu_ega;
   int vdu_vga;
+  int apic_enabled; /* does the kernel use APIC or not? */
+  phys_bytes	acpi_rsdp; /* where is the acpi RSDP */
+  struct cpu_type	cpu_type;
 };
 
 struct io_range
@@ -182,7 +194,7 @@ struct kmessages {
 #include <machine/interrupt.h>
 
 /* randomness struct: random sources after interrupts: */
-#define RANDOM_SOURCES			NR_IRQ_VECTORS
+#define RANDOM_SOURCES			16
 #define RANDOM_ELEMENTS			64
 
 typedef unsigned short rand_t;
@@ -194,21 +206,6 @@ struct k_randomness {
         int r_size;                             /* number of random elements */
         rand_t r_buf[RANDOM_ELEMENTS]; /* buffer for random info */
   } bin[RANDOM_SOURCES];
-};
-
-/* information on PCI devices */
-
-#define PCIINFO_ENTRY_SIZE 80
-
-struct pciinfo_entry {
-	u16_t pie_vid;
-	u16_t pie_did;
-	char pie_name[PCIINFO_ENTRY_SIZE];
-};
-
-struct pciinfo {
-	size_t pi_count;
-	struct pciinfo_entry pi_entries[NR_PCIDEV];
 };
 
 #endif /* _TYPE_H */

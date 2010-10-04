@@ -9,17 +9,17 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	chmod chown chroot ci cksum cleantmp clear cmp co \
 	comm compress cp crc cron crontab cut date \
 	dd de decomp16 DESCRIBE dev2name devsize df dhcpd \
-	dhrystone diff dirname dis88 diskctl du dumpcore easypack \
+	dhrystone diff dirname dis88 diskctl du dumpcore \
 	ed eject elle elvis env expand factor file \
 	find finger fingerd fix fold format fortune fsck.mfs \
-	fsck1 ftp101 ftpd200 gcov-pull getty grep gomoku head host \
+	fsck1 ftp101 ftpd200 gcov-pull getty grep gomoku head hexdump host \
 	hostaddr id ifconfig ifdef indent install \
 	intr ipcrm ipcs irdpd isoread join kill last leave \
 	less lex life loadkeys loadramdisk logger login look lp \
 	lpd ls lspci M m4 mail make  MAKEDEV man \
 	mdb mdocml mesg mined mkdep mkdir mkdist mkfifo mkfs.mfs mknod \
 	mkproto modem mount mt netconf newroot nice acknm nohup \
-	nonamed od packit packman passwd paste patch pax \
+	nonamed od packman passwd paste patch pax \
 	ping postinstall poweroff pr prep printf printroot \
 	profile progressbar proto pr_routes ps pwd pwdauth \
 	ramdisk rarpd rawspeed rcp rdate readall readclock \
@@ -32,18 +32,13 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	truncate tsort ttt tty udpstat umount uname unexpand \
 	uniq unstack update urlget uud uue version vol wc \
 	whereis which who write writeisofs fetch \
-	xargs yacc yes zdump zic zmodem pkg_install
+	xargs yacc yes zdump zic zmodem pkg_install pkgin_cd
 
 .if ${ARCH} == "i386"
 SUBDIR+=	atnormalize dosread fdisk loadfont \
 	mixer autopart part partition playwave postmort \
 	recwave repartition screendump padtext
 SUBDIR+=	acd asmconv gas2ack
-.endif
-
-# Build only with clang and GCC
-.if ${COMPILER_TYPE} == "gnu"
-SUBDIR+= hexdump
 .endif
 
 .include <bsd.subdir.mk>

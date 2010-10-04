@@ -33,6 +33,7 @@ FORWARD _PROTOTYPE( int sef_cb_init_fresh, (int type, sef_init_info_t *info) );
 FORWARD _PROTOTYPE( void sef_cb_signal_handler, (int signo) );
 FORWARD _PROTOTYPE( int sef_cb_signal_manager, (endpoint_t target, int signo) );
 
+
 /*===========================================================================*
  *				main                                         *
  *===========================================================================*/
@@ -46,9 +47,13 @@ PUBLIC int main(void)
   int ipc_status;				/* status code */
   int call_nr, who_e,who_p;			/* call number and caller */
   int result;                 			/* result to return */
+  int s;
 
   /* SEF local startup. */
   sef_local_startup();
+  
+  if (OK != (s=sys_getmachine(&machine)))
+	  panic("couldn't get machine info: %d", s);
 
   /* Main loop - get work and do it, forever. */         
   while (TRUE) {              
@@ -91,7 +96,7 @@ PUBLIC int main(void)
        * Handle the request and send a reply to the caller. 
        */
       else {
-	  if (call_nr != GETSYSINFO && 
+	  if (call_nr != COMMON_GETSYSINFO && 
 	  	(call_nr < RS_RQ_BASE || call_nr >= RS_RQ_BASE+0x100))
 	  {
 		/* Ignore invalid requests. Do not try to reply. */
@@ -111,7 +116,8 @@ PUBLIC int main(void)
           case RS_UPDATE: 	result = do_update(&m); 	break;
           case RS_CLONE: 	result = do_clone(&m); 		break;
           case RS_EDIT: 	result = do_edit(&m); 		break;
-          case GETSYSINFO: 	result = do_getsysinfo(&m); 	break;
+          case COMMON_GETSYSINFO: 
+         			result = do_getsysinfo(&m); 	break;
 	  case RS_LOOKUP:	result = do_lookup(&m);		break;
 	  /* Ready messages. */
 	  case RS_INIT: 	result = do_init_ready(&m); 	break;

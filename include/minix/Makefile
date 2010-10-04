@@ -1,7 +1,7 @@
 
 INCSDIR=        /usr/include/minix
 
-INCS+=	a.out.h bitmap.h callnr.h cdrom.h \
+INCS+=	a.out.h acpi.h bitmap.h callnr.h cdrom.h \
 	com.h config.h const.h cpufeature.h \
 	crtso.h debug.h devio.h dirent.h \
 	dir.h dl_eth.h dmap.h driver.h \

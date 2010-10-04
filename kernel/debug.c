@@ -14,11 +14,14 @@
 
 #define MAX_LOOP (NR_PROCS + NR_TASKS)
 
-PUBLIC int
-runqueues_ok(void)
+PUBLIC int runqueues_ok_cpu(unsigned cpu)
 {
   int q, l = 0;
   register struct proc *xp;
+  struct proc **rdy_head, **rdy_tail;
+
+  rdy_head = get_cpu_var(cpu, run_q_head);
+  rdy_tail = get_cpu_var(cpu, run_q_tail);
 
   for (xp = BEG_PROC_ADDR; xp < END_PROC_ADDR; ++xp) {
 	xp->p_found = 0;
@@ -109,8 +112,35 @@ runqueues_ok(void)
   return 1;
 }
 
+#ifdef CONFIG_SMP
+PRIVATE int runqueues_ok_all(void)
+{
+	unsigned c;
+
+	for (c = 0 ; c < ncpus; c++) {
+		if (!runqueues_ok_cpu(c))
+			return 0;
+	}
+	return 1;	
+}
+
+PUBLIC int runqueues_ok(void)
+{
+	return runqueues_ok_all();
+}
+
+#else
+
+PUBLIC int runqueues_ok(void)
+{
+	return runqueues_ok_cpu(0);
+}
+
+
+#endif
+
 PUBLIC char *
-rtsflagstr(const int flags)
+rtsflagstr(const u32_t flags)
 {
 	static char str[100];
 	str[0] = '\0';
@@ -137,7 +167,7 @@ rtsflagstr(const int flags)
 }
 
 PUBLIC char *
-miscflagstr(const int flags)
+miscflagstr(const u32_t flags)
 {
 	static char str[100];
 	str[0] = '\0';
@@ -228,10 +258,12 @@ PUBLIC void print_proc(struct proc *pp)
 	struct proc *depproc = NULL;
 	endpoint_t dep;
 
-	printf("%d: %s %d prio %d time %d/%d cycles 0x%x%08x cr3 0x%lx rts %s misc %s sched %s ",
-		proc_nr(pp), pp->p_name, pp->p_endpoint,
+	printf("%d: %s %d prio %d time %d/%d cycles 0x%x%08x cpu %2d "
+			"cr3 0x%lx rts %s misc %s sched %s ",
+		proc_nr(pp), pp->p_name, pp->p_endpoint, 
 		pp->p_priority, pp->p_user_time,
-		pp->p_sys_time, pp->p_cycles.hi, pp->p_cycles.lo, pp->p_seg.p_cr3,
+		pp->p_sys_time, pp->p_cycles.hi, pp->p_cycles.lo, pp->p_cpu,
+		pp->p_seg.p_cr3,
 		rtsflagstr(pp->p_rts_flags), miscflagstr(pp->p_misc_flags),
 		schedulerstr(pp->p_scheduler));
 

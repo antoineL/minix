@@ -1,5 +1,8 @@
 /* Function prototypes. */
 
+/* FIXME this is a hack how to avoid inclusion conflicts */
+#ifdef __kernel__
+
 #ifndef PROTO_H
 #define PROTO_H
 
@@ -31,19 +34,22 @@ _PROTOTYPE( void context_stop, (struct proc * p)			);
 _PROTOTYPE( void context_stop_idle, (void)				);
 _PROTOTYPE( void restore_fpu, (struct proc *)				);
 _PROTOTYPE( void save_fpu, (struct proc *)				);
+_PROTOTYPE( void save_local_fpu, (struct proc *)			);
 _PROTOTYPE( void fpu_sigcontext, (struct proc *, struct sigframe *fr, struct sigcontext *sc)	);
 
 /* main.c */
 _PROTOTYPE( int main, (void)						);
 _PROTOTYPE( void prepare_shutdown, (int how)				);
 _PROTOTYPE( __dead void minix_shutdown, (struct timer *tp)		);
+_PROTOTYPE( void bsp_finish_booting, (void)				);
 
 /* proc.c */
 
 _PROTOTYPE( int do_ipc, (reg_t r1, reg_t r2, reg_t r3)			);
+_PROTOTYPE( void proc_init, (void)					);
 _PROTOTYPE( int mini_notify, (const struct proc *src, endpoint_t dst)	);
 _PROTOTYPE( void enqueue, (struct proc *rp)				);
-_PROTOTYPE( void dequeue, (const struct proc *rp)			);
+_PROTOTYPE( void dequeue, (struct proc *rp)				);
 _PROTOTYPE( void switch_to_user, (void)					);
 _PROTOTYPE( struct proc * arch_finish_switch_to_user, (void)		);
 _PROTOTYPE( struct proc *endpoint_lookup, (endpoint_t ep)		);
@@ -55,6 +61,8 @@ _PROTOTYPE( int isokendpt_f, (endpoint_t e, int *p, int f)		);
 #define isokendpt_d(e, p, f) isokendpt_f((e), (p), (f))
 #endif
 _PROTOTYPE( void proc_no_time, (struct proc *p));
+_PROTOTYPE( void reset_proc_accounting, (struct proc *p));
+_PROTOTYPE( void flag_account, (struct proc *p, int flag));
 
 /* start.c */
 _PROTOTYPE( void cstart, (u16_t cs, u16_t ds, u16_t mds,
@@ -79,7 +87,7 @@ _PROTOTYPE( void clear_ipc_refs, (struct proc *rc, int caller_ret)	);
 _PROTOTYPE( phys_bytes umap_bios, (vir_bytes vir_addr, vir_bytes bytes));
 _PROTOTYPE( void kernel_call_resume, (struct proc *p));
 _PROTOTYPE( int sched_proc, (struct proc *rp,
-	unsigned priority, unsigned quantum));
+	int priority, int quantum, int cpu));
 
 /* system/do_newmap.c */
 _PROTOTYPE( int newmap, (struct proc * caller, struct proc *rp,
@@ -95,10 +103,19 @@ _PROTOTYPE( void rm_irq_handler, (const irq_hook_t *hook)		);
 _PROTOTYPE( void enable_irq, (const irq_hook_t *hook)			);
 _PROTOTYPE( int disable_irq, (const irq_hook_t *hook)			);
 
+_PROTOTYPE(void interrupts_enable, (void));
+_PROTOTYPE(void interrupts_disable, (void));
+
 /* debug.c */
 _PROTOTYPE( int runqueues_ok, (void) );
-_PROTOTYPE( char *rtsflagstr, (int flags) );
-_PROTOTYPE( char *miscflagstr, (int flags) );
+#ifndef CONFIG_SMP
+#define runqueues_ok_local runqueues_ok
+#else
+#define runqueues_ok_local() runqueues_ok_cpu(cpuid)
+_PROTOTYPE( int runqueues_ok_cpu, (unsigned cpu));
+#endif
+_PROTOTYPE( char *rtsflagstr, (u32_t flags) );
+_PROTOTYPE( char *miscflagstr, (u32_t flags) );
 _PROTOTYPE( char *schedulerstr, (struct proc *scheduler) );
 /* prints process information */
 _PROTOTYPE( void print_proc, (struct proc *pp));
@@ -152,7 +169,6 @@ _PROTOTYPE( int data_copy_vmcheck, (struct proc *,
 	endpoint_t from, vir_bytes from_addr,
 	endpoint_t to, vir_bytes to_addr, size_t bytes));
 _PROTOTYPE( void alloc_segments, (struct proc *rp)                      );
-_PROTOTYPE( void vm_init, (struct proc *first)        			);
 _PROTOTYPE( void vm_stop, (void)        				);
 _PROTOTYPE( phys_bytes umap_local, (register struct proc *rp, int seg,
 	vir_bytes vir_addr, vir_bytes bytes));
@@ -168,6 +184,10 @@ _PROTOTYPE( vir_bytes alloc_remote_segment, (u32_t *, segframe_t *,
 _PROTOTYPE( int intr_init, (int, int)					);
 _PROTOTYPE( void halt_cpu, (void)                                	);
 _PROTOTYPE( void arch_init, (void)                                     );
+/* arch dependent FPU initialization per CPU */
+_PROTOTYPE( void fpu_init, (void)					);
+/* returns true if pfu is present and initialized */
+_PROTOTYPE( int is_fpu, (void)						);
 _PROTOTYPE( void ser_putc, (char)						);
 _PROTOTYPE( __dead void arch_shutdown, (int)				);
 _PROTOTYPE( __dead void arch_monitor, (void)				);
@@ -203,8 +223,10 @@ _PROTOTYPE(void release_address_space, (struct proc *pr));
 
 _PROTOTYPE(void enable_fpu_exception, (void));
 _PROTOTYPE(void disable_fpu_exception, (void));
-_PROTOTYPE(void release_fpu, (void));
+_PROTOTYPE(void release_fpu, (struct proc * p));
 
 /* utility.c */
 _PROTOTYPE( void cpu_print_freq, (unsigned cpu));
+#endif /* __kernel__ */
+
 #endif /* PROTO_H */

@@ -8,6 +8,7 @@
  */
 
 #include "kernel/system.h"
+#include <assert.h>
 
 #if USE_RUNCTL
 
@@ -51,9 +52,17 @@ PUBLIC int do_runctl(struct proc * caller, message * m_ptr)
   /* Either set or clear the stop flag. */
   switch (action) {
   case RC_STOP:
-	RTS_SET(rp, RTS_PROC_STOP);
+#if CONFIG_SMP
+	  /* check if we must stop a process on a different CPU */
+	  if (rp->p_cpu != cpuid) {
+		  smp_schedule_stop_proc(rp);
+		  break;
+	  }
+#endif
+	  RTS_SET(rp, RTS_PROC_STOP);
 	break;
   case RC_RESUME:
+	assert(RTS_ISSET(rp, RTS_PROC_STOP));
 	RTS_UNSET(rp, RTS_PROC_STOP);
 	break;
   default:

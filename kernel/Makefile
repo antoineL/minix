@@ -7,24 +7,30 @@ PROG=	kernel
 SRCS=	mpx.S
 SRCS+=	start.c table.c main.c proc.c \
 	system.c clock.c utility.c debug.c profile.c interrupt.c \
-	watchdog.c
+	watchdog.c cpulocals.c
+
+.ifdef CONFIG_SMP
+SRCS += smp.c
+.endif
 
 DPADD+=	${LIBTIMERS} ${LIBSYS}
 LDADD+=	-ltimers -lsys
 
+CFLAGS += -D__kernel__
+
 .if ${COMPILER_TYPE} == "ack"
 LDFLAGS+= -.o
 .elif ${COMPILER_TYPE} == "gnu"
-CPPFLAGS+= -fno-builtin -ffreestanding -fno-stack-protector
+CPPFLAGS+= -ffreestanding -fno-stack-protector
 LDFLAGS+= -T arch/${ARCH}/kernel.lds
-LDFLAGS+= -nostdlib -L/usr/gnu/lib
+LDFLAGS+= -nostdlib -L/usr/lib
 CFLAGS+=-march=i386
 DPADD+=	${LIBC}
 LDADD+=	-lc
 .endif
 
-CPPFLAGS+=	-I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
-AFLAGS+=	-I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
+CPPFLAGS+=	-I${.CURDIR} -I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
+AFLAGS+=	-I${.CURDIR} -I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
 
 INSTALLFLAGS+=	-S 0
 BINDIR=	/usr/sbin
