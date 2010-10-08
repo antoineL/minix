@@ -30,7 +30,13 @@ SRCS+=	arch_do_vmctl.c \
 	apic.c \
 	apic_asm.S \
 	arch_watchdog.c \
-	pre_init.c
+	pre_init.c \
+	acpi.c
+
+.ifdef CONFIG_SMP
+SRCS += arch_smp.c trampoline.S
+.endif
+
 
 .if ${COMPILER_TYPE} == "ack"
 I86CPPFLAGS =	-mi86
@@ -38,4 +44,7 @@ I86LDFLAGS =	-mi86
 
 CPPFLAGS.klib16.S =	${I86CPPFLAGS}
 LDFLAGS.klib16.S  =	${I86LDFLAGS}
+
+CPPFLAGS.trampoline.S =	${I86CPPFLAGS}
+LDFLAGS.trampoline.S  =	${I86LDFLAGS}
 .endif

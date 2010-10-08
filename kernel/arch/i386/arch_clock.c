@@ -8,12 +8,16 @@
 
 #include "kernel/clock.h"
 #include "kernel/proc.h"
+#include "kernel/interrupt.h"
 #include <minix/u64.h>
+#include "glo.h"
+#include "profile.h"
 
 
 #ifdef CONFIG_APIC
 #include "apic.h"
 #endif
+#include "spinlock.h"
 
 #define CLOCK_ACK_BIT   0x80    /* PS/2 clock interrupt acknowledge bit */
 
@@ -24,9 +28,6 @@
                                 /*   11x11, 11 = LSB then MSB, x11 = sq wave */
 #define TIMER_FREQ  1193182    /* clock frequency for timer in PC and AT */
 #define TIMER_COUNT(freq) (TIMER_FREQ/(freq)) /* initial value for counter*/
-
-/* FIXME make it cpu local! */
-PRIVATE u64_t tsc_ctr_switch; /* when did we switched time accounting */
 
 PRIVATE irq_hook_t pic_timer_hook;		/* interrupt handler hook */
 
@@ -78,6 +79,8 @@ PRIVATE int calib_cpu_handler(irq_hook_t * UNUSED(hook))
 		tsc1 = tsc;
 	}
 
+	/* just in case we are in an SMP single cpu fallback mode */
+	BKL_UNLOCK();
 	return 1;
 }
 
@@ -91,6 +94,8 @@ PRIVATE void estimate_cpu_freq(void)
 	/* set the probe, we use the legacy timer, IRQ 0 */
 	put_irq_handler(&calib_cpu, CLOCK_IRQ, calib_cpu_handler);
 
+	/* just in case we are in an SMP single cpu fallback mode */
+	BKL_UNLOCK();
 	/* set the PIC timer to get some time */
 	intr_enable();
 
@@ -100,6 +105,8 @@ PRIVATE void estimate_cpu_freq(void)
 	}
 
 	intr_disable();
+	/* just in case we are in an SMP single cpu fallback mode */
+	BKL_LOCK();
 
 	/* remove the probe */
 	rm_irq_handler(&calib_cpu);
@@ -111,7 +118,7 @@ PRIVATE void estimate_cpu_freq(void)
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
 }
 
-PUBLIC int arch_init_local_timer(unsigned freq)
+PUBLIC int init_local_timer(unsigned freq)
 {
 #ifdef CONFIG_APIC
 	/* if we know the address, lapic is enabled and we should use it */
@@ -134,11 +141,12 @@ PUBLIC int arch_init_local_timer(unsigned freq)
 	return 0;
 }
 
-PUBLIC void arch_stop_local_timer(void)
+PUBLIC void stop_local_timer(void)
 {
 #ifdef CONFIG_APIC
 	if (lapic_addr) {
 		lapic_stop_timer();
+		apic_eoi();
 	} else
 #endif
 	{
@@ -146,7 +154,16 @@ PUBLIC void arch_stop_local_timer(void)
 	}
 }
 
-PUBLIC int arch_register_local_timer_handler(const irq_handler_t handler)
+PUBLIC void restart_local_timer(void)
+{
+#ifdef CONFIG_APIC
+	if (lapic_addr) {
+		lapic_restart_timer();
+	}
+#endif
+}
+
+PUBLIC int register_local_timer_handler(const irq_handler_t handler)
 {
 #ifdef CONFIG_APIC
 	if (lapic_addr) {
@@ -167,17 +184,59 @@ PUBLIC int arch_register_local_timer_handler(const irq_handler_t handler)
 
 PUBLIC void cycles_accounting_init(void)
 {
-	read_tsc_64(&tsc_ctr_switch);
+	unsigned cpu = cpuid;
+
+	read_tsc_64(get_cpu_var_ptr(cpu, tsc_ctr_switch));
+
+	make_zero64(get_cpu_var(cpu, cpu_last_tsc));
+	make_zero64(get_cpu_var(cpu, cpu_last_idle));
 }
 
 PUBLIC void context_stop(struct proc * p)
 {
 	u64_t tsc, tsc_delta;
+	u64_t * __tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
 
+#ifdef CONFIG_SMP
+	/*
+	 * This function is called only if we switch from kernel to user or idle
+	 * or back. Therefore this is a perfect location to place the big kernel
+	 * lock which will hopefully disappear soon.
+	 *
+	 * If we stop accounting for KERNEL we must unlock the BKL. If account
+	 * for IDLE we must not hold the lock
+	 */
+	if (p == proc_addr(KERNEL)) {
+		read_tsc_64(&tsc);
+		p->p_cycles = add64(p->p_cycles, sub64(tsc, *__tsc_ctr_switch));
+		BKL_UNLOCK();
+	} else {
+		u64_t bkl_tsc, tmp;
+		unsigned cpu = cpuid;
+		atomic_t succ;
+		
+		read_tsc_64(&bkl_tsc);
+		/* this only gives a good estimate */
+		succ = big_kernel_lock.val;
+		
+		BKL_LOCK();
+		
+		read_tsc_64(&tsc);
+
+		bkl_ticks[cpu] = add64(bkl_ticks[cpu], sub64(tsc, bkl_tsc));
+		bkl_tries[cpu]++;
+		bkl_succ[cpu] += !(!(succ == 0));
+
+		tmp = sub64(tsc, *__tsc_ctr_switch);
+		kernel_ticks[cpu] = add64(kernel_ticks[cpu], tmp);
+		p->p_cycles = add64(p->p_cycles, tmp);
+	}
+#else
 	read_tsc_64(&tsc);
-	tsc_delta = sub64(tsc, tsc_ctr_switch);
-	p->p_cycles = add64(p->p_cycles, tsc_delta);
-	tsc_ctr_switch = tsc;
+	p->p_cycles = add64(p->p_cycles, sub64(tsc, *__tsc_ctr_switch));
+#endif
+	
+	tsc_delta = sub64(tsc, *__tsc_ctr_switch);
 
 	/*
 	 * deduct the just consumed cpu cycles from the cpu time left for this
@@ -198,14 +257,69 @@ PUBLIC void context_stop(struct proc * p)
 		}
 #endif
 	}
+
+	*__tsc_ctr_switch = tsc;
 }
 
 PUBLIC void context_stop_idle(void)
 {
-	context_stop(proc_addr(IDLE));
+	int is_idle;
+	unsigned cpu = cpuid;
+	
+	is_idle = get_cpu_var(cpu, cpu_is_idle);
+	get_cpu_var(cpu, cpu_is_idle) = 0;
+
+	context_stop(get_cpulocal_var_ptr(idle_proc));
+
+	if (is_idle)
+		restart_local_timer();
+
+	if (sprofiling)
+		get_cpulocal_var(idle_interrupted) = 1;
 }
 
 PUBLIC u64_t ms_2_cpu_time(unsigned ms)
 {
 	return mul64u(tsc_per_ms[cpuid], ms);
+}
+
+PUBLIC unsigned cpu_time_2_ms(u64_t cpu_time)
+{
+	return div64u(cpu_time, tsc_per_ms[cpuid]);
+}
+
+PUBLIC short cpu_load(void)
+{
+	u64_t current_tsc, *current_idle;
+	u64_t tsc_delta, idle_delta, busy;
+	struct proc *idle;
+	short load;
+	unsigned cpu = cpuid;
+
+	u64_t *last_tsc, *last_idle;
+
+	last_tsc = get_cpu_var_ptr(cpu, cpu_last_tsc);
+	last_idle = get_cpu_var_ptr(cpu, cpu_last_idle);
+
+	idle = get_cpu_var_ptr(cpu, idle_proc);;
+	read_tsc_64(&current_tsc);
+	current_idle = &idle->p_cycles; /* ptr to idle proc */
+
+	/* calculate load since last cpu_load invocation */
+	if (!is_zero64(*last_tsc)) {
+		tsc_delta = sub64(current_tsc, *last_tsc);
+		idle_delta = sub64(*current_idle, *last_idle);
+
+		busy = sub64(tsc_delta, idle_delta);
+		busy = mul64(busy, make64(100, 0));
+		load = div64(busy, tsc_delta).lo;
+
+		if (load > 100)
+			load = 100;
+	} else
+		load = 0;
+	
+	*last_tsc = current_tsc;
+	*last_idle = *current_idle;
+	return load;
 }

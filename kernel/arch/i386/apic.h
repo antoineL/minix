@@ -66,6 +66,9 @@
 #define LAPIC_LDR	(lapic_addr + 0x0d0)
 #define LAPIC_DFR	(lapic_addr + 0x0e0)
 #define LAPIC_SIVR	(lapic_addr + 0x0f0)
+#define LAPIC_ISR	(lapic_addr + 0x100)
+#define LAPIC_TMR	(lapic_addr + 0x180)
+#define LAPIC_IRR	(lapic_addr + 0x200)
 #define LAPIC_ESR	(lapic_addr + 0x280)
 #define LAPIC_ICR1	(lapic_addr + 0x300)
 #define LAPIC_ICR2	(lapic_addr + 0x310)
@@ -84,9 +87,11 @@
 #define IOAPIC_ARB			0x2
 #define IOAPIC_REDIR_TABLE		0x10
 
-#define APIC_TIMER_INT_VECTOR		0xfe
+#define APIC_TIMER_INT_VECTOR		0xf0
+#define APIC_SMP_SCHED_PROC_VECTOR	0xf1
+#define APIC_SMP_CPU_HALT_VECTOR	0xf2
+#define APIC_ERROR_INT_VECTOR		0xfe
 #define APIC_SPURIOUS_INT_VECTOR	0xff
-
 
 #ifndef __ASSEMBLY__
 
@@ -94,35 +99,98 @@
 
 EXTERN vir_bytes lapic_addr;
 EXTERN vir_bytes lapic_eoi_addr;
+EXTERN int ioapic_enabled;
+EXTERN int bsp_lapic_id;
 
-#define MAX_NR_IOAPICS			32
-#define MAX_NR_BUSES			32
-#define MAX_NR_APICIDS			255
-#define MAX_NR_LCLINTS			2
+#define MAX_NR_IOAPICS		32
+#define MAX_IOAPIC_IRQS		64
 
-EXTERN u8_t apicid2cpuid[MAX_NR_APICIDS+1];
+EXTERN int ioapic_enabled;
+
+struct io_apic {
+	unsigned	id;
+	vir_bytes	addr; /* presently used address */
+	phys_bytes	paddr; /* where is it inphys space */
+	vir_bytes	vaddr; /* adress after paging s on */
+	unsigned	pins;
+	unsigned	gsi_base;
+};
+
+EXTERN struct io_apic io_apic[MAX_NR_IOAPICS];
+EXTERN unsigned nioapics;
 
 EXTERN u32_t lapic_addr_vaddr; /* we remember the virtual address here until we
 				  switch to paging */
 
-/*
-_PROTOTYPE (u32_t ioapic_read, (u32_t addr, u32_t offset));
-_PROTOTYPE (void ioapic_write, (u32_t addr, u32_t offset, u32_t data));
-_PROTOTYPE (void lapic_eoi, (void));
-*/
+_PROTOTYPE (int lapic_enable, (unsigned cpu));
 
+EXTERN int ioapic_enabled;
+EXTERN unsigned nioapics;
+
+_PROTOTYPE (void lapic_microsec_sleep, (unsigned count));
+_PROTOTYPE (void ioapic_disable_irqs, (u32_t irqs));
+_PROTOTYPE (void ioapic_enable_irqs, (u32_t irqs));
+
+_PROTOTYPE (int lapic_enable, (unsigned cpu));
+_PROTOTYPE (void lapic_disable, (void));
+
+_PROTOTYPE (void ioapic_disable_all, (void));
+_PROTOTYPE (int ioapic_enable_all, (void));
+
+_PROTOTYPE(int detect_ioapics, (void));
+_PROTOTYPE(void apic_idt_init, (int reset));
+
+#ifdef CONFIG_SMP
+_PROTOTYPE(int apic_send_startup_ipi, (unsigned cpu, phys_bytes trampoline));
+_PROTOTYPE(int apic_send_init_ipi, (unsigned cpu, phys_bytes trampoline));
+_PROTOTYPE(unsigned int apicid, (void));
+_PROTOTYPE(void ioapic_set_id, (u32_t addr, unsigned int id));
+#else
 _PROTOTYPE(int apic_single_cpu_init, (void));
+#endif
 
-_PROTOTYPE(void lapic_set_timer_periodic, (unsigned freq));
+_PROTOTYPE(void lapic_set_timer_periodic, (const unsigned freq));
+_PROTOTYPE(void lapic_set_timer_one_shot, (const u32_t value));
 _PROTOTYPE(void lapic_stop_timer, (void));
+_PROTOTYPE(void lapic_restart_timer, (void));
+
+_PROTOTYPE(void ioapic_set_irq, (unsigned irq));
+_PROTOTYPE(void ioapic_unset_irq, (unsigned irq));
+
+/* signal the end of interrupt handler to apic */
+#define apic_eoi() do { *((volatile u32_t *) lapic_eoi_addr) = 0; } while(0)
+
+_PROTOTYPE(void ioapic_eoi, (int irq));
+
+_PROTOTYPE(void dump_apic_irq_state, (void));
+
+_PROTOTYPE(void apic_send_ipi, (unsigned vector, unsigned cpu, int type));
+
+_PROTOTYPE(void apic_ipi_sched_intr, (void));
+_PROTOTYPE(void apic_ipi_halt_intr, (void));
+
+#define APIC_IPI_DEST			0
+#define APIC_IPI_SELF			1
+#define APIC_IPI_TO_ALL			2
+#define APIC_IPI_TO_ALL_BUT_SELF	3
+
+#define apic_send_ipi_single(vector,cpu) \
+	apic_send_ipi(vector, cpu, APIC_IPI_DEST);
+#define apic_send_ipi_self(vector) \
+	apic_send_ipi(vector, 0, APIC_IPI_SELF)
+#define apic_send_ipi_all(vector) \
+	apic_send_ipi (vector, 0, APIC_IPI_TO_ALL)
+#define apic_send_ipi_allbutself(vector) \
+	apic_send_ipi (vector, 0, APIC_IPI_TO_ALL_BUT_SELF);
+
 
 #include <minix/cpufeature.h>
 
 #define cpu_feature_apic_on_chip() _cpufeature(_CPUF_I386_APIC_ON_CHIP)
 
-#define lapic_read(what)	(*((u32_t *)((what))))
+#define lapic_read(what)	(*((volatile u32_t *)((what))))
 #define lapic_write(what, data)	do {			\
-	(*((u32_t *)((what)))) = data;			\
+	(*((volatile u32_t *)((what)))) = data;		\
 } while(0)
 
 #endif /* __ASSEMBLY__ */

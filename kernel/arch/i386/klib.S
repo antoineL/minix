@@ -16,7 +16,6 @@
  * kernel.
  */
 
-
 /*
  * The routines only guarantee to preserve the registers the C compiler 
  * expects to be preserved (ebx, esi, edi, ebp, esp, segment registers, and 
@@ -114,37 +113,6 @@ csinit:
 	mov	%ax, %ss
 	xchgl	_C_LABEL(mon_sp), %esp	/* unswitch stacks */
 	lidt	_C_LABEL(gdt)+IDT_SELECTOR /* reload interrupt descriptor table */
-
-#ifdef CONFIG_APIC
-	cmpl	$0x0, lapic_addr
-	jne	3f
-	mov	$0, %ebx
-	jmp	4f
-
-3:
-	mov	$FLAT_DS_SELECTOR, %ebx
-	mov	%bx, %fs
-	movl	lapic_addr, %eax
-	add	$0x20, %eax
-	.byte 0x64; mov	(%eax), %ebx
-	and	$0xFF000000, %ebx
-	shr	$24, %ebx
-	movzb	%bl, %ebx
-
-4:
-	add	$apicid2cpuid, %ebx
-	movzb	(%ebx), %eax
-	shl	$3, %eax
-	mov	%eax, %ebx
-	add	$TSS_SELECTOR, %eax
-	addl	_C_LABEL(gdt)+DESC_ACCESS, %eax
-	and	$~0x02, %eax
-	ltr	%bx	/* set TSS register */
-
-	mov	$DS_SELECTOR, %eax
-	mov	%ax, %fs
-
-#endif /* CONFIG_APIC */
 
 	pop	%eax
 	outb	$INT_CTLMASK	/* restore interrupt masks */
@@ -812,15 +780,15 @@ ENTRY(reload_ds)
 	ret
 
 /*===========================================================================*/
-/*			      switch_address_space			     */
+/*			      __switch_address_space			     */
 /*===========================================================================*/
-/* PUBLIC void switch_address_space(struct proc *p)
+/* PUBLIC void __switch_address_space(struct proc *p, struct ** ptproc)
  *
  * sets the %cr3 register to the supplied value if it is not already set to the
  * same value in which case it would only result in an extra TLB flush which is
  * not desirable
  */
-ENTRY(switch_address_space)
+ENTRY(__switch_address_space)
 	/* read the process pointer */
 	mov	4(%esp), %edx
 	/* enable process' segment descriptors  */
@@ -835,11 +803,15 @@ ENTRY(switch_address_space)
 	 * test if the cr3 is loaded with the current value to avoid unnecessary
 	 * TLB flushes
 	 */
+#ifndef CONFIG_SMP
 	mov	%cr3, %ecx
 	cmp	%ecx, %eax
 	je	0f
+#endif
 	mov	%eax, %cr3
-	mov	%edx, _C_LABEL(ptproc)
+	/* get ptproc */
+	mov	8(%esp), %eax
+	mov	%edx, (%eax)
 0:
 	ret
 
@@ -888,7 +860,202 @@ ENTRY(poweroff_jmp)
 	
 	/* Jump to 16-bit code that is copied to below 1MB */
 	ljmp	$MON_CS_SELECTOR, $0
+
+/* acknowledge just the master PIC */
+ENTRY(eoi_8259_master)
+	movb	$END_OF_INT, %al
+	outb	$INT_CTL
+	ret
 	
+/* we have to acknowledge both PICs */
+ENTRY(eoi_8259_slave)
+	movb	$END_OF_INT, %al
+	outb	$INT_CTL
+	outb	$INT2_CTL
+	ret
+	
+/* in some cases we need to force TLB update, reloading cr3 does the trick */
+ENTRY(refresh_tlb)
+	mov	%cr3, %eax
+	mov	%eax, %cr3
+	ret
+
+#ifdef CONFIG_SMP
+
+/*===========================================================================*/
+/*			      smp_get_htt				     */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_htt(void); */
+/*  return true if the processor is hyper-threaded. */
+ENTRY(smp_get_htt)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	mov	$0x1, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	mov	%edx, %eax
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*			      smp_get_num_htt				     */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_num_htt(void); */
+/*  Get the number of hyper-threaded processor cores */
+ENTRY(smp_get_num_htt)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	mov	$0x1, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	mov	%ebx, %eax
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*			      smp_get_cores				    */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_cores(void); */
+/*  Get the number of cores. */
+ENTRY(smp_get_cores)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	push	%ecx
+	xor	%ecx, %ecx
+	mov	$0x4, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*				arch_spinlock_lock				    */
+/*===========================================================================*/
+/* void arch_spinlock_lock (u32_t  *lock_data)
+ * {
+ * 	while (test_and_set(lock_data) == 1)
+ *		while (*lock_data == 1)
+ *			;
+ * }
+ * eax register is clobbered.
+ */
+ENTRY(arch_spinlock_lock)
+	mov	4(%esp), %eax
+	mov	$1, %edx
+2:
+	mov	$1, %ecx
+	xchg	%ecx, (%eax)
+	test	%ecx, %ecx
+	je	0f
+
+	cmp	$(1<< 16), %edx
+	je	1f
+	shl	%edx
+1:
+	mov	%edx, %ecx
+3:
+	pause
+	sub	$1, %ecx
+	test	%ecx, %ecx
+	jz	2b
+	jmp	3b
+0:
+	mfence
+	ret
+
+/*===========================================================================*/
+/*				arch_spinlock_unlock	                             */
+/*===========================================================================*/
+/* * void arch_spinlock_unlock (unsigned int *lockp) */
+/*  spin lock release routine. */
+ENTRY(arch_spinlock_unlock)
+	mov	4(%esp), %eax
+	mov	$0, %ecx
+	xchg	%ecx, (%eax)
+	mfence
+	ret
+
+#endif /* CONFIG_SMP */
+
+/*===========================================================================*/
+/*			      mfence					     */
+/*===========================================================================*/
+/*  PUBLIC void mfence (void); */
+/*  architecture specific memory barrier routine. */
+ENTRY(mfence)
+	mfence
+	ret
+
+/*===========================================================================*/
+/*			      arch_pause				     */
+/*===========================================================================*/
+/*  PUBLIC void arch_pause (void); */
+/*  architecture specific pause routine. */
+ENTRY(arch_pause)
+	pause
+	ret
+
+/*===========================================================================*/
+/*			      read_ebp				     	     */
+/*===========================================================================*/
+/*  PUBLIC u16_t cpuid(void) */
+ENTRY(read_ebp)
+	mov	%ebp, %eax
+	ret
+
+ENTRY(interrupts_enable)
+	sti
+	ret
+
+ENTRY(interrupts_disable)
+	cli
+	ret
+
+
+/*
+ * void switch_k_stack(void * esp, void (* continuation)(void));
+ *
+ * sets the current stack pointer to the given value and continues execution at
+ * the given address
+ */
+ENTRY(switch_k_stack)
+	/* get the arguments from the stack */
+	mov	8(%esp), %eax
+	mov	4(%esp), %ecx
+	mov	$0, %ebp	/* reset %ebp for stack trace */
+	mov	%ecx, %esp	/* set the new stack */
+	jmp	*%eax		/* and jump to the continuation */
+
+	/* NOT_REACHABLE */
+0:	jmp	0b
+
 .data
 idt_ptr:
 	.short 0x3ff

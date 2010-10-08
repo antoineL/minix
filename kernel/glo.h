@@ -26,8 +26,6 @@ EXTERN struct k_randomness krandom;	/* gather kernel random information */
 EXTERN struct loadinfo kloadinfo;	/* status of load average */
 
 /* Process scheduling information and the kernel reentry count. */
-EXTERN struct proc *proc_ptr;	/* pointer to currently running process */
-EXTERN struct proc *bill_ptr;	/* process to bill for clock ticks */
 EXTERN struct proc *vmrequest;  /* first process on vmrequest queue */
 EXTERN unsigned lost_ticks;	/* clock ticks counted outside clock task */
 EXTERN char *ipc_call_names[IPCNO_HIGHEST+1]; /* human-readable call names */
@@ -45,8 +43,6 @@ EXTERN int do_serial_debug;
 EXTERN time_t boottime;
 EXTERN char params_buffer[512];		/* boot monitor parameters */
 EXTERN int minix_panicing;
-EXTERN char fpu_presence;
-EXTERN struct proc * fpu_owner;
 EXTERN int verboseboot;			/* verbose boot, init'ed in cstart */
 #define MAGICTEST 0xC0FFEE23
 EXTERN u32_t magictest;			/* global magic number */
@@ -57,6 +53,7 @@ EXTERN int verboseflags;
 
 #ifdef CONFIG_APIC
 EXTERN int config_no_apic; /* optionaly turn off apic */
+EXTERN int config_apic_timer_x; /* apic timer slowdown factor */
 #endif
 
 EXTERN u64_t cpu_hz[CONFIG_MAX_CPUS];
@@ -64,10 +61,13 @@ EXTERN u64_t cpu_hz[CONFIG_MAX_CPUS];
 #define cpu_set_freq(cpu, freq)	do {cpu_hz[cpu] = freq;} while (0)
 #define cpu_get_freq(cpu)	cpu_hz[cpu]
 
+#ifdef CONFIG_SMP
+EXTERN int config_no_smp; /* optionaly turn off SMP */
+#endif
+
 /* VM */
 EXTERN int vm_running;
 EXTERN int catch_pagefaults;
-EXTERN struct proc *ptproc;
 
 /* Timing */
 EXTERN util_timingdata_t timingdata[TIMING_CATEGORIES];
@@ -78,5 +78,11 @@ extern char *t_stack[];			/* task stack space */
 extern struct segdesc_s gdt[];		/* global descriptor table */
 
 EXTERN volatile int serial_debug_active;
+
+/* BKL stats */
+EXTERN u64_t kernel_ticks[CONFIG_MAX_CPUS];
+EXTERN u64_t bkl_ticks[CONFIG_MAX_CPUS];
+EXTERN unsigned bkl_tries[CONFIG_MAX_CPUS];
+EXTERN unsigned bkl_succ[CONFIG_MAX_CPUS];
 
 #endif /* GLO_H */

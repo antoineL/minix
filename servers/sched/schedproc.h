@@ -3,10 +3,16 @@
  */
 #include <limits.h>
 
+#include <minix/bitmap.h>
+
 /* EXTERN should be extern except in main.c, where we want to keep the struct */
 #ifdef _MAIN
 #undef EXTERN
 #define EXTERN
+#endif
+
+#ifndef CONFIG_SMP
+#define CONFIG_MAX_CPUS 1
 #endif
 
 /**
@@ -23,6 +29,10 @@ EXTERN struct schedproc {
 	unsigned max_priority;	/* this process' highest allowed priority */
 	unsigned priority;		/* the process' current priority */
 	unsigned time_slice;		/* this process's time slice */
+	unsigned cpu;		/* what CPU is the process running on */
+	bitchunk_t cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is hte
+								process allowed
+								to run on */
 } schedproc[NR_PROCS];
 
 /* Flag values */

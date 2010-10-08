@@ -1,6 +1,7 @@
 #include "kernel/kernel.h"
 #include "kernel/watchdog.h"
-#include "proto.h"
+#include "arch_proto.h"
+#include "glo.h"
 #include <minix/minlib.h>
 #include <minix/u64.h>
 
@@ -8,25 +9,28 @@
 
 #define CPUID_UNHALTED_CORE_CYCLES_AVAILABLE	0
 
-#define MSR_PERFMON_CRT0	0xc1
-#define MSR_PERFMON_SEL0	0x186
+#define INTEL_MSR_PERFMON_CRT0	0xc1
+#define INTEL_MSR_PERFMON_SEL0	0x186
 
-#define MSR_PERFMON_SEL0_ENABLE	(1 << 22)
+#define INTEL_MSR_PERFMON_SEL0_ENABLE	(1 << 22)
 
 /*
  * Intel architecture performance counters watchdog
  */
 
-PRIVATE void intel_arch_watchdog_init(int cpu)
+PRIVATE struct arch_watchdog intel_arch_watchdog;
+PRIVATE struct arch_watchdog amd_watchdog;
+
+PRIVATE void intel_arch_watchdog_init(const unsigned cpu)
 {
 	u64_t cpuf;
 	u32_t val;
 
-	ia32_msr_write(MSR_PERFMON_CRT0, 0, 0);
+	ia32_msr_write(INTEL_MSR_PERFMON_CRT0, 0, 0);
 
 	/* Int, OS, USR, Core ccyles */
 	val = 1 << 20 | 1 << 17 | 1 << 16 | 0x3c;
-	ia32_msr_write(MSR_PERFMON_SEL0, 0, val);
+	ia32_msr_write(INTEL_MSR_PERFMON_SEL0, 0, val);
 
 	/*
 	 * should give as a tick approx. every 0.5-1s, the perf counter has only
@@ -35,59 +39,76 @@ PRIVATE void intel_arch_watchdog_init(int cpu)
 	cpuf = cpu_get_freq(cpu);
 	while (cpuf.hi || cpuf.lo > 0x7fffffffU)
 		cpuf = div64u64(cpuf, 2);
-	watchdog->resetval = cpuf.lo;
+	cpuf.lo = -cpuf.lo;
+	watchdog->resetval = watchdog->watchdog_resetval = cpuf;
 
-	ia32_msr_write(MSR_PERFMON_CRT0, 0, -cpuf.lo);
+	ia32_msr_write(INTEL_MSR_PERFMON_CRT0, 0, cpuf.lo);
 
-	ia32_msr_write(MSR_PERFMON_SEL0, 0, val | MSR_PERFMON_SEL0_ENABLE);
+	ia32_msr_write(INTEL_MSR_PERFMON_SEL0, 0,
+			val | INTEL_MSR_PERFMON_SEL0_ENABLE);
 
 	/* unmask the performance counter interrupt */
 	lapic_write(LAPIC_LVTPCR, APIC_ICR_DM_NMI);
 }
 
-PRIVATE void intel_arch_watchdog_reinit(const int cpu)
+PRIVATE void intel_arch_watchdog_reinit(const unsigned cpu)
 {
 	lapic_write(LAPIC_LVTPCR, APIC_ICR_DM_NMI);
-	ia32_msr_write(MSR_PERFMON_CRT0, 0, -watchdog->resetval);
+	ia32_msr_write(INTEL_MSR_PERFMON_CRT0, 0, watchdog->resetval.lo);
 }
 
-PRIVATE struct arch_watchdog intel_arch_watchdog = {
-	/*.init = */	intel_arch_watchdog_init,
-	/*.reinit = */	intel_arch_watchdog_reinit
-};
-
-int arch_watchdog_init(void)
+PUBLIC int arch_watchdog_init(void)
 {
 	u32_t eax, ebx, ecx, edx;
 
-	eax = 0xA;
-
-	_cpuid(&eax, &ebx, &ecx, &edx);
-
-	/* FIXME currently we support only watchdog base on the intel
-	 * architectural performance counters. Some Intel CPUs don't have this
-	 * feature
-	 */
-	if (ebx & (1 << CPUID_UNHALTED_CORE_CYCLES_AVAILABLE))
+	if (!lapic_addr) {
+		printf("ERROR : Cannot use NMI watchdog if APIC is not enabled\n");
 		return -1;
-	if (!((((eax >> 8)) & 0xff) > 0))
+	}
+
+	if (machine.cpu_type.vendor == CPU_VENDOR_INTEL) {
+		eax = 0xA;
+
+		_cpuid(&eax, &ebx, &ecx, &edx);
+
+		/* FIXME currently we support only watchdog based on the intel
+		 * architectural performance counters. Some Intel CPUs don't have this
+		 * feature
+		 */
+		if (ebx & (1 << CPUID_UNHALTED_CORE_CYCLES_AVAILABLE))
+			return -1;
+		if (!((((eax >> 8)) & 0xff) > 0))
+			return -1;
+
+		watchdog = &intel_arch_watchdog;
+	} else if (machine.cpu_type.vendor == CPU_VENDOR_AMD) {
+		if (machine.cpu_type.family != 6 &&
+				machine.cpu_type.family != 15 &&
+				machine.cpu_type.family != 16 &&
+				machine.cpu_type.family != 17)
+			return -1;
+		else
+			watchdog = &amd_watchdog;
+	} else
 		return -1;
 
-	watchdog = &intel_arch_watchdog;
-
-	/* Setup PC tas NMI for watchdog, is is masked for now */
+	/* Setup PC overflow as NMI for watchdog, it is masked for now */
 	lapic_write(LAPIC_LVTPCR, APIC_ICR_INT_MASK | APIC_ICR_DM_NMI);
 	(void) lapic_read(LAPIC_LVTPCR);
 
 	/* double check if LAPIC is enabled */
-	if (lapic_addr && watchdog_enabled && watchdog->init) {
+	if (lapic_addr && watchdog->init) {
 		watchdog->init(cpuid);
 	}
 
 	return 0;
 }
 
-void arch_watchdog_lockup(const struct nmi_frame * frame)
+PUBLIC void arch_watchdog_stop(void)
+{
+}
+
+PUBLIC void arch_watchdog_lockup(const struct nmi_frame * frame)
 {
 	printf("KERNEL LOCK UP\n"
 			"eax    0x%08x\n"
@@ -122,15 +143,101 @@ void arch_watchdog_lockup(const struct nmi_frame * frame)
 	panic("Kernel lockup");
 }
 
-void i386_watchdog_start(void)
+PUBLIC int i386_watchdog_start(void)
 {
-	if (watchdog_enabled) {
-		if (arch_watchdog_init()) {
-			printf("WARNING watchdog initialization "
-					"failed! Disabled\n");
-			watchdog_enabled = 0;
-		}
-		else
-			BOOT_VERBOSE(printf("Watchdog enabled\n"););
+	if (arch_watchdog_init()) {
+		printf("WARNING watchdog initialization "
+				"failed! Disabled\n");
+		watchdog_enabled = 0;
+		return -1;
 	}
+	else
+		BOOT_VERBOSE(printf("Watchdog enabled\n"););
+
+	return 0;
 }
+
+PRIVATE int intel_arch_watchdog_profile_init(const unsigned freq)
+{
+	u64_t cpuf;
+
+	/* FIXME works only if all CPUs have the same freq */
+	cpuf = cpu_get_freq(cpuid);
+	cpuf = div64u64(cpuf, freq);
+
+	/*
+	 * if freq is too low and the cpu freq too high we may get in a range of
+	 * insane value which cannot be handled by the 31bit CPU perf counter
+	 */
+	if (cpuf.hi != 0 || cpuf.lo > 0x7fffffffU) {
+		printf("ERROR : nmi watchdog ticks exceed 31bits, use higher frequency\n");
+		return EINVAL;
+	}
+
+	cpuf.lo = -cpuf.lo;
+	watchdog->profile_resetval = cpuf;
+
+	return OK;
+}
+
+PRIVATE struct arch_watchdog intel_arch_watchdog = {
+	/*.init = */		intel_arch_watchdog_init,
+	/*.reinit = */		intel_arch_watchdog_reinit,
+	/*.profile_init = */	intel_arch_watchdog_profile_init
+};
+
+#define AMD_MSR_EVENT_SEL0		0xc0010000
+#define AMD_MSR_EVENT_CTR0		0xc0010004
+#define AMD_MSR_EVENT_SEL0_ENABLE	(1 << 22)
+
+PRIVATE void amd_watchdog_init(const unsigned cpu)
+{
+	u64_t cpuf;
+	u32_t val;
+
+	ia32_msr_write(AMD_MSR_EVENT_CTR0, 0, 0);
+
+	/* Int, OS, USR, Cycles cpu is running */
+	val = 1 << 20 | 1 << 17 | 1 << 16 | 0x76;
+	ia32_msr_write(AMD_MSR_EVENT_SEL0, 0, val);
+
+	cpuf = cpu_get_freq(cpu);
+	neg64(cpuf);
+	watchdog->resetval = watchdog->watchdog_resetval = cpuf;
+
+	ia32_msr_write(AMD_MSR_EVENT_CTR0,
+			watchdog->resetval.hi, watchdog->resetval.lo);
+
+	ia32_msr_write(AMD_MSR_EVENT_SEL0, 0,
+			val | AMD_MSR_EVENT_SEL0_ENABLE);
+
+	/* unmask the performance counter interrupt */
+	lapic_write(LAPIC_LVTPCR, APIC_ICR_DM_NMI);
+}
+
+PRIVATE void amd_watchdog_reinit(const unsigned cpu)
+{
+	lapic_write(LAPIC_LVTPCR, APIC_ICR_DM_NMI);
+	ia32_msr_write(AMD_MSR_EVENT_CTR0,
+			watchdog->resetval.hi, watchdog->resetval.lo);
+}
+
+PRIVATE int amd_watchdog_profile_init(const unsigned freq)
+{
+	u64_t cpuf;
+
+	/* FIXME works only if all CPUs have the same freq */
+	cpuf = cpu_get_freq(cpuid);
+	cpuf = div64u64(cpuf, freq);
+
+	neg64(cpuf);
+	watchdog->profile_resetval = cpuf;
+
+	return OK;
+}
+
+PRIVATE struct arch_watchdog amd_watchdog = {
+	/*.init = */		amd_watchdog_init,
+	/*.reinit = */		amd_watchdog_reinit,
+	/*.profile_init = */	amd_watchdog_profile_init
+};

@@ -15,9 +15,14 @@ INSTALLFLAGS+=	-S 8k
 CPPFLAGS.memory.c+=	-I${MINIXSRCDIR}
 CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -I../ramdisk -T /usr/tmp
 
+# Where is image.c, relative to us?
+REL_IMAGE_C=	../ramdisk/image.c
+
 imgrd.d: touch-genfiles
 
-touch-genfiles:
-	[ -e ${.CURDIR}/../ramdisk/image.c ] || touch -t 197001010000.00 ${.CURDIR}/../ramdisk/image.c
+# If image.c does not exist (yet) while making depend, create it (in ${.OBJDIR})
+touch-genfiles: .PHONY
+	[ -e ${.CURDIR}/${REL_IMAGE_C} -o -e ${REL_IMAGE_C} ] \
+	|| touch -t 197001010000.00 ${REL_IMAGE_C}
 
 .include <bsd.prog.mk>

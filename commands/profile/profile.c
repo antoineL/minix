@@ -48,11 +48,21 @@ int action = 0;
 int mem_size = 0;
 int mem_used = 0;
 int freq = 0;
+int intr_type = PROF_RTC;
 char *outfile = "";
 char *mem_ptr;
 int outfile_fd, npipe_fd;
 struct sprof_info_s sprof_info;
 struct cprof_info_s cprof_info;
+
+#define HASH_MOD	128
+struct sproc {
+	endpoint_t	ep;
+	char		name[8];
+	struct sproc *	next;
+};
+
+static struct sproc * proc_hash[HASH_MOD];
 
 _PROTOTYPE(int handle_args, (int argc, char *argv[]));
 _PROTOTYPE(int start, (void));
@@ -95,15 +105,27 @@ int main(int argc, char *argv[])
 			break;
 	}
 
+	/*
+	 * Check the frequency when we know the intr type. Only selected values
+	 * are correct for RTC
+	 */
+	if (action == START && intr_type == PROF_RTC && 
+			freq < MIN_FREQ || freq > MAX_FREQ) {
+		printf("Incorrect frequency.\n");
+		return 1;
+	}
+
         printf("Statistical Profiling:\n");
-	printf("  profile start [-m memsize] [-o outfile] [-f frequency]\n");
+	printf("  profile start [--rtc | --nmi] "
+			"[-m memsize] [-o outfile] [-f frequency]\n");
         printf("  profile stop\n\n");
+	printf("   --rtc is default, --nmi allows kernel profiling\n");
         printf("Call Profiling:\n");
 	printf("  profile get   [-m memsize] [-o outfile]\n");
         printf("  profile reset\n\n");
 	printf("   - memsize in MB, default: %u\n", DEF_MEMSIZE);
 	printf("   - default output file: profile.{stat|call}.out\n");
-	printf( "   - sample frequencies (default: %u):\n", DEF_FREQ);
+	printf( "   - sample frequencies for --rtc (default: %u):\n", DEF_FREQ);
 	printf("      3    8192 Hz          10     64 Hz\n");
 	printf("      4    4096 Hz          11     32 Hz\n");
 	printf("      5    2048 Hz          12     16 Hz\n");
@@ -151,12 +173,18 @@ int handle_args(int argc, char *argv[])
 	} else
 	if (strcmp(*argv, "-f") == 0) {
 		if (--argc == 0) return ESYNTAX;
-		if (sscanf(*++argv, "%u", &freq) != 1 ||
-			freq < MIN_FREQ || freq > MAX_FREQ) return EFREQ;
+		if (sscanf(*++argv, "%u", &freq) != 1)
+			return EFREQ;
 	} else
 	if (strcmp(*argv, "-o") == 0) {
 		if (--argc == 0) return ESYNTAX;
 		outfile = *++argv;
+	} else
+	if (strcmp(*argv, "--rtc") == 0) {
+		intr_type = PROF_RTC;
+	} else
+	if (strcmp(*argv, "--nmi") == 0) {
+		intr_type = PROF_NMI;
 	} else
 	if (strcmp(*argv, "start") == 0) {
 		if (action) return EACTION;
@@ -186,7 +214,7 @@ int handle_args(int argc, char *argv[])
 	mem_size *= MB;				   /* mem_size in bytes */
   }
   if (action == START) {
-	mem_size -= mem_size % sizeof(sprof_sample); /* align to sample size */
+	mem_size -= mem_size % sizeof(struct sprof_sample); /* align to sample size */
 	if (freq == 0) freq = DEF_FREQ;		   /* default frequency */
   }
   return 0;
@@ -215,7 +243,7 @@ int start()
 
   if (alloc_mem()) return 1;
 
-  if (sprofile(PROF_START, mem_size, freq, &sprof_info, mem_ptr)) {
+  if (sprofile(PROF_START, mem_size, freq, intr_type, &sprof_info, mem_ptr)) {
 	perror("sprofile");
 	printf("Error starting profiling.\n");
 	return 1;
@@ -271,7 +299,7 @@ int stop()
   int n;
   char buf[BUFSIZE];
 
-  if (sprofile(PROF_STOP, 0, 0, 0, 0)) {
+  if (sprofile(PROF_STOP, 0, 0, 0, 0, 0)) {
 	perror("sprofile");
 	printf("Error stopping profiling.\n");
   	return 1;
@@ -398,12 +426,38 @@ int detach()
   close(2);
 }
 
+static void add_proc(struct sprof_proc * p)
+{
+	struct sproc * n;
+	int slot = ((unsigned)(p->proc)) % HASH_MOD;
+
+	n = malloc(sizeof(struct sproc));
+	if (!n)
+		abort();
+	n->ep = p->proc;
+	memcpy(n->name, p->name, 8);
+	n->next = proc_hash[slot];
+	proc_hash[slot] = n;
+}
+
+static char * get_proc_name(endpoint_t ep)
+{
+	struct sproc * p;
+
+	for (p = proc_hash[((unsigned)ep) % HASH_MOD]; p; p = p->next) {
+		if (p->ep == ep)
+			return p->name;
+	}
+
+	return NULL;
+}
 
 int write_outfile()
 {
   int n, towrite, written = 0;
   char *buf = mem_ptr;
   char header[80];
+  struct sprof_sample *sample;
 
   printf("Writing to %s ...", outfile);
 
@@ -424,16 +478,33 @@ int write_outfile()
   /* Write data. */
   towrite = mem_used == -1 ? mem_size : mem_used;
 
+  sample = (struct sprof_sample *) mem_ptr;
   while (towrite > 0) {
+	  unsigned bytes;
+	  char	entry[12];
+	  char * name;
 
-	n = write(outfile_fd, buf, towrite);
+	  name = get_proc_name(sample->proc);
+	  if (!name) {
+		  add_proc((struct sprof_proc *)sample);
+		  bytes = sizeof(struct sprof_proc);
+		  towrite -= bytes;
+		  sample = (struct sprof_sample *)(((char *) sample) + bytes);
+		  continue;
+	  }
 
-	if (n < 0)
-		{ printf("Error writing to outfile %s.\n", outfile); return 1; }
+	  memset(entry, 0, 12);
+	  memcpy(entry, name, strlen(name));
+	  memcpy(entry + 8, &sample->pc, 4);
 
-	towrite -= n;
-	buf += n;
-	written += n;
+	  if (write(outfile_fd, entry, 12) != 12) {
+		  printf("Error writing to outfile %s.\n", outfile);
+		  return 1;
+	  }
+	  towrite -= sizeof(struct sprof_sample);
+	  sample++;
+
+	  written += 12;
   }
 
   printf(" header %d bytes, data %d bytes.\n", strlen(header), written);

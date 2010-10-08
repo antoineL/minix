@@ -24,14 +24,30 @@ struct proc {
   struct segframe p_seg;	/* segment descriptors */
   proc_nr_t p_nr;		/* number of this process (for fast access) */
   struct priv *p_priv;		/* system privileges structure */
-  short p_rts_flags;		/* process is runnable only if zero */
-  short p_misc_flags;		/* flags that do not suspend the process */
+  u32_t p_rts_flags;		/* process is runnable only if zero */
+  u32_t p_misc_flags;		/* flags that do not suspend the process */
 
   char p_priority;		/* current process priority */
   u64_t p_cpu_time_left;	/* time left to use the cpu */
   unsigned p_quantum_size_ms;	/* assigned time quantum in ms
 				   FIXME remove this */
   struct proc *p_scheduler;	/* who should get out of quantum msg */
+  unsigned p_cpu;		/* what CPU is the process running on */
+#ifdef CONFIG_SMP
+  bitchunk_t p_cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is hte
+							    process allowed to
+							    run on */
+#endif
+
+  /* Accounting statistics that get passed to the process' scheduler */
+  struct {
+	u64_t enter_queue;	/* time when enqueued (cycles) */
+	u64_t time_in_queue;	/* time spent in queue */
+	unsigned long dequeues;
+	unsigned long ipc_sync;
+	unsigned long ipc_async;
+	unsigned long preempted;
+  } p_accounting;
 
   struct mem_map p_memmap[NR_LOCAL_SEGS];   /* memory map (T, D, S) */
 
@@ -225,6 +241,7 @@ struct proc {
 					 * regs are significant (initialized)*/
 #define MF_SENDING_FROM_KERNEL	0x2000 /* message of this process is from kernel */
 #define MF_CONTEXT_SET	0x4000 /* don't touch context */
+#define MF_SPROF_SEEN	0x8000 /* profiling has seen this process */
 
 /* Magic process table addresses. */
 #define BEG_PROC_ADDR (&proc[0])
@@ -246,8 +263,6 @@ struct proc {
 #ifndef __ASSEMBLY__
 
 EXTERN struct proc proc[NR_TASKS + NR_PROCS];	/* process table */
-EXTERN struct proc *rdy_head[NR_SCHED_QUEUES]; /* ptrs to ready list headers */
-EXTERN struct proc *rdy_tail[NR_SCHED_QUEUES]; /* ptrs to ready list tails */
 
 _PROTOTYPE( int mini_send, (struct proc *caller_ptr, endpoint_t dst_e,
 		message *m_ptr, int flags));

@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/pkg/bin/perl
 #
 # sprofalyze.pl
 #
@@ -12,7 +12,8 @@
 # Configuration options:
 
 # Location and parameters of nm program to extract symbol tables
-$nm = "/usr/bin/acknm -dn";
+$acknm = "/usr/bin/acknm -dn";
+$gnm = "/usr/pkg/bin/nm --radix=d -n";
 
 # Location of src (including trailing /)
 	$src_root = qw(
@@ -33,12 +34,16 @@ servers/iso9660fs/isofs
 servers/mfs/mfs
 servers/pfs/pfs
 servers/pm/pm
+servers/procfs/procfs
 servers/rs/rs
+servers/sched/sched
 servers/vfs/vfs
 servers/vm/vm
-servers/rs/service
+servers/sched/sched
+commands/service/service
 
 drivers/ahci/ahci
+drivers/acpi/acpi
 drivers/amddev/amddev
 drivers/at_wini/at_wini
 drivers/atl2/atl2
@@ -132,14 +137,19 @@ sub read_symbols
 	$fullname = $src_root . $exe;
 
 	if ((! -x $fullname) || (! -r $fullname)) {
-		print "\nERROR: $fullname does not exist or not readable.\n";
+		print "\nWARNING: $fullname does not exist or not readable.\n";
 		print "Did you do a make?\n";
-		return 1;
+		next;
 	}
 
+	if (`file $fullname | grep NSYM`) {
+		$nm = $gnm;
+	} else {
+		$nm = $acknm;
+	}
 	# Create a hash entry for each symbol table (text) entry.
 	foreach $_ (`$nm $fullname`) {
-		if (/^0{0,7}(\d{0,8})\s[tT]\s(\w{1,8})\n$/) {
+		if (/^0{0,7}(\d{0,8})\s[tT]\s(\w{1,32})\n$/) {
 			${$shortname."_hash"}{$1} = $2;
 		}
 	}
@@ -248,7 +258,7 @@ sub process_datafile
 	}
 
 	foreach my $key (keys %{$res{$exe}}) {
-		$merged{sprintf("%8s %8s", $exe, $key)} = $res{$exe}{$key};
+		$merged{sprintf("%8s %32s", $exe, $key)} = $res{$exe}{$key};
 	}
   }
 
@@ -290,11 +300,11 @@ sub process_hash
   printf "----------------------------------------";
   printf "----------------------------------------\n";
   if ($aggr) {
-	$astr_max = 55;
+	$astr_max = 31;
 	$perc_hits = $system_hits / 100;
   	printf("Total system process time %46d samples\n", $system_hits);
   } else {
-	$astr_max = 64;
+	$astr_max = 40;
 	$perc_hits = $exe_hits{$exe} / 100;
 	$total_system_perc += $exe_perc =
 		sprintf("%5.1f", $exe_hits{$exe} / $system_hits * 100);
@@ -351,7 +361,7 @@ sub process_line
   if ($aggr) {
 	print "$func ";
   } else {
-	printf("%8s ", $func);
+	printf("%32s ", $func);
   }
   for ($i = 0; $i < $astr_max; $i++) {
 	if ($i <= $astr) {

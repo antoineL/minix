@@ -3,6 +3,16 @@
 .if !defined(_MINIX_OWN_MK_)
 _MINIX_OWN_MK_=1
 
+.ifdef CONFIG_SMP
+SMP_FLAGS += -DCONFIG_SMP
+.ifdef CONFIG_MAX_CPUS
+SMP_FLAGS += -DCONFIG_MAX_CPUS=${CONFIG_MAX_CPUS}
+.endif
+.endif
+
+CFLAGS += ${SMP_FLAGS}
+AFLAGS += ${SMP_FLAGS}
+
 MAKECONF?=	/etc/make.conf
 .-include "${MAKECONF}"
 
@@ -474,7 +484,7 @@ INFOMODE?=	${NONBINMODE}
 .if ${COMPILER_TYPE} == "ack"
 LIBDIR?=	/usr/lib/i386
 .elif ${COMPILER_TYPE} == "gnu"
-LIBDIR?=	/usr/gnu/lib
+LIBDIR?=	/usr/lib
 .endif
 
 LINTLIBDIR?=	/usr/libdata/lint

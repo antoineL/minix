@@ -173,7 +173,7 @@ PUBLIC int do_info(message *m)
 	static struct vm_region_info vri[MAX_VRI_COUNT];
 	struct vmproc *vmp;
 	vir_bytes addr, size, next, ptr;
-	int r, pr, dummy, count;
+	int r, pr, dummy, count, free_pages, largest_contig;
 
 	if (vm_isokendpt(m->m_source, &pr) != OK)
 		return EINVAL;
@@ -185,7 +185,11 @@ PUBLIC int do_info(message *m)
 	case VMIW_STATS:
 		vsi.vsi_pagesize = VM_PAGE_SIZE;
 		vsi.vsi_total = total_pages;
-		memstats(&dummy, &vsi.vsi_free, &vsi.vsi_largest);
+		memstats(&dummy, &free_pages, &largest_contig);
+		vsi.vsi_free = free_pages;
+		vsi.vsi_largest = largest_contig;
+
+		get_stats_info(&vsi);
 
 		addr = (vir_bytes) &vsi;
 		size = sizeof(vsi);
@@ -288,7 +292,6 @@ PUBLIC int swap_proc_slot(struct vmproc *src_vmp, struct vmproc *dst_vmp)
  *===========================================================================*/
 PUBLIC int swap_proc_dyn_data(struct vmproc *src_vmp, struct vmproc *dst_vmp)
 {
-	struct vir_region *vr;
 	int is_vm;
 	int r;
 
@@ -316,12 +319,8 @@ PUBLIC int swap_proc_dyn_data(struct vmproc *src_vmp, struct vmproc *dst_vmp)
 #endif
 
 	/* Swap vir_regions' parents. */
-	for(vr = src_vmp->vm_regions; vr; vr = vr->next) {
-		USE(vr, vr->parent = src_vmp;);
-	}
-	for(vr = dst_vmp->vm_regions; vr; vr = vr->next) {
-		USE(vr, vr->parent = dst_vmp;);
-	}
+	map_setparent(src_vmp);
+	map_setparent(dst_vmp);
 
 	/* For regular processes, transfer regions above the stack now.
 	 * In case of rollback, we need to skip this step. To sandbox the
@@ -329,6 +328,7 @@ PUBLIC int swap_proc_dyn_data(struct vmproc *src_vmp, struct vmproc *dst_vmp)
 	 * the regions between the two instances as COW.
 	 */
 	if(!is_vm && (dst_vmp->vm_flags & VMF_HASPT)) {
+		struct vir_region *vr;
 		vr = map_lookup(dst_vmp, arch_vir2map(dst_vmp, dst_vmp->vm_stacktop));
 		if(vr && !map_lookup(src_vmp, arch_vir2map(src_vmp, src_vmp->vm_stacktop))) {
 #if LU_DEBUG
