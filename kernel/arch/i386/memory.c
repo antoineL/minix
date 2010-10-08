@@ -1,5 +1,4 @@
 
-
 #include "kernel/kernel.h"
 #include "kernel/proc.h"
 #include "kernel/vm.h"
@@ -17,7 +16,7 @@
 #include <machine/vm.h>
 
 #include "oxpcie.h"
-#include "proto.h"
+#include "arch_proto.h"
 #include "kernel/proto.h"
 #include "kernel/debug.h"
 
@@ -28,9 +27,12 @@
 #endif
 #endif
 
+PUBLIC int i386_paging_enabled = 0;
+
 PRIVATE int psok = 0;
 
-#define MAX_FREEPDES (3 * CONFIG_MAX_CPUS)
+#define FREE_PDES_PER_CPU	3
+#define MAX_FREEPDES		(FREE_PDES_PER_CPU * CONFIG_MAX_CPUS)
 PRIVATE int nfreepdes = 0, freepdes[MAX_FREEPDES];
 
 #define HASPT(procptr) ((procptr)->p_seg.p_cr3 != 0)
@@ -39,32 +41,11 @@ FORWARD _PROTOTYPE( u32_t phys_get32, (phys_bytes v)			);
 FORWARD _PROTOTYPE( void vm_enable_paging, (void)			);
 
 	
-/* *** Internal VM Functions *** */
-
-PUBLIC void vm_init(struct proc *newptproc)
+PUBLIC void segmentation2paging(struct proc * current)
 {
-	if(vm_running)
-		panic("vm_init: vm_running");
-
-	/* switch_address_space() checks what is in cr3, and doesn't do
-	 * anything if it's the same as the cr3 of its argument, newptproc.
-	 * If MINIX was previously booted, this could very well be the case.
-	 *
-	 * The first time switch_address_space() is called, we want to
-	 * force it to do something (load cr3 and set newptproc), so we
-	 * zero cr3, and force paging off to make that a safe thing to do.
-	 *
-	 * After that, vm_enable_paging() enables paging with the page table
-	 * of newptproc loaded.
-	 */
-
-	vm_stop();
-	write_cr3(0);
-	switch_address_space(newptproc);
-	assert(ptproc == newptproc);
-	catch_pagefaults = 0;
+	/* switch to the current process page tables before turning paging on */
+	switch_address_space(current);
 	vm_enable_paging();
-	vm_running = 1;
 }
 
 /* This function sets up a mapping from within the kernel's address
@@ -99,11 +80,16 @@ PRIVATE phys_bytes createpde(
 	phys_bytes offset;
 	int pde;
 
-	assert(free_pde_idx >= 0 && free_pde_idx < nfreepdes);
+	assert(free_pde_idx >= 0 && free_pde_idx < FREE_PDES_PER_CPU);
+
+	/* make the index CPU local */
+	free_pde_idx += cpuid * FREE_PDES_PER_CPU;
+	assert(free_pde_idx < nfreepdes);
+
 	pde = freepdes[free_pde_idx];
 	assert(pde >= 0 && pde < 1024);
 
-	if(pr && ((pr == ptproc) || !HASPT(pr))) {
+	if(pr && ((pr == get_cpulocal_var(ptproc)) || !HASPT(pr))) {
 		/* Process memory is requested, and
 		 * it's a process that is already in current page table, or
 		 * a process that is in every page table.
@@ -131,9 +117,9 @@ PRIVATE phys_bytes createpde(
 	 * can access, into the currently loaded page table so it becomes
 	 * visible.
 	 */
-	assert(ptproc->p_seg.p_cr3_v);
-	if(ptproc->p_seg.p_cr3_v[pde] != pdeval) {
-		ptproc->p_seg.p_cr3_v[pde] = pdeval;
+	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
+	if(get_cpulocal_var(ptproc)->p_seg.p_cr3_v[pde] != pdeval) {
+		get_cpulocal_var(ptproc)->p_seg.p_cr3_v[pde] = pdeval;
 		*changed = 1;
 	}
 
@@ -161,18 +147,20 @@ PRIVATE int lin_lin_copy(const struct proc *srcproc, vir_bytes srclinaddr,
 	assert(vm_running);
 	assert(nfreepdes >= 3);
 
-	assert(ptproc);
-	assert(proc_ptr);
-	assert(read_cr3() == ptproc->p_seg.p_cr3);
+	assert(get_cpulocal_var(ptproc));
+	assert(get_cpulocal_var(proc_ptr));
+	assert(read_cr3() == get_cpulocal_var(ptproc)->p_seg.p_cr3);
 
-	procslot = ptproc->p_nr;
+	procslot = get_cpulocal_var(ptproc)->p_nr;
 
 	assert(procslot >= 0 && procslot < I386_VM_DIR_ENTRIES);
 
 	if(srcproc) assert(!RTS_ISSET(srcproc, RTS_SLOT_FREE));
 	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_SLOT_FREE));
-	assert(!RTS_ISSET(ptproc, RTS_SLOT_FREE));
-	assert(ptproc->p_seg.p_cr3_v);
+	assert(!RTS_ISSET(get_cpulocal_var(ptproc), RTS_SLOT_FREE));
+	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
+	if(srcproc) assert(!RTS_ISSET(srcproc, RTS_VMINHIBIT));
+	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_VMINHIBIT));
 
 	while(bytes > 0) {
 		phys_bytes srcptr, dstptr;
@@ -212,8 +200,8 @@ PRIVATE int lin_lin_copy(const struct proc *srcproc, vir_bytes srclinaddr,
 
 	if(srcproc) assert(!RTS_ISSET(srcproc, RTS_SLOT_FREE));
 	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_SLOT_FREE));
-	assert(!RTS_ISSET(ptproc, RTS_SLOT_FREE));
-	assert(ptproc->p_seg.p_cr3_v);
+	assert(!RTS_ISSET(get_cpulocal_var(ptproc), RTS_SLOT_FREE));
+	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
 
 	return OK;
 }
@@ -704,7 +692,7 @@ int vm_phys_memset(phys_bytes ph, const u8_t c, phys_bytes bytes)
 
 	assert(nfreepdes >= 3);
 
-	assert(ptproc->p_seg.p_cr3_v);
+	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
 
 	/* With VM, we have to map in the physical memory. 
 	 * We can do this 4MB at a time.
@@ -724,7 +712,7 @@ int vm_phys_memset(phys_bytes ph, const u8_t c, phys_bytes bytes)
 		ph += chunk;
 	}
 
-	assert(ptproc->p_seg.p_cr3_v);
+	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
 
 	return OK;
 }
@@ -955,10 +943,12 @@ void i386_freepde(const int pde)
 	freepdes[nfreepdes++] = pde;
 }
 
-PRIVATE int lapic_mapping_index = -1, oxpcie_mapping_index = -1;
+PRIVATE int oxpcie_mapping_index = -1;
 
-PUBLIC int arch_phys_map(const int index, phys_bytes *addr,
-  phys_bytes *len, int *flags)
+PUBLIC int arch_phys_map(const int index,
+			phys_bytes *addr,
+			phys_bytes *len,
+			int *flags)
 {
 	static int first = 1;
 	int freeidx = 0;
@@ -967,7 +957,9 @@ PUBLIC int arch_phys_map(const int index, phys_bytes *addr,
 	if(first) {
 #ifdef CONFIG_APIC
 		if(lapic_addr)
-			lapic_mapping_index = freeidx++;
+			freeidx++;
+		if (ioapic_enabled)
+			freeidx += nioapics;
 #endif
 
 #ifdef CONFIG_OXPCIE
@@ -984,8 +976,16 @@ PUBLIC int arch_phys_map(const int index, phys_bytes *addr,
 
 #ifdef CONFIG_APIC
 	/* map the local APIC if enabled */
-	if (index == lapic_mapping_index) {
+	if (index == 0) {
+		if (!lapic_addr)
+			return EINVAL;
 		*addr = vir2phys(lapic_addr);
+		*len = 4 << 10 /* 4kB */;
+		*flags = VMMF_UNCACHED;
+		return OK;
+	}
+	else if (ioapic_enabled && index <= nioapics) {
+		*addr = io_apic[index - 1].paddr;
 		*len = 4 << 10 /* 4kB */;
 		*flags = VMMF_UNCACHED;
 		return OK;
@@ -1008,24 +1008,50 @@ PUBLIC int arch_phys_map_reply(const int index, const vir_bytes addr)
 {
 #ifdef CONFIG_APIC
 	/* if local APIC is enabled */
-	if (index == lapic_mapping_index && lapic_addr) {
+	if (index == 0 && lapic_addr) {
 		lapic_addr_vaddr = addr;
+		return OK;
+	}
+	else if (ioapic_enabled && index <= nioapics) {
+		io_apic[index - 1].vaddr = addr;
+		return OK;
 	}
 #endif
 
 #if CONFIG_OXPCIE
 	if (index == oxpcie_mapping_index) {
 		oxpcie_set_vaddr((unsigned char *) addr);
+		return OK;
 	}
 #endif
 
-	return OK;
+	return EINVAL;
 }
 
 PUBLIC int arch_enable_paging(struct proc * caller, const message * m_ptr)
 {
 	struct vm_ep_data ep_data;
 	int r;
+
+	/* switch_address_space() checks what is in cr3, and do nothing if it's
+	 * the same as the cr3 of its argument, newptproc.  If MINIX was
+	 * previously booted, this could very well be the case.
+	 *
+	 * The first time switch_address_space() is called, we want to
+	 * force it to do something (load cr3 and set newptproc), so we
+	 * zero cr3, and force paging off to make that a safe thing to do.
+	 *
+	 * After that, segmentation2paging() enables paging with the page table
+	 * of caller loaded.
+	 */
+
+	vm_stop();
+	write_cr3(0);
+
+	/* switch from segmentation only to paging */
+	segmentation2paging(caller);
+
+	vm_running = 1;
 
 	/*
 	 * copy the extra data associated with the call from userspace
@@ -1050,20 +1076,39 @@ PUBLIC int arch_enable_paging(struct proc * caller, const message * m_ptr)
 		panic("arch_enable_paging: newmap failed");
 
 #ifdef CONFIG_APIC
+	/* start using the virtual addresses */
+
 	/* if local APIC is enabled */
 	if (lapic_addr) {
 		lapic_addr = lapic_addr_vaddr;
 		lapic_eoi_addr = LAPIC_EOI;
 	}
+	/* if IO apics are enabled */
+	if (ioapic_enabled) {
+		int i;
+
+		for (i = 0; i < nioapics; i++) {
+			io_apic[i].addr = io_apic[i].vaddr;
+		}
+	}
+#if CONFIG_SMP
+	barrier();
+
+	i386_paging_enabled = 1;
+
+	wait_for_APs_to_finish_booting();
 #endif
+#endif
+
 #ifdef CONFIG_WATCHDOG
 	/*
 	 * We make sure that we don't enable the watchdog until paging is turned
-	 * on as we might get a NMI while switching and we might still use wrong
+	 * on as we might get an NMI while switching and we might still use wrong
 	 * lapic address. Bad things would happen. It is unfortunate but such is
 	 * life
 	 */
-	i386_watchdog_start();
+	if (watchdog_enabled)
+		i386_watchdog_start();
 #endif
 
 	return OK;
@@ -1072,4 +1117,35 @@ PUBLIC int arch_enable_paging(struct proc * caller, const message * m_ptr)
 PUBLIC void release_address_space(struct proc *pr)
 {
 	pr->p_seg.p_cr3_v = NULL;
+}
+
+/* computes a checksum of a buffer of a given length. The byte sum must be zero */
+PUBLIC int platform_tbl_checksum_ok(void *ptr, unsigned int length)
+{
+	u8_t total = 0;
+	unsigned int i;
+	for (i = 0; i < length; i++)
+		total += ((unsigned char *)ptr)[i];
+	return !total;
+}
+
+PUBLIC int platform_tbl_ptr(phys_bytes start,
+					phys_bytes end,
+					unsigned increment,
+					void * buff,
+					unsigned size,
+					phys_bytes * phys_addr,
+					int ((* cmp_f)(void *)))
+{
+	phys_bytes addr;
+
+	for (addr = start; addr < end; addr += increment) {
+		phys_copy (addr, vir2phys(buff), size);
+		if (cmp_f(buff)) {
+			if (phys_addr)
+				*phys_addr = addr;
+			return 1;
+		}
+	}
+	return 0;
 }

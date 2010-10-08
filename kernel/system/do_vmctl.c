@@ -123,10 +123,10 @@ PUBLIC int do_vmctl(struct proc * caller, message * m_ptr)
 	case VMCTL_ENABLE_PAGING:
 		if(vm_running) 
 			panic("do_vmctl: paging already enabled");
-		vm_init(p);
-		if(!vm_running)
+		if (arch_enable_paging(caller, m_ptr) != OK)
 			panic("do_vmctl: paging enabling failed");
-		return arch_enable_paging(caller, m_ptr);
+		return OK;
+
 	case VMCTL_KERN_PHYSMAP:
 	{
 		int i = m_ptr->SVMCTL_VALUE;
@@ -140,6 +140,23 @@ PUBLIC int do_vmctl(struct proc * caller, message * m_ptr)
 		return arch_phys_map_reply(m_ptr->SVMCTL_VALUE,
 			(vir_bytes) m_ptr->SVMCTL_MAP_VIR_ADDR);
 	}
+	case VMCTL_VMINHIBIT_SET:
+		/* check if we must stop a process on a different CPU */
+#if CONFIG_SMP
+		if (p->p_cpu != cpuid) {
+			smp_schedule_vminhibit(p);
+		} else
+#endif
+			RTS_SET(p, RTS_VMINHIBIT);
+		return OK;
+	case VMCTL_VMINHIBIT_CLEAR:
+		assert(RTS_ISSET(p, RTS_VMINHIBIT));
+		/*
+		 * the processes is certainly not runnable, no need to tell its
+		 * cpu
+		 */
+		RTS_UNSET(p, RTS_VMINHIBIT);
+		return OK;
   }
 
   /* Try architecture-specific vmctls. */

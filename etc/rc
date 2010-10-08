@@ -6,7 +6,7 @@ exec </dev/null
 
 umask 022
 TERM="${TERM-minix}"
-PATH=/usr/local/bin:/bin:/usr/bin:/usr/sbin:/usr/pkg/bin:/usr/pkg/sbin:/usr/llvm/bin:/sbin
+PATH=/usr/local/bin:/bin:/usr/bin:/usr/sbin:/usr/pkg/bin:/usr/pkg/sbin:/sbin
 RC_TZ=/etc/rc.timezone
 export TERM PATH
 
@@ -191,6 +191,8 @@ Mount $usr /usr failed -- Single user."
     if [ ! -z "$home" ]
     then mount $bin_img $home /home || echo "WARNING: couldn't mount $home on /home"
     fi
+
+    mount -t procfs none /proc || echo "WARNING: couldn't mount procfs"
 
     # This file is necessary for above 'shutdown -C' check.
     # (Silence stderr in case of running from cd.)

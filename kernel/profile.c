@@ -26,6 +26,7 @@
 #if SPROFILE
 
 #include <string.h>
+#include "watchdog.h"
 
 /* Function prototype for the profiling clock handler. */ 
 FORWARD _PROTOTYPE( int profile_clock_handler, (irq_hook_t *hook) );
@@ -60,56 +61,109 @@ PUBLIC void stop_profile_clock()
   rm_irq_handler(&profile_clock_hook);
 }
 
-/*===========================================================================*
- *			profile_clock_handler                           *
- *===========================================================================*/
-PRIVATE int profile_clock_handler(irq_hook_t *hook)
+PRIVATE sprof_save_sample(struct proc * p, void * pc)
+{
+	struct sprof_sample *s;
+
+	s = (struct sprof_sample *) (sprof_sample_buffer + sprof_info.mem_used);
+
+	s->proc = p->p_endpoint;
+	s->pc = pc;
+
+	sprof_info.mem_used += sizeof(struct sprof_sample);
+}
+
+PRIVATE sprof_save_proc(struct proc * p)
+{
+	struct sprof_proc * s;
+
+	s = (struct sprof_proc *) (sprof_sample_buffer + sprof_info.mem_used);
+
+	s->proc = p->p_endpoint;
+	memcpy(&s->name, p->p_name, P_NAME_LEN);
+
+	sprof_info.mem_used += sizeof(struct sprof_proc);
+}
+
+PRIVATE void profile_sample(struct proc * p, void * pc)
 {
 /* This executes on every tick of the CMOS timer. */
 
   /* Are we profiling, and profiling memory not full? */
-  if (!sprofiling || sprof_info.mem_used == -1) return (1);
+  if (!sprofiling || sprof_info.mem_used == -1)
+	  return;
 
   /* Check if enough memory available before writing sample. */
-  if (sprof_info.mem_used + sizeof(sprof_info) > sprof_mem_size) {
+  if (sprof_info.mem_used + sizeof(sprof_info) +
+		  2*sizeof(struct sprof_sample) +
+		  2*sizeof(struct sprof_sample) > sprof_mem_size) {
 	sprof_info.mem_used = -1;
-	return(1);
+	return;
   }
 
-  /* All is OK */
+  if (!(p->p_misc_flags & MF_SPROF_SEEN)) {
+	  p->p_misc_flags |= MF_SPROF_SEEN;
+	  sprof_save_proc(p);
+  }
 
-  /* Idle process? */
-  if (priv(proc_ptr)->s_proc_nr == IDLE) {
-	sprof_info.idle_samples++;
-  } else
   /* Runnable system process? */
-  if (priv(proc_ptr)->s_flags & SYS_PROC && proc_is_runnable(proc_ptr)) {
-	/* Note: k_reenter is always 0 here. */
-
-	/* Store sample (process name and program counter). */
-	data_copy(KERNEL, (vir_bytes) proc_ptr->p_name,
-		sprof_ep, sprof_data_addr_vir + sprof_info.mem_used,
-		strlen(proc_ptr->p_name));
-
-	data_copy(KERNEL, (vir_bytes) &proc_ptr->p_reg.pc, sprof_ep,
-		(vir_bytes) (sprof_data_addr_vir + sprof_info.mem_used +
-					sizeof(proc_ptr->p_name)),
-		(vir_bytes) sizeof(proc_ptr->p_reg.pc));
-
-	sprof_info.mem_used += sizeof(sprof_sample);
-
-	sprof_info.system_samples++;
+  if (p->p_endpoint == IDLE)
+	  sprof_info.idle_samples++;
+  else if (p->p_endpoint == KERNEL ||
+		  (priv(p)->s_flags & SYS_PROC && proc_is_runnable(p))) {
+	  sprof_save_sample(p, pc);
+	  sprof_info.system_samples++;
   } else {
 	/* User process. */
 	sprof_info.user_samples++;
   }
   
   sprof_info.total_samples++;
+}
+
+/*===========================================================================*
+ *			profile_clock_handler                           *
+ *===========================================================================*/
+PRIVATE int profile_clock_handler(irq_hook_t *hook)
+{
+  struct proc * p;
+  p = get_cpulocal_var(proc_ptr);
+
+  profile_sample(p, (void *) p->p_reg.pc);
 
   /* Acknowledge interrupt if necessary. */
   arch_ack_profile_clock();
 
   return(1);                                    /* reenable interrupts */
+}
+
+PUBLIC void nmi_sprofile_handler(struct nmi_frame * frame)
+{
+	struct proc * p = get_cpulocal_var(proc_ptr);
+	/*
+	 * test if the kernel was interrupted. If so, save first a sample fo
+	 * kernel and than for the current process, otherwise save just the
+	 * process
+	 */
+	if (nmi_in_kernel(frame)) {
+		struct proc *kern;
+
+		/*
+		 * if we sample kernel, check if IDLE is scheduled. If so,
+		 * account for idle time rather than taking kernel sample
+		 */
+		if (p->p_endpoint == IDLE) {
+			sprof_info.idle_samples++;
+			sprof_info.total_samples++;
+			return;
+		}
+
+		kern = proc_addr(KERNEL);
+
+		profile_sample(kern, (void *) frame->pc);
+	}
+	else
+		profile_sample(p, (void *) frame->pc);
 }
 
 #endif /* SPROFILE */

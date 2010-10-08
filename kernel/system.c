@@ -638,29 +638,60 @@ PUBLIC void kernel_call_resume(struct proc *caller)
 /*===========================================================================*
  *                               sched_proc                                  *
  *===========================================================================*/
-PUBLIC int sched_proc(struct proc *rp, unsigned priority, unsigned quantum)
+PUBLIC int sched_proc(struct proc *p,
+			int priority,
+			int quantum,
+			int cpu)
 {
-	/* Make sure the priority number given is within the allowed range.*/
-	if (priority < TASK_Q || priority > NR_SCHED_QUEUES)
-		return EINVAL;
+	/* Make sure the values given are within the allowed range.*/
+	if ((priority < TASK_Q && priority != -1) || priority > NR_SCHED_QUEUES)
+		return(EINVAL);
 
-	/* Make sure the quantum given is within the allowed range.*/
-	if(quantum <= 0)
-		return EINVAL;
+	if (quantum < 1 && quantum != -1)
+		return(EINVAL);
+
+#ifdef CONFIG_SMP
+	if ((cpu < 0 && cpu != -1) || (cpu > 0 && (unsigned) cpu >= ncpus))
+		return(EINVAL);
+	if (cpu != -1 && !(cpu_is_ready(cpu)))
+		return EBADCPU;
+#endif
 
 	/* In some cases, we might be rescheduling a runnable process. In such
 	 * a case (i.e. if we are updating the priority) we set the NO_QUANTUM
 	 * flag before the generic unset to dequeue/enqueue the process
 	 */
-	if (proc_is_runnable(rp))
-		RTS_SET(rp, RTS_NO_QUANTUM);
+
+	/* FIXME this preempts the process, do we really want to do that ?*/
+
+	/* FIXME this is a problem for SMP if the processes currently runs on a
+	 * different CPU */
+	if (proc_is_runnable(p)) {
+#ifdef CONFIG_SMP
+		if (p->p_cpu != cpuid && cpu != -1 && cpu != p->p_cpu) {
+			smp_schedule_migrate_proc(p, cpu);
+		}
+#endif
+
+		RTS_SET(p, RTS_NO_QUANTUM);
+	}
+
+	if (proc_is_runnable(p))
+		RTS_SET(p, RTS_NO_QUANTUM);
+
+	if (priority != -1)
+		p->p_priority = priority;
+	if (quantum != -1) {
+		p->p_quantum_size_ms = quantum;
+		p->p_cpu_time_left = ms_2_cpu_time(quantum);
+	}
+#ifdef CONFIG_SMP
+	if (cpu != -1)
+		p->p_cpu = cpu;
+#endif
 
 	/* Clear the scheduling bit and enqueue the process */
-	rp->p_priority = priority;
-	rp->p_quantum_size_ms = quantum;
-	rp->p_cpu_time_left = ms_2_cpu_time(quantum);
-
-	RTS_UNSET(rp, RTS_NO_QUANTUM);
+	RTS_UNSET(p, RTS_NO_QUANTUM);
 
 	return OK;
 }

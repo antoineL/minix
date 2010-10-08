@@ -2,6 +2,12 @@
 
 PROGRAMS=ahci at_wini bios_wini cdprobe dev2name floppy loadramdisk mount \
 	newroot pci sh service sysenv mfs ext2
+
+# acpi is not compiled with ack
+.if ${COMPILER_TYPE} == "gnu"
+PROGRAMS += acpi
+.endif
+
 EXTRA=system.conf passwd rs.single
 
 CPPFLAGS+= -I${MINIXSRCDIR}/servers -I${MINIXSRCDIR}
@@ -60,6 +66,13 @@ floppy: ../floppy/floppy
 
 ../floppy/floppy:
 	$(MAKE) -C ../floppy
+
+acpi: ../acpi/acpi
+	${_MKTARGET_LINK}
+	${INSTALL_LINK} -s $? $@
+
+../acpi/acpi:
+	$(MAKE) -C ../acpi
 
 pci: ../pci/pci
 	${_MKTARGET_LINK}
@@ -156,7 +169,7 @@ ${.OBJDIR}/rc: rc
 ${.OBJDIR}/mtab: mtab
 	cp $? $@
 
-proto.gen: $(MAKEDEV) proto.sh proto
+proto.gen: $(PROGRAMS) $(MAKEDEV) proto.sh proto
 	${_MKTARGET_FORMAT}
 	sh -e ${.CURDIR}/proto.sh ${.CURDIR}/proto >proto.gen
 

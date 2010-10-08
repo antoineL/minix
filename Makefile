@@ -1,7 +1,18 @@
 # Master Makefile to compile everything in /usr/src except the system.
 
-MAKE=make
+.include <bsd.own.mk>
 
+world: mkfiles includes depend libraries install etcforce
+
+SUBDIR+= share/mk include .WAIT lib
+SUBDIR+= .WAIT boot commands man share
+SUBDIR+= kernel servers drivers
+SUBDIR+= tools
+
+#.if ${COMPILER_TYPE} == "ack"
+#SUBDIR+= ack/libd ack/libe ack/libfp ack/liby
+#.endif
+ 
 usage:
 	@echo "" 
 	@echo "Master Makefile for MINIX commands and utilities." 
@@ -30,17 +41,23 @@ usage:
 # 'make install' target.
 # 
 # etcfiles has to be done first.
+
 .if ${COMPILER_TYPE} == "ack"
-world: mkfiles includes depend libraries install etcforce
+Xworld: mkfiles includes depend libraries install etcforce
 .elif ${COMPILER_TYPE} == "gnu"
-world: mkfiles includes depend gnu-libraries install etcforce
+Xworld: mkfiles includes depend gnu-libraries install etcforce
 .endif
+
+world: mkfiles includes depend 
+	${SUDO} make -C share/mk install
+
 
 mkfiles:
 	make -C share/mk install
+	${SUDO} $(MAKE) -C include includes
 
 includes:
-	$(MAKE) -C include includes
+	$(MAKE) -C include
 	$(MAKE) -C lib includes
 
 libraries: includes
@@ -60,43 +77,30 @@ gnu-libraries: includes
 clang-libraries: includes
 	$(MAKE) -C lib build_clang
 
-commands: includes libraries
+Xcommands: includes libraries
 	$(MAKE) -C commands all
 
-depend::
+Xdepend::
 	$(MAKE) -C boot depend
 	$(MAKE) -C commands depend
 	$(MAKE) -C kernel depend
 	$(MAKE) -C servers depend
 	$(MAKE) -C drivers depend
 
-etcfiles::
+Xetcfiles::
 	$(MAKE) -C etc install
 
-etcforce::
+Xetcforce::
 	$(MAKE) -C etc installforce
 
-all::
-	$(MAKE) -C boot all
-	$(MAKE) -C commands all
-	$(MAKE) -C tools all
+build:
+	cd ${.CURDIR}/share/mk && exec ${SUDO} ${MAKE} install
+	cd ${.CURDIR}/include && ${MAKE} prereq && exec ${SUDO} ${MAKE} includes
+	${SUDO} ${MAKE} cleandir
+	cd ${.CURDIR}/lib && ${MAKE} depend && ${MAKE} && \
+	    NOMAN=1 exec ${SUDO} ${MAKE} install
+	cd ${.CURDIR}/gnu/lib && ${MAKE} depend && ${MAKE} && \
+	    NOMAN=1 exec ${SUDO} ${MAKE} install
+	${MAKE} depend && ${MAKE} && exec ${SUDO} ${MAKE} install
 
-install::
-	$(MAKE) -C boot install
-	$(MAKE) -C man install makedb
-	$(MAKE) -C commands install
-	$(MAKE) -C share install
-	$(MAKE) -C tools install
-
-clean::
-	$(MAKE) -C boot clean
-	$(MAKE) -C commands clean
-	$(MAKE) -C tools clean
-	$(MAKE) -C lib clean_gnu
-	$(MAKE) -C lib clean_ack
-	$(MAKE) -C test clean
-
-cleandepend::
-	$(MAKE) -C boot cleandepend
-	$(MAKE) -C commands cleandepend
-	$(MAKE) -C tools cleandepend
+.include <bsd.subdir.mk>
