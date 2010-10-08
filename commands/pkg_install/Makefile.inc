@@ -14,7 +14,7 @@ CPPFLAGS+= -DMACHINE_ARCH=${PKG_MACHINE_ARCH}
 CPPFLAGS+= -DOPSYS_NAME=${PKG_OPSYS_NAME}
 CPPFLAGS+= -DBINDIR=${PKG_BINDIR}
 
-CPPFLAGS+= -I../ -I../lib
+CPPFLAGS+= -I${.CURDIR}/.. -I${.CURDIR}/../lib
 
 LDFLAGS+= -L../lib
 LDADD=		-linstall -lfetch -larchive -lz -lbz2 -lutil
