@@ -9,7 +9,7 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	chmod chown chroot ci cksum cleantmp clear cmp co \
 	comm compress cp crc cron crontab cut date \
 	dd de decomp16 DESCRIBE dev2name devsize df dhcpd \
-	dhrystone diff dirname dis88 diskctl du dumpcore \
+	dhrystone diff dirname  dis386 dis88 diskctl du dumpcore \
 	ed eject elle elvis env expand factor file \
 	find finger fingerd fix fold format fortune fsck.mfs \
 	fsck1 ftp101 ftpd200 gcov-pull getty grep gomoku head hexdump host \
@@ -30,7 +30,7 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	syslogd tail talk talkd tar tcpd tcpdp tcpstat tee telnet \
 	telnetd term termcap tget time tinyhalt top touch tr \
 	truncate tsort ttt tty udpstat umount uname unexpand \
-	uniq unstack update urlget uud uue version vol wc \
+	uniq unstack update uud uue version vol wc \
 	whereis which who write writeisofs fetch \
 	xargs yacc yes zdump zic zmodem pkg_install pkgin_cd
 
