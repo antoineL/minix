@@ -44,7 +44,8 @@
 
 #define SUPER_USER ((uid_t) 0)	/* uid_t of superuser */
 
-#define NULL     ((void *)0)	/* null pointer */
+#include <sys/null.h>      /* NULL Pointer */
+
 #define SCPVEC_NR	  64	/* max # of entries in a SYS_VSAFECOPY* request */
 #define NR_IOREQS	  64
 				/* maximum number of entries in an iorequest */
@@ -89,10 +90,6 @@
 #define READING            0	/* copy data to user */
 #define WRITING            1	/* copy data from user */
 #define HAVE_SCATTERED_IO  1	/* scattered I/O is now standard */
-
-/* Macros. */
-#define MAX(a, b)   ((a) > (b) ? (a) : (b))
-#define MIN(a, b)   ((a) < (b) ? (a) : (b))
 
 /* Memory is allocated in clicks. */
 #if (CHIP == INTEL)

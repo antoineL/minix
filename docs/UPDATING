@@ -1,3 +1,30 @@
+20100921:
+	gcc format libraries are created in /usr/lib now, 
+	so throw out /usr/gnu/lib/ if you want to make sure you
+	don't pick up the old ones.
+	(with pkgsrc and this, all of /usr/gnu is obsolete now.)
+
+20100914:
+	mkdir /proc
+	chmod 555 /proc
+
+20100827:
+	From now on, the rc scripts, recovery scripts and system.conf in /etc
+	and /usr/etc are updated automatically by make world. If you want to
+	change them, do so in the source tree. If you make changes to your
+	settings in /etc and /usr/etc, merge them into the the source tree
+	before issuing a make world.
+
+20100805:
+	mkfs and fsck have been renamed to mkfs.mfs and fsck.mfs, respectively.
+	Moreover, they have been moved to /sbin, which is by default not in
+	PATH. Edit your .ashrc (or equivalent) to also include /sbin in PATH.
+	Also, first issue a 'make commands' before building world.
+
+20100802:
+	/usr/src/etc/system.conf updated to include ext2 file server: copy it
+	(or merge it) to /etc/system.conf.
+
 20100719:
 	If you installed using a 3.1.6 image (or earlier) and haven't updated 
 	the boot monitor since r6246 you need to do so now:

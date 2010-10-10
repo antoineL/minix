@@ -2,20 +2,18 @@
 
 set -e
 
-PATH=$PATH:/usr/local/bin
-
 XBIN=usr/xbin
 SRC=src
 
-# size of /tmp during build
-PACKAGEDIR=/usr/bigports/Packages
-PACKAGESOURCEDIR=/usr/bigports/Sources
+PACKAGEDIR=/usr/pkgsrc/packages/`uname -r`/`uname -m`
 # List of packages included on installation media
 PACKAGELIST=packages.install
-# List of package source included on installation media
-PACKAGESOURCELIST=package_sources.install
 secs=`expr 32 '*' 64`
 export SHELL=/bin/sh
+
+# Packages we have to pre-install, and url to use
+PREINSTALLED_PACKAGES=pkgin-0.3.3.1nb1
+PACKAGEURL=ftp://ftp.minix3.org/pub/minix/packages/`uname -r`/`uname -m`/All/
 
 RELEASERC=$HOME/.releaserc
 
@@ -62,16 +60,31 @@ retrieve()
 {
 	dir=$1
 	list=`pwd`/$2
-	url=http://www.minix3.org/$3
-BIGPORTS=bigports
+	url=${PACKAGEURL}
 	(	
 		cd $dir || exit 1
 		echo  " * Updating $dir
    from $url
    with $list"
-   		files=`awk <$list '{ print "'$url'/" $1 ".tar.bz2" }'`
-		wget -c $url/List $files || true
+		files=`awk <$list '{ print "'$url'/" $1 ".tgz" }'`
+		fetch -r $files || true
 	)
+}
+
+cd_root_changes()
+{
+	edparams $TMPDISKROOT 'unset bootopts;
+unset servers;
+unset rootdev;
+unset leader;
+unset image;
+disable=inet;
+bootcd=1;
+cdproberoot=1;
+ata_id_timeout=2;
+bootbig(1, Regular MINIX 3) { unset image; boot }
+leader() { echo \n--- Welcome to MINIX 3. This is the boot monitor. ---\n\nChoose an option from the menu or press ESC if you need to do anything special.\nOtherwise I will boot with my defaults in 10 seconds.\n\n }; main(){trap 10000 boot; menu; };
+save' 
 }
 
 hdemu_root_changes()
@@ -87,11 +100,6 @@ ramimagedev=c0d7p0s0
 bootbig(1, Regular MINIX 3) { image=/boot/image_big; boot }
 main() { trap 10000 boot ; menu; }
 save'	| $RELEASEDIR/usr/bin/edparams $TMPDISKROOT
-
-	echo \
-'root=/dev/c0d7p0s0
-usr=/dev/c0d7p0s2
-usr_roflag="-r"' > $RELEASEDIR/etc/fstab
 }
 
 usb_root_changes()
@@ -102,12 +110,9 @@ usb_root_changes()
 'bios_wini=yes
 bios_remap_first=1
 rootdev=c0d7p0s0
+bootbig(1, Regular MINIX 3) { image=/boot/image_big; boot }
+leader() { echo \n--- Welcome to MINIX 3. This is the boot monitor. ---\n\nChoose an option from the menu or press ESC if you need to do anything special.\nOtherwise I will boot with my defaults in 10 seconds.\n\n }; main(){trap 10000 boot; menu; };
 save'	| $RELEASEDIR/usr/bin/edparams $TMPDISKROOT
-
-	echo \
-'root=/dev/c0d7p0s0
-usr=/dev/c0d7p0s2
-' > $RELEASEDIR/etc/fstab
 }
 
 fitfs()
@@ -148,13 +153,12 @@ fitfs()
 
 	# Create a filesystem on the target ramdisk
 	ramdisk $kbs $ramdisk
-	mkfs -B $BS -i $inodes $ramdisk
+	mkfs.mfs -B $BS -i $inodes $ramdisk
 }
 
 RELEASEDIR=/usr/r-staging
 RELEASEMNTDIR=/usr/r
 RELEASEPACKAGE=${RELEASEDIR}/usr/install/packages
-RELEASEPACKAGESOURCES=${RELEASEDIR}/usr/install/package-sources
 
 IMAGE=../boot/cdbootblock
 ROOTIMAGE=rootimage
@@ -221,11 +225,8 @@ then	ZIP=bzip2
 fi
 
 if [ $PACKAGES -ne 0 ]
-then	mkdir -p $PACKAGEDIR || true
-	mkdir -p $PACKAGESOURCEDIR || true
-	rm -f $PACKAGEDIR/List
-	retrieve $PACKAGEDIR $PACKAGELIST packages/`uname -p`/`uname -r`.`uname -v`
-	retrieve $PACKAGESOURCEDIR $PACKAGESOURCELIST software
+then	mkdir -p $PACKAGEDIR/All || true
+	retrieve $PACKAGEDIR/All $PACKAGELIST packages/`uname -p`/`uname -r`
 fi
 
 if [ "$COPY" -ne 1 ]
@@ -265,37 +266,61 @@ mkdir -p $RELEASEDIR/$XBIN
 mkdir -p $RELEASEDIR/usr/bin
 mkdir -p $RELEASEDIR/bin
 mkdir -p $RELEASEPACKAGE
-mkdir -p $RELEASEPACKAGESOURCES
 
 echo " * Transfering bootstrap dirs to $RELEASEDIR"
-cp -p /bin/* /usr/bin/* $RELEASEDIR/$XBIN
+cp -p /bin/* /usr/bin/* /sbin/* $RELEASEDIR/$XBIN
 cp -rp /usr/lib $RELEASEDIR/usr
 cp -rp /bin/sh /bin/echo $RELEASEDIR/bin
 cp -rp /usr/bin/make /usr/bin/install /usr/bin/yacc /usr/bin/lex /usr/bin/asmconv $RELEASEDIR/usr/bin
 
-if [ -d $PACKAGEDIR -a -d $PACKAGESOURCEDIR -a -f $PACKAGELIST -a -f $PACKAGESOURCELIST -a $PACKAGES -ne 0 ]
-then	echo " * Transfering $PACKAGEDIR to $RELEASEPACKAGE"
-	: >$RELEASEPACKAGE/List
+if [ -d $PACKAGEDIR -a -f $PACKAGELIST -a $PACKAGES -ne 0 ]
+then
+	index=pkg_summary
+	indexpath=$PACKAGEDIR/.index
+
+	if [ ! -d $indexpath ]
+	then	mkdir $indexpath
+	fi
+	if [ ! -d $indexpath ]
+	then	echo "Couldn't create $indexpath."
+		exit 1
+	fi
+
+	echo "" >$PACKAGEDIR/All/$index
+
+        echo " * Transfering $PACKAGEDIR to $RELEASEPACKAGE"
         for p in `cat $PACKAGELIST`
-        do	if [ -f $PACKAGEDIR/$p.tar.bz2 ]
+        do	if [ -f $PACKAGEDIR/All/$p.tgz ]
                then
-		  cp $PACKAGEDIR/$p.tar.bz2 $RELEASEPACKAGE/
-		  grep "^$p|" $PACKAGEDIR/List >>$RELEASEPACKAGE/List || echo "$p not found in List"
+		  # Copy package and create package's index
+		  (
+		      cd $PACKAGEDIR/All
+		      cp $p.tgz $RELEASEPACKAGE/
+
+		      f=$p.tgz
+		      indexname=$indexpath/$f.$index
+		      pkg_info -X $f >$indexname
+
+		      if [ ! -f $indexname ]
+		      then	echo Missing $indexname.
+			  exit 1
+		      fi
+
+		      if [ "`wc -l $indexname`" -lt 3 ]
+		      then	$indexname is too short.
+			  rm $indexname
+			  exit 1
+		      fi
+
+		      cat $indexname >>$PACKAGEDIR/All/$index
+		  )
                else
-                  echo "Can't copy $PACKAGEDIR/$p.tar.bz2. Missing."
+                  echo "Can't copy $PACKAGEDIR/$p.tgz. Missing."
                fi
         done
-	
-	echo " * Transfering $PACKAGESOURCEDIR to $RELEASEPACKAGESOURCES"
-        for p in `cat $PACKAGESOURCELIST`
-        do
-               if [ -f $PACKAGESOURCEDIR/$p.tar.bz2 ]
-               then
-	          cp $PACKAGESOURCEDIR/$p.tar.bz2 $RELEASEPACKAGESOURCES/
-               else
-                  echo "Can't copy $PACKAGESOURCEDIR/$p.tar.bz2. Missing."
-               fi
-        done
+
+	bzip2 -f $PACKAGEDIR/All/$index
+	cp $PACKAGEDIR/All/$index.bz2 $RELEASEPACKAGE/
 fi
 
 # Make sure compilers and libraries are root-owned
@@ -360,8 +385,17 @@ mkdir -p $RELEASEDIR/usr/share/mk
 chmod 755 $RELEASEDIR/usr/share/mk
 cp $RELEASEDIR/usr/src/share/mk/* $RELEASEDIR/usr/share/mk/
 chown -R root $RELEASEDIR/usr/share/mk
-echo " * Chroot build"
 cp chrootmake.sh $RELEASEDIR/usr/$SRC/tools/chrootmake.sh
+
+echo " * Make hierarchy"
+chroot $RELEASEDIR "PATH=/$XBIN sh -x /usr/$SRC/tools/chrootmake.sh etcfiles" || exit 1
+
+for p in $PREINSTALLED_PACKAGES
+do	echo " * Pre-installing: $p from $url"
+    pkg_add -P $RELEASEDIR $PACKAGEURL/$p
+done
+
+echo " * Chroot build"
 chroot $RELEASEDIR "PATH=/$XBIN MAKEMAP=$MAKEMAP sh -x /usr/$SRC/tools/chrootmake.sh" || exit 1
 # Copy built images for cd booting
 cp $RELEASEDIR/boot/image_big image
@@ -393,9 +427,24 @@ fi
 echo " * Counting files"
 extrakb=`du -s $RELEASEDIR/usr/install | awk '{ print $1 }'`
 find $RELEASEDIR/usr | fgrep -v /install/ | wc -l >$RELEASEDIR/.usrfiles
-find $RELEASEDIR -xdev | wc -l >$RELEASEDIR/.rootfiles
+find $RELEASEDIR -print -path $RELEASEDIR/usr -prune | wc -l >$RELEASEDIR/.rootfiles
 
-echo " * mounting $TMPDISKROOT as $RELEASEMNTDIR"
+echo " * Writing fstab"
+if [ "$USB" -ne 0 ]
+then
+	echo \
+'root=/dev/c0d7p0s0
+usr=/dev/c0d7p0s2
+' > $RELEASEDIR/etc/fstab
+elif [ "$HDEMU" -ne 0 ]
+then
+	echo \
+'root=/dev/c0d7p0s0
+usr=/dev/c0d7p0s2
+usr_roflag="-r"' > $RELEASEDIR/etc/fstab
+fi
+
+echo " * Mounting $TMPDISKROOT as $RELEASEMNTDIR"
 fitfs $RELEASEDIR $TMPDISKROOT 64 256 "$ROOTMB"
 ROOTBLOCKS=$blocks
 ROOTSECTS="`expr $blocks \* \( $BS / 512 \)`"
@@ -412,6 +461,12 @@ echo " * Copying files from staging to image"
 synctree -f $RELEASEDIR $RELEASEMNTDIR > /dev/null || true
 expr `df $TMPDISKUSR | tail -1 | awk '{ print $4 }'` - $extrakb >$RELEASEMNTDIR/.usrkb
 
+echo " * Unmounting $TMPDISKUSR from $RELEASEMNTDIR/usr"
+umount $TMPDISKUSR || exit
+echo " * Unmounting $TMPDISKROOT from $RELEASEMNTDIR"
+umount $TMPDISKROOT || exit
+rm -r $RELEASEMNTDIR
+
 echo " * Making image bootable"
 if [ "$USB" -ne 0 ]
 then
@@ -419,24 +474,12 @@ then
 elif [ "$HDEMU" -ne 0 ]
 then
 	hdemu_root_changes
+else
+	cd_root_changes
 fi
 
-umount $TMPDISKUSR || exit
-umount $TMPDISKROOT || exit
-
-# Boot monitor variables for boot CD
-edparams $TMPDISKROOT 'unset bootopts;
-unset servers;
-unset rootdev;
-unset leader;
-unset image;
-disable=inet;
-bootcd=1;
-cdproberoot=1;
-ata_id_timeout=2;
-bootbig(1, Regular MINIX 3) { unset image; boot }
-leader() { echo \n--- Welcome to MINIX 3. This is the boot monitor. ---\n\nChoose an option from the menu or press ESC if you need to do anything special.\nOtherwise I will boot with my defaults in 10 seconds.\n\n }; main(){trap 10000 boot; menu; };
-save' 
+# Clean up: RELEASEDIR no longer needed
+rm -r $RELEASEDIR
 
 (cd ../boot && make)
 dd if=$TMPDISKROOT of=$ROOTIMAGE bs=$BS count=$ROOTBLOCKS
@@ -475,10 +518,10 @@ else
 		# Make sure there is no hole..! Otherwise the ISO format is
 		# unreadable.
 		partition -m $IMG 0 81:$isosects 81:$ROOTSECTS 81:$USRSECTS
-		echo "${ZIP}ping $IMG"
-		$ZIP -f $IMG
 	fi
 fi
+echo "${ZIP}ping $IMG"
+$ZIP -f $IMG
 
 if [ "$FILENAMEOUT" ]
 then	echo "$IMG" >$FILENAMEOUT

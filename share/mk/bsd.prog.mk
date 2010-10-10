@@ -4,6 +4,7 @@
 .ifndef HOSTPROG
 
 .include <bsd.init.mk>
+.include <bsd.gcov.mk>
 
 #
 # Definitions and targets shared among all programs built by a single
@@ -56,13 +57,13 @@ MKDEP_SUFFIXES?=	.o .ln
 # 	rumpfs_lfs rumpfs_msdosfs rumpfs_nfs rumpfs_ntfs rumpfs_syspuffs \
 # 	rumpfs_tmpfs rumpfs_udf rumpfs_ufs
 .for _lib in \
-	c curses driver netdriver edit end m sys timers util bz2 l hgfs
+	c curses driver netdriver edit end m sys timers util bz2 l hgfs audiodriver
 .ifndef LIB${_lib:tu}
 LIB${_lib:tu}=	${DESTDIR}/usr/lib/lib${_lib}.a
 .if ${COMPILER_TYPE} == "ack"
 LIB${_lib:tu}=	${DESTDIR}/usr/lib/i386/lib${_lib}.a
 .elif ${COMPILER_TYPE} == "gnu"
-LIB${_lib:tu}=	${DESTDIR}/usr/gnu/lib/lib${_lib}.a
+LIB${_lib:tu}=	${DESTDIR}/usr/lib/lib${_lib}.a
 .endif
 .MADE:		${LIB${_lib:tu}}	# Note: ${DESTDIR} will be expanded
 .endif

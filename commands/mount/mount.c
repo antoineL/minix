@@ -26,12 +26,13 @@ int main(argc, argv)
 int argc;
 char *argv[];
 {
-  int i, n, v, mountflags;
+  int i, n, v = 0, mountflags, write_mtab;
   char **ap, *vs, *opt, *err, *type, *args, *device;
   char special[PATH_MAX+1], mounted_on[PATH_MAX+1], version[10], rw_flag[10];
 
   if (argc == 1) list();	/* just list /etc/mtab */
   mountflags = 0;
+  write_mtab = 1;
   type = NULL;
   args = NULL;
   ap = argv+1;
@@ -43,7 +44,8 @@ char *argv[];
 		case 't':	if (++i == argc) usage();
 				type = argv[i];
 				break;
-		case 'i':	mountflags |= MS_REUSE;		break;                
+		case 'i':	mountflags |= MS_REUSE;		break;
+		case 'n':	write_mtab = 0;			break;
 		case 'o':	if (++i == argc) usage();
 				args = argv[i];
 				break;
@@ -61,6 +63,17 @@ char *argv[];
   device = argv[1];
   if (!strcmp(device, "none")) device = NULL;
 
+  if ((type == NULL || !strcmp(type, MINIX_FS_TYPE)) && device != NULL) {
+	/* auto-detect type and/or version */
+	v = fsversion(device, "mount");
+	switch (v) {
+		case FSVERSION_MFS1:
+		case FSVERSION_MFS2: 
+		case FSVERSION_MFS3: type = MINIX_FS_TYPE; break;		
+		case FSVERSION_EXT2: type = "ext2"; break;
+	}
+  }
+  
   if (mount(device, argv[2], mountflags, type, args) < 0) {
 	err = strerror(errno);
 	fprintf(stderr, "mount: Can't mount %s on %s: %s\n",
@@ -71,8 +84,9 @@ char *argv[];
   /* The mount has completed successfully. Tell the user. */
   printf("%s is read-%s mounted on %s\n",
 	argv[1], mountflags & MS_RDONLY ? "only" : "write", argv[2]);
-
+  
   /* Update /etc/mtab. */
+  if (!write_mtab) return 0;
   n = load_mtab("mount");
   if (n < 0) exit(1);		/* something is wrong. */
 
@@ -87,16 +101,13 @@ char *argv[];
 	}
   }
   /* For MFS, use a version number. Otherwise, use the FS type name. */
-  if (type == NULL || !strcmp(type, MINIX_FS_TYPE)) {
-	v = fsversion(argv[1], "mount");
-	if (v == 1)
-		vs = "1";
-	else if (v == 2)
-		vs = "2";
-	else if (v == 3)
-		vs = "3";
-	else
-		vs = "0";
+  if (!strcmp(type, MINIX_FS_TYPE)) {
+	switch (v) {
+		case FSVERSION_MFS1: vs = "1"; break;
+		case FSVERSION_MFS2: vs = "2"; break;
+		case FSVERSION_MFS3: vs = "3"; break;		
+		default: vs = "0"; break;
+	}
   } else {
 	/* Keep the version field sufficiently short. */
 	if (strlen(type) < sizeof(version))

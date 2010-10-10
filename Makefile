@@ -31,9 +31,9 @@ usage:
 # 
 # etcfiles has to be done first.
 .if ${COMPILER_TYPE} == "ack"
-world: mkfiles includes depend libraries install
+world: mkfiles includes depend libraries install etcforce
 .elif ${COMPILER_TYPE} == "gnu"
-world: mkfiles includes depend gnu-libraries install
+world: mkfiles includes depend gnu-libraries install etcforce
 .endif
 
 mkfiles:
@@ -48,11 +48,13 @@ libraries: includes
 
 MKHEADERS411=/usr/gnu/libexec/gcc/i386-pc-minix/4.1.1/install-tools/mkheaders
 MKHEADERS443=/usr/gnu/libexec/gcc/i686-pc-minix/4.4.3/install-tools/mkheaders
+MKHEADERS443_PKGSRC=/usr/pkg/gcc44/libexec/gcc/i686-pc-minix/4.4.3/install-tools/mkheaders
 gnu-includes: includes
 	SHELL=/bin/sh; if [ -f $(MKHEADERS411) ] ; then sh -e $(MKHEADERS411) ; fi
 	SHELL=/bin/sh; if [ -f $(MKHEADERS443) ] ; then sh -e $(MKHEADERS443) ; fi
+	SHELL=/bin/sh; if [ -f $(MKHEADERS443_PKGSRC) ] ; then sh -e $(MKHEADERS443_PKGSRC) ; fi
 
-gnu-libraries: includes
+gnu-libraries: gnu-includes
 	$(MAKE) -C lib build_gnu
 
 clang-libraries: includes
@@ -70,6 +72,9 @@ depend::
 
 etcfiles::
 	$(MAKE) -C etc install
+
+etcforce::
+	$(MAKE) -C etc installforce
 
 all::
 	$(MAKE) -C boot all

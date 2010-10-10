@@ -13,6 +13,8 @@
 #include <ansi.h>
 #endif
 
+#include <sys/null.h>   /* For NULL */
+
 /*
  * Focus point of all stdio activity.
  */
@@ -50,7 +52,6 @@ typedef struct __iobuf {
 #define	stderr		(&__stderr)
 
 #define	BUFSIZ		4096
-#define	NULL		((void *)0)
 #define	EOF		(-1)
 
 #define	FOPEN_MAX	20
@@ -60,6 +61,7 @@ typedef struct __iobuf {
 
 #define	TMP_MAX		999
 #define	L_tmpnam	(sizeof("/tmp/") + FILENAME_MAX)
+#define P_tmpdir "/tmp"
 #define __STDIO_VA_LIST__	void *
 
 typedef long int	fpos_t;
@@ -115,8 +117,10 @@ _PROTOTYPE( size_t fwrite,
 	(const void *_ptr, size_t _size, size_t _nmemb, FILE *_stream)	);
 _PROTOTYPE( int fgetpos, (FILE *_stream, fpos_t *_pos)			);
 _PROTOTYPE( int fseek, (FILE *_stream, long _offset, int _whence)	);
+_PROTOTYPE( int fseeko, (FILE *_stream, off_t _offset, int _whence)	);
 _PROTOTYPE( int fsetpos, (FILE *_stream, fpos_t *_pos)			);
 _PROTOTYPE( long ftell, (FILE *_stream)					);
+_PROTOTYPE( off_t ftello, (FILE *_stream)				);
 _PROTOTYPE( void rewind, (FILE *_stream)				);
 _PROTOTYPE( void clearerr, (FILE *_stream)				);
 _PROTOTYPE( int feof, (FILE *_stream)					);

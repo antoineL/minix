@@ -15,7 +15,6 @@
 #include "kernel/const.h"
 #include "kernel/type.h"
 #include "kernel/proc.h"
-#include "../pm/mproc.h"
 
 /* Declare some local functions. */
 FORWARD _PROTOTYPE(void boot_image_info_lookup, ( endpoint_t endpoint,
@@ -34,6 +33,7 @@ FORWARD _PROTOTYPE( int sef_cb_init_fresh, (int type, sef_init_info_t *info) );
 FORWARD _PROTOTYPE( void sef_cb_signal_handler, (int signo) );
 FORWARD _PROTOTYPE( int sef_cb_signal_manager, (endpoint_t target, int signo) );
 
+
 /*===========================================================================*
  *				main                                         *
  *===========================================================================*/
@@ -47,9 +47,13 @@ PUBLIC int main(void)
   int ipc_status;				/* status code */
   int call_nr, who_e,who_p;			/* call number and caller */
   int result;                 			/* result to return */
+  int s;
 
   /* SEF local startup. */
   sef_local_startup();
+  
+  if (OK != (s=sys_getmachine(&machine)))
+	  panic("couldn't get machine info: %d", s);
 
   /* Main loop - get work and do it, forever. */         
   while (TRUE) {              
@@ -92,7 +96,7 @@ PUBLIC int main(void)
        * Handle the request and send a reply to the caller. 
        */
       else {
-	  if (call_nr != GETSYSINFO && 
+	  if (call_nr != COMMON_GETSYSINFO && 
 	  	(call_nr < RS_RQ_BASE || call_nr >= RS_RQ_BASE+0x100))
 	  {
 		/* Ignore invalid requests. Do not try to reply. */
@@ -112,7 +116,8 @@ PUBLIC int main(void)
           case RS_UPDATE: 	result = do_update(&m); 	break;
           case RS_CLONE: 	result = do_clone(&m); 		break;
           case RS_EDIT: 	result = do_edit(&m); 		break;
-          case GETSYSINFO: 	result = do_getsysinfo(&m); 	break;
+          case COMMON_GETSYSINFO: 
+         			result = do_getsysinfo(&m); 	break;
 	  case RS_LOOKUP:	result = do_lookup(&m);		break;
 	  /* Ready messages. */
 	  case RS_INIT: 	result = do_init_ready(&m); 	break;
@@ -166,7 +171,6 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
   struct rproc *replica_rp;
   struct rprocpub *rpub;
   struct boot_image image[NR_BOOT_PROCS];
-  struct mproc mproc[NR_PROCS];
   struct boot_image_priv *boot_image_priv;
   struct boot_image_sys *boot_image_sys;
   struct boot_image_dev *boot_image_dev;
@@ -403,9 +407,6 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
    * Complete the initialization of the system process table in collaboration
    * with other system services.
    */
-  if ((s = getsysinfo(PM_PROC_NR, SI_PROC_TAB, mproc)) != OK) {
-      panic("unable to get copy of PM process table: %d", s);
-  }
   for (i=0; boot_image_priv_table[i].endpoint != NULL_BOOT_NR; i++) {
       boot_image_priv = &boot_image_priv_table[i];
 
@@ -418,15 +419,9 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
       rp = &rproc[boot_image_priv - boot_image_priv_table];
       rpub = rp->r_pub;
 
-      /* Get pid from PM process table. */
-      rp->r_pid = -1;
-      for (j = 0; j < NR_PROCS; j++) {
-          if (mproc[j].mp_endpoint == rpub->endpoint) {
-              rp->r_pid = mproc[j].mp_pid;
-              break;
-          }
-      }
-      if(j == NR_PROCS) {
+      /* Get pid from PM. */
+      rp->r_pid = getnpid(rpub->endpoint);
+      if(rp->r_pid == -1) {
           panic("unable to get pid");
       }
   }

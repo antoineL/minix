@@ -44,9 +44,10 @@ _PROTOTYPE( int sys_clear, (endpoint_t proc_ep));
 _PROTOTYPE( int sys_exit, (void));
 _PROTOTYPE( int sys_trace, (int req, endpoint_t proc_ep, long addr, long *data_p));
 
-_PROTOTYPE( int sys_schedule, (endpoint_t proc_ep, unsigned priority, unsigned quantum));
+_PROTOTYPE( int sys_schedule, (endpoint_t proc_ep, int priority,
+						int quantum, int cpu));
 _PROTOTYPE( int sys_schedctl, (unsigned flags, endpoint_t proc_ep,
-	unsigned priority, unsigned quantum));
+	int priority, int quantum, int cpu));
 
 /* Shorthands for sys_runctl() system call. */
 #define sys_stop(proc_ep) sys_runctl(proc_ep, RC_STOP, 0)
@@ -256,7 +257,7 @@ _PROTOTYPE( int pci_get_bar, (int devind, int port, u32_t *base,
 					u32_t *size, int *ioflag)	);
 
 /* Profiling. */
-_PROTOTYPE( int sys_sprof, (int action, int size, int freq,
+_PROTOTYPE( int sys_sprof, (int action, int size, int freq, int type,
 		endpoint_t endpt, void *ctl_ptr, void *mem_ptr)   );
 _PROTOTYPE( int sys_cprof, (int action, int size, endpoint_t endpt,
                                        void *ctl_ptr, void *mem_ptr)   );

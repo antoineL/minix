@@ -2,6 +2,7 @@
 #define _MINIX_SYSUTIL_H 1
 
 #include <minix/ipc.h>
+#include <sys/cdefs.h>
 
 /* Extra system library definitions to support device drivers and servers.
  *
@@ -29,6 +30,9 @@
 #define EP_ON		2	/* var = on (or field left blank) */
 #define EP_SET		3	/* var = 1:2:3 (nonblank field) */
 #define EP_EGETKENV	4	/* sys_getkenv() failed ... */
+
+extern int env_argc;
+extern char **env_argv;
 
 _PROTOTYPE( void env_setargs, (int argc, char *argv[])		        );
 _PROTOTYPE( int env_get_param, (char *key, char *value, int max_size)	);
@@ -83,10 +87,6 @@ struct util_timingdata {
 };
 
 typedef struct util_timingdata util_timingdata_t;
-
-/* read_tsc() and friends. */
-_PROTOTYPE( void read_tsc_64, (u64_t *t)				);
-_PROTOTYPE( void read_tsc, (u32_t *hi, u32_t *lo)			);
 
 #endif /* _MINIX_SYSUTIL_H */
 

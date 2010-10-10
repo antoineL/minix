@@ -61,6 +61,11 @@ PUBLIC int do_mmap(message *m)
 			return EINVAL;
 		}
 
+		/* Contiguous phys memory has to be preallocated. */
+		if((m->VMM_FLAGS & (MAP_CONTIG|MAP_PREALLOC)) == MAP_CONTIG) {
+			return EINVAL;
+		}
+
 		if(m->VMM_FLAGS & MAP_PREALLOC) mfflags |= MF_PREALLOC;
 		if(m->VMM_FLAGS & MAP_LOWER16M) vrflags |= VR_LOWER16MB;
 		if(m->VMM_FLAGS & MAP_LOWER1M)  vrflags |= VR_LOWER1MB;
@@ -420,7 +425,7 @@ PRIVATE int munmap_lin(vir_bytes addr, size_t len)
 		return EFAULT;
 	}
 
-	if(pt_writemap(&vmproc[VM_PROC_NR].vm_pt, addr, MAP_NONE, len, 0,
+	if(pt_writemap(NULL, &vmproc[VM_PROC_NR].vm_pt, addr, MAP_NONE, len, 0,
 		WMF_OVERWRITE | WMF_FREE) != OK) {
 		printf("munmap_lin: pt_writemap failed\n");
 		return EFAULT;

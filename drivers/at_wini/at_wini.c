@@ -109,7 +109,7 @@ PRIVATE phys_bytes dma_buf_phys;
 
 #define N_PRDTE	1024	/* Should be enough for large requests */
 
-PRIVATE struct prdte
+struct prdte
 {
 	phys_bytes prdte_base;
 	u16_t prdte_count;
@@ -2297,6 +2297,7 @@ struct driver *dr;
 message *m;
 {
 	int r, timeout, prev;
+	struct command cmd;
 
 	if (m->m_type != DEV_IOCTL_S )
 		return EINVAL;
@@ -2353,6 +2354,20 @@ message *m;
 			return r;
 
 		return OK;
+	} else if (m->REQUEST == DIOCFLUSH) {
+		if (w_prepare(m->DEVICE) == NULL) return ENXIO;
+
+		if (w_wn->state & ATAPI) return EINVAL;
+
+		if (!(w_wn->state & INITIALIZED) && w_specify() != OK)
+			return EIO;
+
+		cmd.command = CMD_FLUSH_CACHE;
+
+		if (com_simple(&cmd) != OK || !w_waitfor(STATUS_BSY, 0))
+			return EIO;
+
+		return (w_wn->w_status & (STATUS_ERR|STATUS_WF)) ? EIO : OK;
 	}
 	return EINVAL;
 }

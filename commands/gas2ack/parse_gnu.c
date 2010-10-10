@@ -33,6 +33,7 @@ static mnemonic_t mnemtab[] = {
 	{ ".base",	DOT_BASE,	PSEUDO },
 	{ ".bss",	DOT_BSS,	PSEUDO },
 	{ ".byte",	DOT_DATA1,	PSEUDO },
+	{ ".code16",	DOT_CODE16,	PSEUDO },
 	{ ".comm",	DOT_COMM,	PSEUDO },
 	{ ".data",	DOT_DATA,	PSEUDO },
 	{ ".end",	DOT_END,	PSEUDO },
@@ -280,8 +281,9 @@ static mnemonic_t mnemtab[] = {
 	{ "lldt",	LLDT,		WORD },
 	{ "lmsw",	LMSW,		WORD },
 	{ "lock",	LOCK,		WORD },
-	{ "lods",	LODS,		WORD },
 	{ "lodsb",	LODS,		BYTE },
+	{ "lodsl",	LODS,		WORD },
+	{ "lodsw",	LODS,		OWORD },
 	{ "loop",	LOOP,		JUMP },
 	{ "loope",	LOOPE,		JUMP },
 	{ "loopne",	LOOPNE,		JUMP },
@@ -881,6 +883,8 @@ static asm86_t *gnu_get_statement(void)
 		/*FALL THROUGH*/
 	case JMP:
 	case CALL:
+		break;
+	case DOT_CODE16:
 		break;
 	default:;
 	}

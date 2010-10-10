@@ -5,6 +5,7 @@ LIB=		sys
 SRCS=  \
 	alloc_util.c \
 	assert.c \
+	getsysinfo.c \
 	kernel_call.c \
 	panic.c \
 	pci_attr_r16.c \
@@ -30,6 +31,7 @@ SRCS=  \
 	sched_start.c \
 	sched_stop.c \
 	sef.c \
+	sef_gcov.c \
 	sef_init.c \
 	sef_liveupdate.c \
 	sef_ping.c \
@@ -112,8 +114,6 @@ SRCS=  \
 	env_prefix.c \
 	fkey_ctl.c \
 	tsc_util.c \
-	read_tsc.S \
-	read_tsc_64.c \
 	ser_putc.c \
 	stacktrace.c \
 	sys_hz.c \
@@ -122,7 +122,8 @@ SRCS=  \
 	profile.c \
 	vprintf.c \
 	timers.c \
-	spin.c
+	spin.c \
+	gcov.c
 
 CPPFLAGS.sched_start.c+=	-I${MINIXSRCDIR}
 

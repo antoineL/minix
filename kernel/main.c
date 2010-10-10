@@ -19,9 +19,98 @@
 #include "proc.h"
 #include "debug.h"
 #include "clock.h"
+#include "hw_intr.h"
+
+#ifdef CONFIG_SMP
+#include "smp.h"
+#endif
+#ifdef CONFIG_WATCHDOG
+#include "watchdog.h"
+#endif
+#include "spinlock.h"
 
 /* Prototype declarations for PRIVATE functions. */
 FORWARD _PROTOTYPE( void announce, (void));	
+
+PUBLIC void bsp_finish_booting(void)
+{
+  int i;
+#if SPROFILE
+  sprofiling = 0;      /* we're not profiling until instructed to */
+#endif /* SPROFILE */
+  cprof_procs_no = 0;  /* init nr of hash table slots used */
+
+  vm_running = 0;
+  krandom.random_sources = RANDOM_SOURCES;
+  krandom.random_elements = RANDOM_ELEMENTS;
+
+  /* MINIX is now ready. All boot image processes are on the ready queue.
+   * Return to the assembly code to start running the current process. 
+   */
+  
+  /* it should point somewhere */
+  get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
+  get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
+  announce();				/* print MINIX startup banner */
+
+  /*
+   * we have access to the cpu local run queue, only now schedule the processes.
+   * We ignore the slots for the former kernel tasks
+   */
+  for (i=0; i < NR_BOOT_PROCS - NR_TASKS; i++) {
+	RTS_UNSET(proc_addr(i), RTS_PROC_STOP);
+  }
+  /*
+   * enable timer interrupts and clock task on the boot CPU
+   */
+  if (boot_cpu_init_timer(system_hz)) {
+	  panic("FATAL : failed to initialize timer interrupts, "
+			  "cannot continue without any clock source!");
+  }
+
+  fpu_init();
+
+#ifdef CONFIG_WATCHDOG
+  if (watchdog_enabled) {
+	  if (arch_watchdog_init()) {
+		  printf("WARNING watchdog initialization failed! Disabled\n");
+		  watchdog_enabled = 0;
+	  }
+	  else
+		  BOOT_VERBOSE(printf("Watchdog enabled\n"););
+  }
+#endif
+
+/* Warnings for sanity checks that take time. These warnings are printed
+ * so it's a clear warning no full release should be done with them
+ * enabled.
+ */
+#if DEBUG_SCHED_CHECK
+  FIXME("DEBUG_SCHED_CHECK enabled");
+#endif
+#if DEBUG_VMASSERT
+  FIXME("DEBUG_VMASSERT enabled");
+#endif
+#if DEBUG_PROC_CHECK
+  FIXME("PROC check enabled");
+#endif
+
+  DEBUGEXTRA(("cycles_accounting_init()... "));
+  cycles_accounting_init();
+  DEBUGEXTRA(("done\n"));
+
+#ifdef CONFIG_SMP
+  cpu_set_flag(bsp_cpu_id, CPU_IS_READY);
+  machine.processors_count = ncpus;
+  machine.bsp_id = bsp_cpu_id;
+#else
+  machine.processors_count = 1;
+  machine.bsp_id = 0;
+#endif
+  
+  switch_to_user();
+  NOT_REACHABLE;
+}
 
 /*===========================================================================*
  *				main                                         *
@@ -31,39 +120,21 @@ PUBLIC int main(void)
 /* Start the ball rolling. */
   struct boot_image *ip;	/* boot image pointer */
   register struct proc *rp;	/* process pointer */
-  register struct priv *sp;	/* privilege structure pointer */
   register int i, j;
   int hdrindex;			/* index to array of a.out headers */
   phys_clicks text_base;
   vir_clicks text_clicks, data_clicks, st_clicks;
   reg_t ktsb;			/* kernel task stack base */
   struct exec e_hdr;		/* for a copy of an a.out header */
+  size_t argsz;			/* size of arguments passed to crtso on stack */
 
+  BKL_LOCK();
    /* Global value to test segment sanity. */
    magictest = MAGICTEST;
  
    DEBUGEXTRA(("main()\n"));
 
-  /* Clear the process table. Anounce each slot as empty and set up mappings 
-   * for proc_addr() and proc_nr() macros. Do the same for the table with 
-   * privilege structures for the system processes. 
-   */
-  for (rp = BEG_PROC_ADDR, i = -NR_TASKS; rp < END_PROC_ADDR; ++rp, ++i) {
-  	rp->p_rts_flags = RTS_SLOT_FREE;		/* initialize free slot */
-	rp->p_magic = PMAGIC;
-	rp->p_nr = i;				/* proc number from ptr */
-	rp->p_endpoint = _ENDPOINT(0, rp->p_nr); /* generation no. 0 */
-	rp->p_scheduler = NULL;			/* no user space scheduler */
-	rp->p_priority = 0;		        /* no priority */
-	rp->p_quantum_size_ms = 0;	        /* no quantum size */
-  }
-  for (sp = BEG_PRIV_ADDR, i = 0; sp < END_PRIV_ADDR; ++sp, ++i) {
-	sp->s_proc_nr = NONE;			/* initialize as free */
-	sp->s_id = (sys_id_t) i;		/* priv structure index */
-	ppriv_addr[i] = sp;			/* priv ptr from number */
-	sp->s_sig_mgr = NONE;			/* clear signal managers */
-	sp->s_bak_sig_mgr = NONE;
-  }
+   proc_init();
 
   /* Set up proc table entries for processes in boot image.  The stacks of the
    * kernel tasks are initialized to an array in data space.  The stacks
@@ -87,6 +158,8 @@ PUBLIC int main(void)
 	ip->endpoint = rp->p_endpoint;		/* ipc endpoint */
 	make_zero64(rp->p_cpu_time_left);
 	strncpy(rp->p_name, ip->proc_name, P_NAME_LEN); /* set process name */
+	
+	reset_proc_accounting(rp);
 
 	/* See if this process is immediately schedulable.
 	 * In that case, set its privileges now and allow it to run.
@@ -183,77 +256,36 @@ PUBLIC int main(void)
 	rp->p_reg.pc = 0; /* we cannot start anything else */
 	rp->p_reg.psw = (iskerneln(proc_nr)) ? INIT_TASK_PSW : INIT_PSW;
 
-	/* Initialize the server stack pointer. Take it down one word
-	 * to give crtso.s something to use as "argc".
+	/* Initialize the server stack pointer. Take it down three words
+	 * to give crtso.s something to use as "argc", "argv" and "envp".
 	 */
 	if (isusern(proc_nr)) {		/* user-space process? */ 
 		rp->p_reg.sp = (rp->p_memmap[S].mem_vir +
 				rp->p_memmap[S].mem_len) << CLICK_SHIFT;
-		rp->p_reg.sp -= sizeof(reg_t);
+		argsz = 3 * sizeof(reg_t);
+		rp->p_reg.sp -= argsz;
+		phys_memset(rp->p_reg.sp - 
+			(rp->p_memmap[S].mem_vir << CLICK_SHIFT) +
+			(rp->p_memmap[S].mem_phys << CLICK_SHIFT), 
+			0, argsz);
 	}
 
 	/* scheduling functions depend on proc_ptr pointing somewhere. */
-	if(!proc_ptr) proc_ptr = rp;
+	if(!get_cpulocal_var(proc_ptr))
+		get_cpulocal_var(proc_ptr) = rp;
 
 	/* If this process has its own page table, VM will set the
 	 * PT up and manage it. VM will signal the kernel when it has
 	 * done this; until then, don't let it run.
 	 */
 	if(ip->flags & PROC_FULLVM)
-		RTS_SET(rp, RTS_VMINHIBIT);
+		rp->p_rts_flags |= RTS_VMINHIBIT;
 
-	/* None of the kernel tasks run */
-	if (rp->p_nr < 0) RTS_SET(rp, RTS_PROC_STOP);
-	RTS_UNSET(rp, RTS_SLOT_FREE); /* remove RTS_SLOT_FREE and schedule */
+	rp->p_rts_flags |= RTS_PROC_STOP;
+	rp->p_rts_flags &= ~RTS_SLOT_FREE;
 	alloc_segments(rp);
 	DEBUGEXTRA(("done\n"));
   }
-
-  /* Architecture-dependent initialization. */
-  DEBUGEXTRA(("arch_init()... "));
-  arch_init();
-  DEBUGEXTRA(("done\n"));
-
-  /* System and processes initialization */
-  DEBUGEXTRA(("system_init()... "));
-  system_init();
-  DEBUGEXTRA(("done\n"));
-
-#if SPROFILE
-  sprofiling = 0;      /* we're not profiling until instructed to */
-#endif /* SPROFILE */
-  cprof_procs_no = 0;  /* init nr of hash table slots used */
-
-  vm_running = 0;
-  krandom.random_sources = RANDOM_SOURCES;
-  krandom.random_elements = RANDOM_ELEMENTS;
-
-  /* MINIX is now ready. All boot image processes are on the ready queue.
-   * Return to the assembly code to start running the current process. 
-   */
-  bill_ptr = proc_addr(IDLE);	/* it has to point somewhere */
-  announce();				/* print MINIX startup banner */
-
-  /*
-   * enable timer interrupts and clock task on the boot CPU
-   */
-
-  if (boot_cpu_init_timer(system_hz)) {
-	  panic( "FATAL : failed to initialize timer interrupts; "
-		"cannot continue without any clock source!");
-  }
-
-/* Warnings for sanity checks that take time. These warnings are printed
- * so it's a clear warning no full release should be done with them
- * enabled.
- */
-#if DEBUG_PROC_CHECK
-  FIXME("PROC check enabled");
-#endif
-
-  DEBUGEXTRA(("cycles_accounting_init()... "));
-  cycles_accounting_init();
-  DEBUGEXTRA(("done\n"));
 
 #define IPCNAME(n) { \
 	assert((n) >= 0 && (n) <= IPCNO_HIGHEST); \
@@ -268,9 +300,40 @@ PUBLIC int main(void)
   IPCNAME(SENDNB);
   IPCNAME(SENDA);
 
-  assert(runqueues_ok());
+  /* Architecture-dependent initialization. */
+  DEBUGEXTRA(("arch_init()... "));
+  arch_init();
+  DEBUGEXTRA(("done\n"));
 
-  switch_to_user();
+  /* System and processes initialization */
+  DEBUGEXTRA(("system_init()... "));
+  system_init();
+  DEBUGEXTRA(("done\n"));
+
+#ifdef CONFIG_SMP
+  if (config_no_apic) {
+	  BOOT_VERBOSE(printf("APIC disabled, disables SMP, using legacy PIC\n"));
+	  smp_single_cpu_fallback();
+  } else if (config_no_smp) {
+	  BOOT_VERBOSE(printf("SMP disabled, using legacy PIC\n"));
+	  smp_single_cpu_fallback();
+  } else {
+	  smp_init();
+	  /*
+	   * if smp_init() returns it means that it failed and we try to finish
+	   * single CPU booting
+	   */
+	  bsp_finish_booting();
+  }
+#else
+  /* 
+   * if configured for a single CPU, we are already on the kernel stack which we
+   * are going to use everytime we execute kernel code. We finish booting and we
+   * never return here
+   */
+  bsp_finish_booting();
+#endif
+
   NOT_REACHABLE;
   return 1;
 }
@@ -316,7 +379,19 @@ PUBLIC void minix_shutdown(timer_t *tp)
  * down MINIX. How to shutdown is in the argument: RBT_HALT (return to the
  * monitor), RBT_MONITOR (execute given code), RBT_RESET (hard reset). 
  */
-  arch_stop_local_timer();
+#ifdef CONFIG_SMP
+  /* 
+   * FIXME
+   *
+   * we will need to stop timers on all cpus if SMP is enabled and put them in
+   * such a state that we can perform the whole boot process once restarted from
+   * monitor again
+   */
+  if (ncpus > 1)
+	  smp_shutdown_aps();
+#endif
+  hw_intr_disable_all();
+  stop_local_timer();
   intr_init(INTS_ORIG, 0);
   arch_shutdown(tp ? tmr_arg(tp)->ta_int : RBT_PANIC);
 }

@@ -39,26 +39,26 @@ if cmp -s x1 x2; then : ; else echo Error on cat test 1; fi
 cat <y >z
 if cmp -s y z; then : ; else echo Error on cat test 2; fi
 
-#Test ar
+#Test aal
 cat passwd >p
 cp passwd q
-if cmp -s p q; then : ; else echo Error on ar test 1; fi
+if cmp -s p q; then : ; else echo Error on aal test 1; fi
 date >r
-ar r x.a p q r 2>/dev/null
-ar r x.a /bin/cp
-ar r x.a /bin/cat
+aal r x.a p q r 2>/dev/null
+aal r x.a /bin/cp
+aal r x.a /bin/cat
 rm p q
 mv r R
-ar x x.a
-if cmp -s p /etc/passwd; then : ; else Error on ar test 2; fi
-if cmp -s q /etc/passwd; then : ; else Error on ar test 3; fi
-if cmp -s r R; then : ; else Error on ar test 4; fi
-if cmp -s cp /bin/cp; then : ; else Error on ar test 5; fi
-if cmp -s cat /bin/cat; then : ; else Error on ar test 6; fi
+aal x x.a
+if cmp -s p /etc/passwd; then : ; else Error on aal test 2; fi
+if cmp -s q /etc/passwd; then : ; else Error on aal test 3; fi
+if cmp -s r R; then : ; else Error on aal test 4; fi
+if cmp -s cp /bin/cp; then : ; else Error on aal test 5; fi
+if cmp -s cat /bin/cat; then : ; else Error on aal test 6; fi
 rm cp cat p q r
-ar d x.a r >/dev/null
-ar x x.a
-if test -r r; then echo Error on ar test 7; fi
+aal d x.a r >/dev/null
+aal x x.a
+if test -r r; then echo Error on aal test 7; fi
 rm -rf p q r R
 
 #Test basename
@@ -72,7 +72,7 @@ if test `basename a/b/c/d` != 'd'; then Error on basename test 2; fi
 cp $f x.c			# x.c is a copy $f
 echo "/a/s//#####/g" >s		# create sed script
 sed -f s <x.c >y.c		# y.c is new version of x.c
-cdiff x.c y.c >y		# y is cdiff listing
+diff -c x.c y.c >y		# y is cdiff listing
 patch x.c y  2>/dev/null	# z should be y.c
 if cmp -s x.c y.c; then : ; else echo Error in cdiff test; fi
 rm x.c* y.c s y

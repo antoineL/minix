@@ -3,59 +3,18 @@
 
 #include <minix/config.h>
 #include <minix/const.h>
+#include <machine/asm.h>
 #include <machine/interrupt.h>
+#include <i386/vm.h>
 #include "archconst.h"
 #include "kernel/const.h"
 #include "sconst.h"
+#include "multiboot.h"
 
 /*
  * This file contains a number of assembly code utility routines needed by the
- * kernel.  They are:
+ * kernel.
  */
-
-.globl	_monitor/* exit Minix and return to the monitor */
-.globl	_int86	/* let the monitor make an 8086 interrupt call */
-#ifdef __ACK__
-.globl	_exit	/* dummy for library routines */
-.globl	__exit	/* dummy for library routines */
-.globl	___exit	/* dummy for library routines */
-#endif
-.globl	___main	/* dummy for GCC */
-.globl	_phys_insw	/* transfer data from (disk controller) port to memory */
-.globl	_phys_insb	/* likewise byte by byte */
-.globl	_phys_outsw	/* transfer data from memory to (disk controller) port */
-.globl	_phys_outsb	/* likewise byte by byte */
-.globl	_phys_copy	/* copy data from anywhere to anywhere in memory */
-.globl	_phys_copy_fault	/* phys_copy pagefault */
-.globl	_phys_copy_fault_in_kernel /* phys_copy pagefault in kernel */
-.globl	_phys_memset	/* write pattern anywhere in memory */
-.globl	_mem_rdw	/* copy one word from [segment:offset] */
-.globl	_reset	/* reset the system */
-.globl	_halt_cpu/* halts the current cpu when idle */
-.globl	_read_cpu_flags	/* read the cpu flags */
-.globl	_read_cr0	/* read cr0 */
-.globl	_read_cr2	/* read cr2 */
-.globl	_getcr3val
-.globl	_write_cr0	/* write a value in cr0 */
-.globl	_read_cr3
-.globl	_write_cr3
-.globl	_read_cr4
-.globl	_write_cr4
-
-.globl	_catch_pagefaults
-.globl	_read_ds
-.globl  _read_cs
-.globl	_read_ss
-.globl	_idt_reload	/* reload idt when returning to monitor. */
-
-.globl	_fninit			/* non-waiting FPU initialization */
-.globl	_fnstsw			/* store status word (non-waiting) */
-.globl	_fnstcw			/* store control word (non-waiting) */
-.globl	_fxsave	
-.globl	_fnsave	
-.globl	_fxrstor	
-.globl	_frstor	
-.globl	_clts	
 
 /*
  * The routines only guarantee to preserve the registers the C compiler 
@@ -63,15 +22,13 @@
  * direction bit in the flags). 
  */
 
-.text
 /*===========================================================================*/
 /*				monitor					     */
 /*===========================================================================*/
 /* PUBLIC void monitor(); */
-/* Return to the monitor. */
-
-_monitor:
-	movl	_mon_sp, %esp	/* restore monitor stack pointer */
+/* exit Minix and return to the monitor */
+ENTRY(monitor)
+	movl	_C_LABEL(mon_sp), %esp	/* restore monitor stack pointer */
 	movw	$SS_SELECTOR, %dx	/* monitor data segment */
 	mov	%dx, %ds
 	mov	%dx, %es
@@ -88,12 +45,13 @@ _monitor:
 /*				int86					     */
 /*===========================================================================*/
 /* PUBLIC void int86(); */
-_int86:
-	cmpb	$0, _mon_return	/* is the monitor there? */
+/* let the monitor make an 8086 interrupt call */
+ENTRY(int86)
+	cmpb	$0, _C_LABEL(mon_return)	/* is the monitor there? */
 	jne	0f
 	movb	$0x01, %ah	/* an int 13 error seems appropriate */
-	movb	%ah, _reg86+0	/* reg86.w.f = 1 (set carry flag) */
-	movb	%ah, _reg86+13	/* reg86.b.ah = 0x01 = "invalid command" */
+	movb	%ah, _C_LABEL(reg86)+0	/* reg86.w.f = 1 (set carry flag) */
+	movb	%ah, _C_LABEL(reg86)+13	/* reg86.b.ah = 0x01 = "invalid command" */
 	ret
 0:
 	push	%ebp	/* save C registers */
@@ -107,7 +65,7 @@ _int86:
 	movb	%al, %ah
 	inb	$INT_CTLMASK
 	push	%eax	/* save interrupt masks */
-	movl	_irq_use, %eax	/* map of in-use IRQ's */
+	movl	_C_LABEL(irq_use), %eax	/* map of in-use IRQ's */
 	and	$~(1<<CLOCK_IRQ), %eax	/* keep the clock ticking */
 	outb	$INT_CTLMASK	/* enable all unused IRQ's and vv. */
 	movb	%ah, %al
@@ -115,17 +73,17 @@ _int86:
 
 	mov	$SS_SELECTOR, %eax	/* monitor data segment */
 	mov	%ax, %ss
-	xchgl	_mon_sp, %esp	/* switch stacks */
-	push	_reg86+36	/* parameters used in INT call */
-	push	_reg86+32
-	push	_reg86+28
-	push	_reg86+24
-	push	_reg86+20
-	push	_reg86+16
-	push	_reg86+12
-	push	_reg86+8
-	push	_reg86+4
-	push	_reg86+0
+	xchgl	_C_LABEL(mon_sp), %esp	/* switch stacks */
+	push	_C_LABEL(reg86)+36	/* parameters used in INT call */
+	push	_C_LABEL(reg86)+32
+	push	_C_LABEL(reg86)+28
+	push	_C_LABEL(reg86)+24
+	push	_C_LABEL(reg86)+20
+	push	_C_LABEL(reg86)+16
+	push	_C_LABEL(reg86)+12
+	push	_C_LABEL(reg86)+8
+	push	_C_LABEL(reg86)+4
+	push	_C_LABEL(reg86)+0
 	mov	%ax, %ds	/* remaining data selectors */
 	mov	%ax, %es
 	mov	%ax, %fs
@@ -134,17 +92,17 @@ _int86:
 	push	$return	/* kernel return address and selector */
         ljmpw    *20+2*4+10*4+2*4(%esp)
 return:
-	pop	_reg86+0
-	pop	_reg86+4
-	pop	_reg86+8
-	pop	_reg86+12
-	pop	_reg86+16
-	pop	_reg86+20
-	pop	_reg86+24
-	pop	_reg86+28
-	pop	_reg86+32
-	pop	_reg86+36
-	lgdt	_gdt+GDT_SELECTOR	/* reload global descriptor table */
+	pop	_C_LABEL(reg86)+0
+	pop	_C_LABEL(reg86)+4
+	pop	_C_LABEL(reg86)+8
+	pop	_C_LABEL(reg86)+12
+	pop	_C_LABEL(reg86)+16
+	pop	_C_LABEL(reg86)+20
+	pop	_C_LABEL(reg86)+24
+	pop	_C_LABEL(reg86)+28
+	pop	_C_LABEL(reg86)+32
+	pop	_C_LABEL(reg86)+36
+	lgdt	_C_LABEL(gdt)+GDT_SELECTOR /* reload global descriptor table */
         ljmp    $CS_SELECTOR, $csinit
 csinit:
 	mov	$DS_SELECTOR, %eax
@@ -153,39 +111,8 @@ csinit:
 	mov	%ax, %fs
 	mov	%ax, %gs
 	mov	%ax, %ss
-	xchgl	_mon_sp, %esp	/* unswitch stacks */
-	lidt	_gdt+IDT_SELECTOR	/* reload interrupt descriptor table */
-
-#ifdef CONFIG_APIC
-	cmpl	$0x0, lapic_addr
-	jne	3f
-	mov	$0, %ebx
-	jmp	4f
-
-3:
-	mov	$FLAT_DS_SELECTOR, %ebx
-	mov	%bx, %fs
-	movl	lapic_addr, %eax
-	add	$0x20, %eax
-	.byte 0x64; mov	(%eax), %ebx
-	and	$0xFF000000, %ebx
-	shr	$24, %ebx
-	movzb	%bl, %ebx
-
-4:
-	add	$apicid2cpuid, %ebx
-	movzb	(%ebx), %eax
-	shl	$3, %eax
-	mov	%eax, %ebx
-	add	$TSS_SELECTOR, %eax
-	addl	_gdt+DESC_ACCESS, %eax
-	and	$~0x02, %eax
-	ltr	%bx	/* set TSS register */
-
-	mov	$DS_SELECTOR, %eax
-	mov	%ax, %fs
-
-#endif /* CONFIG_APIC */
+	xchgl	_C_LABEL(mon_sp), %esp	/* unswitch stacks */
+	lidt	_C_LABEL(gdt)+IDT_SELECTOR /* reload interrupt descriptor table */
 
 	pop	%eax
 	outb	$INT_CTLMASK	/* restore interrupt masks */
@@ -193,7 +120,7 @@ csinit:
 	outb	$INT2_CTLMASK
 
 6:
-	addl	%ecx, _lost_ticks	/* record lost clock ticks */
+	addl	%ecx, _C_LABEL(lost_ticks)	/* record lost clock ticks */
 
 	popf	/* restore flags */
 	pop	%ebx	/* restore C registers */
@@ -212,14 +139,14 @@ csinit:
  * GNU CC likes to call ___main from main() for nonobvious reasons. 
  */
 #ifdef __ACK__
-_exit:
-__exit:
-___exit:
+ENTRY(exit)
+ENTRY(_exit)
+ENTRY(__exit)
 	sti
-	jmp	___exit
+	jmp	_C_LABEL(__exit)
 #endif
 
-___main:
+ENTRY(__main)
 	ret
 
 
@@ -230,8 +157,8 @@ ___main:
  * PUBLIC void phys_insw(Port_t port, phys_bytes buf, size_t count); 
  * Input an array from an I/O port.  Absolute address version of insw(). 
  */
-
-_phys_insw:
+/* transfer data from (disk controller) port to memory */
+ENTRY(phys_insw)
 	push	%ebp
 	mov	%esp, %ebp
 	cld
@@ -258,8 +185,8 @@ _phys_insw:
  * PUBLIC void phys_insb(Port_t port, phys_bytes buf, size_t count); 
  * Input an array from an I/O port.  Absolute address version of insb(). 
  */
-
-_phys_insb:
+/* transfer data from (disk controller) port to memory byte by byte */
+ENTRY(phys_insb)
 	push	%ebp
 	mov	%esp, %ebp
 	cld
@@ -285,9 +212,8 @@ _phys_insb:
  * PUBLIC void phys_outsw(Port_t port, phys_bytes buf, size_t count); 
  * Output an array to an I/O port.  Absolute address version of outsw(). 
  */
-
-.balign	16
-_phys_outsw:
+/* transfer data from memory to (disk controller) port */
+ENTRY(phys_outsw)
 	push	%ebp
 	mov	%esp, %ebp
 	cld
@@ -314,9 +240,8 @@ _phys_outsw:
  * PUBLIC void phys_outsb(Port_t port, phys_bytes buf, size_t count);
  * Output an array to an I/O port.  Absolute address version of outsb().
  */
-
-.balign	16
-_phys_outsb:
+/* transfer data from memory to (disk controller) port byte by byte */
+ENTRY(phys_outsb)
 	push	%ebp
 	mov	%esp, %ebp
 	cld
@@ -341,14 +266,11 @@ _phys_outsb:
 /*
  * PUBLIC phys_bytes phys_copy(phys_bytes source, phys_bytes destination,
  *			phys_bytes bytecount); 
- * Copy a block of physical memory. 
+ * Copy a block of data from anywhere to anywhere in physical memory.
  */
-
 	PC_ARGS = 4+4+4+4	/* 4 + 4 + 4 */
 /*		es edi esi eip	 src dst len */
-
-.balign	16
-_phys_copy:
+ENTRY(phys_copy)
 	cld
 	push	%esi
 	push	%edi
@@ -380,13 +302,13 @@ pc_small:
 	rep 	movsb %es:(%esi), %es:(%edi)
 
 	mov	$0, %eax		/* 0 means: no fault */
-_phys_copy_fault:			/* kernel can send us here */
+LABEL(phys_copy_fault)		/* kernel can send us here */
 	pop	%es
 	pop	%edi
 	pop	%esi
 	ret
 
-_phys_copy_fault_in_kernel:			/* kernel can send us here */
+LABEL(phys_copy_fault_in_kernel)	/* kernel can send us here */
 	pop	%es
 	pop	%edi
 	pop	%esi
@@ -415,10 +337,7 @@ _phys_copy_fault_in_kernel:			/* kernel can send us here */
  * wrong pointers from userspace and the caller should return an error to
  * userspace as if wrong values or request were passed to the kernel
  */
-
-.balign 16
-.globl _copy_msg_from_user
-_copy_msg_from_user:
+ENTRY(copy_msg_from_user)
 	push	%gs
 
 	mov	8(%esp), %eax
@@ -448,8 +367,7 @@ _copy_msg_from_user:
 	mov	%gs:8*4(%ecx), %eax
 	mov	%eax, 8*4(%edx)
 
-.globl ___copy_msg_from_user_end
-___copy_msg_from_user_end:
+LABEL(__copy_msg_from_user_end)
 
 	pop	%gs
 
@@ -468,10 +386,7 @@ ___copy_msg_from_user_end:
  *
  * All the other copy_msg_from_user() comments apply here as well!
  */
-
-.balign 16
-.globl _copy_msg_to_user
-_copy_msg_to_user:
+ENTRY(copy_msg_to_user)
 	push	%gs
 
 	mov	8(%esp), %eax
@@ -501,8 +416,7 @@ _copy_msg_to_user:
 	mov	8*4(%ecx), %eax
 	mov	%eax, %gs:8*4(%edx)
 
-.globl ___copy_msg_to_user_end
-___copy_msg_to_user_end:
+LABEL(__copy_msg_to_user_end)
 
 	pop	%gs
 
@@ -516,9 +430,7 @@ ___copy_msg_to_user_end:
  * called from has to handle this situation. The exception handler redirect us
  * here to continue, clean up and report the error
  */
-.balign 16
-.globl ___user_copy_msg_pointer_failure
-___user_copy_msg_pointer_failure:
+ENTRY(__user_copy_msg_pointer_failure)
 	pop	%gs
 
 	movl	$-1, %eax
@@ -532,9 +444,7 @@ ___user_copy_msg_pointer_failure:
  *	phys_bytes bytecount); 
  * Fill a block of physical memory with pattern. 
  */
-
-.balign	16
-_phys_memset:
+ENTRY(phys_memset)
 	push	%ebp
 	mov	%esp, %ebp
 	push	%esi
@@ -579,9 +489,7 @@ fill_done:
  * PUBLIC u16_t mem_rdw(U16_t segment, u16_t *offset); 
  * Load and return word at far pointer segment:offset. 
  */
-
-.balign	16
-_mem_rdw:
+ENTRY(mem_rdw)
 	mov	%ds, %cx
 	mov	4(%esp), %ds
 	mov	4+4(%esp), %eax	/* offset */
@@ -597,8 +505,7 @@ _mem_rdw:
  * PUBLIC void reset(); 
  * Reset the system by loading IDT with offset 0 and interrupting. 
  */
-
-_reset:
+ENTRY(reset)
 	lidt	idt_zero
 	int	$3	/* anything goes, the 386 will not like it */
 .data
@@ -615,7 +522,7 @@ idt_zero:
  * reanables interrupts and puts the cpu in the halts state. Once an interrupt
  * is handled the execution resumes by disabling interrupts and continues
  */
-_halt_cpu:
+ENTRY(halt_cpu)
 	sti
 	hlt /* interrupts enabled only after this instruction is executed! */
 	/*
@@ -631,48 +538,50 @@ _halt_cpu:
  * PUBLIC unsigned long read_cpu_flags(void);
  * Read CPU status flags from C.
  */
-.balign	16
-_read_cpu_flags:
+ENTRY(read_cpu_flags)
 	pushf
 	mov	(%esp), %eax
 	add	$4, %esp
 	ret
 
-_read_ds:
+ENTRY(read_ds)
 	mov	$0, %eax
 	mov	%ds, %ax
 	ret
 
-_read_cs:
+ENTRY(read_cs)
 	mov	$0, %eax
 	mov	%cs, %ax
 	ret
 
-_read_ss:
+ENTRY(read_ss)
 	mov	$0, %eax
 	mov	%ss, %ax
 	ret
 
-
 /*===========================================================================*/
 /*                            fpu_routines                                   */
 /*===========================================================================*/
-_fninit:
+
+/* non-waiting FPU initialization */
+ENTRY(fninit)
 	fninit
 	ret
 
-_clts:
+ENTRY(clts)
 	clts
 	ret
 
-_fnstsw:
+/* store status word (non-waiting) */
+ENTRY(fnstsw)
 	xor     %eax, %eax
 
 	/* DO NOT CHANGE THE OPERAND!!! gas2ack does not handle it yet */
 	fnstsw	%ax
 	ret
 
-_fnstcw:
+/* store control word (non-waiting) */
+ENTRY(fnstcw)
 	push    %eax
 	mov     8(%esp), %eax
 
@@ -684,7 +593,7 @@ _fnstcw:
 /*===========================================================================*/
 /*			      fxsave			     		*/
 /*===========================================================================*/
-_fxsave:
+ENTRY(fxsave)
 	mov	4(%esp), %eax
 	fxsave	(%eax)		/* Do not change the operand! (gas2ack) */
 	ret
@@ -692,7 +601,7 @@ _fxsave:
 /*===========================================================================*/
 /*			      fnsave			     		*/
 /*===========================================================================*/
-_fnsave:
+ENTRY(fnsave)
 	mov	4(%esp), %eax
 	fnsave	(%eax)		/* Do not change the operand! (gas2ack) */
 	fwait	/* required for compatibility with processors prior pentium */
@@ -701,7 +610,7 @@ _fnsave:
 /*===========================================================================*/
 /*			      fxrstor			     		*/
 /*===========================================================================*/
-_fxrstor:
+ENTRY(fxrstor)
 	mov	4(%esp), %eax
 	fxrstor	(%eax)		/* Do not change the operand! (gas2ack) */
 	ret
@@ -709,7 +618,7 @@ _fxrstor:
 /*===========================================================================*/
 /*			      frstor			     		*/
 /*===========================================================================*/
-_frstor:
+ENTRY(frstor)
 	mov	4(%esp), %eax
 	frstor	(%eax)		/* Do not change the operand! (gas2ack) */
 	ret
@@ -719,7 +628,7 @@ _frstor:
 /*			      read_cr0					     */
 /*===========================================================================*/
 /* PUBLIC unsigned long read_cr0(void); */
-_read_cr0:
+ENTRY(read_cr0)
 	push	%ebp
 	mov	%esp, %ebp
 	mov	%cr0, %eax
@@ -730,7 +639,7 @@ _read_cr0:
 /*			      write_cr0					     */
 /*===========================================================================*/
 /* PUBLIC void write_cr0(unsigned long value); */
-_write_cr0:
+ENTRY(write_cr0)
 	push	%ebp
 	mov	%esp, %ebp
 	mov	8(%ebp), %eax
@@ -744,7 +653,7 @@ _write_cr0:
 /*			      read_cr2					     */
 /*===========================================================================*/
 /* PUBLIC reg_t read_cr2(void); */
-_read_cr2:
+ENTRY(read_cr2)
 	mov	%cr2, %eax
 	ret
 
@@ -752,7 +661,7 @@ _read_cr2:
 /*			      read_cr3					     */
 /*===========================================================================*/
 /* PUBLIC unsigned long read_cr3(void); */
-_read_cr3:
+ENTRY(read_cr3)
 	push	%ebp
 	mov	%esp, %ebp
 
@@ -765,7 +674,7 @@ _read_cr3:
 /*			      read_cr4					     */
 /*===========================================================================*/
 /* PUBLIC unsigned long read_cr4(void); */
-_read_cr4:
+ENTRY(read_cr4)
 	push	%ebp
 	mov	%esp, %ebp
 
@@ -778,7 +687,7 @@ _read_cr4:
 /*			      write_cr4					     */
 /*===========================================================================*/
 /* PUBLIC void write_cr4(unsigned long value); */
-_write_cr4:
+ENTRY(write_cr4)
 	push	%ebp
 	mov	%esp, %ebp
 	mov	8(%ebp), %eax
@@ -794,7 +703,7 @@ _write_cr4:
 /*			      write_cr3					     */
 /*===========================================================================*/
 /* PUBLIC void write_cr3(unsigned long value); */
-_write_cr3:
+ENTRY(write_cr3)
 	push	%ebp
 	mov	%esp, %ebp
 	mov	8(%ebp), %eax
@@ -809,7 +718,7 @@ _write_cr3:
 /*				getcr3val				     */
 /*===========================================================================*/
 /* PUBLIC unsigned long getcr3val(void); */
-_getcr3val:
+ENTRY(getcr3val)
 	mov	%cr3, %eax
 	ret
 
@@ -818,8 +727,7 @@ _getcr3val:
  *
  * void ia32_msr_read(u32_t reg, u32_t * hi, u32_t * lo)
  */
-.globl _ia32_msr_read
-_ia32_msr_read:
+ENTRY(ia32_msr_read)
 	push	%ebp
 	mov	%esp, %ebp
 
@@ -838,8 +746,7 @@ _ia32_msr_read:
  *
  * void ia32_msr_write(u32_t reg, u32_t hi, u32_t lo)
  */
-.globl _ia32_msr_write
-_ia32_msr_write:
+ENTRY(ia32_msr_write)
 	push	%ebp
 	mov	%esp, %ebp
 
@@ -855,9 +762,9 @@ _ia32_msr_write:
 /*			      idt_reload				     */
 /*===========================================================================*/
 /*  PUBLIC void idt_reload (void); */
-.balign	16
-_idt_reload:
-	lidt	_gdt+IDT_SELECTOR	/*  reload interrupt descriptor table */
+/* reload idt when returning to monitor. */
+ENTRY(idt_reload)
+	lidt	_C_LABEL(gdt)+IDT_SELECTOR /*  reload interrupt descriptor table */
 	ret
 
 /*
@@ -868,24 +775,20 @@ _idt_reload:
 	mov	reg, %ax	;\
 	mov	%ax, reg	;
 
-.globl _reload_ds
-_reload_ds:
+ENTRY(reload_ds)
 	RELOAD_SEG_REG(%ds)
 	ret
 
 /*===========================================================================*/
-/*			      switch_address_space			     */
+/*			      __switch_address_space			     */
 /*===========================================================================*/
-/* PUBLIC void switch_address_space(struct proc *p)
+/* PUBLIC void __switch_address_space(struct proc *p, struct ** ptproc)
  *
  * sets the %cr3 register to the supplied value if it is not already set to the
  * same value in which case it would only result in an extra TLB flush which is
  * not desirable
  */
- .balign 16
-.globl _switch_address_space
-_switch_address_space:
-
+ENTRY(__switch_address_space)
 	/* read the process pointer */
 	mov	4(%esp), %edx
 	/* enable process' segment descriptors  */
@@ -900,11 +803,260 @@ _switch_address_space:
 	 * test if the cr3 is loaded with the current value to avoid unnecessary
 	 * TLB flushes
 	 */
+#ifndef CONFIG_SMP
 	mov	%cr3, %ecx
 	cmp	%ecx, %eax
 	je	0f
+#endif
 	mov	%eax, %cr3
-	mov	%edx, _ptproc
+	/* get ptproc */
+	mov	8(%esp), %eax
+	mov	%edx, (%eax)
 0:
 	ret
 
+/*===========================================================================*/
+/*				poweroff					     */
+/*===========================================================================*/
+/* PUBLIC void poweroff(); */
+/* Jump to 16-bit poweroff code */
+ENTRY(poweroff_jmp)
+	cli
+	/* Make real mode descriptor */
+	mov	$(_C_LABEL(gdt) + SS_SELECTOR), %edi
+	mov	$0x100, %eax
+	movw %ax, 2(%edi)
+	shr	$16, %eax
+	movb	%al, 4(%edi)
+	and	$0xff00, %ax
+	andw	$0xff, 6(%edi)
+	or	%ax, 6(%edi)
+	mov	$0xffff, %eax
+	movw	%ax, (%edi)
+	shr	$16, %eax
+	and	$0xf, %ax
+	andb	$0xf0, 6(%edi)
+	or	%ax, 6(%edi)
+	
+	/* Flush TLB */
+	xor	%eax, %eax
+	mov	%eax, %cr3
+	
+	xor	%esp, %esp /* clear esp for real mode*/
+	
+	/* Reset IDTR */
+	lidt	idt_ptr
+	
+	mov	$SS_SELECTOR, %ax
+	mov	%ax, %ds
+	mov	%ax, %es
+	mov	%ax, %fs
+	mov	%ax, %gs
+	mov	%ax, %ss
+	
+	/* Save real mode cr0 in eax */
+	mov	%cr0, %eax
+	andl	$~I386_CR0_PE, %eax
+	
+	/* Jump to 16-bit code that is copied to below 1MB */
+	ljmp	$MON_CS_SELECTOR, $0
+
+/* acknowledge just the master PIC */
+ENTRY(eoi_8259_master)
+	movb	$END_OF_INT, %al
+	outb	$INT_CTL
+	ret
+	
+/* we have to acknowledge both PICs */
+ENTRY(eoi_8259_slave)
+	movb	$END_OF_INT, %al
+	outb	$INT_CTL
+	outb	$INT2_CTL
+	ret
+	
+/* in some cases we need to force TLB update, reloading cr3 does the trick */
+ENTRY(refresh_tlb)
+	mov	%cr3, %eax
+	mov	%eax, %cr3
+	ret
+
+#ifdef CONFIG_SMP
+
+/*===========================================================================*/
+/*			      smp_get_htt				     */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_htt(void); */
+/*  return true if the processor is hyper-threaded. */
+ENTRY(smp_get_htt)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	mov	$0x1, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	mov	%edx, %eax
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*			      smp_get_num_htt				     */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_num_htt(void); */
+/*  Get the number of hyper-threaded processor cores */
+ENTRY(smp_get_num_htt)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	mov	$0x1, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	mov	%ebx, %eax
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*			      smp_get_cores				    */
+/*===========================================================================*/
+/*  PUBLIC int smp_get_cores(void); */
+/*  Get the number of cores. */
+ENTRY(smp_get_cores)
+	push	%ebp
+	mov	%esp, %ebp
+	pushf
+	pop	%eax
+	mov	%eax, %ebx
+	and	$0x200000, %eax
+	je	0f
+	push	%ecx
+	xor	%ecx, %ecx
+	mov	$0x4, %eax
+/* FIXME don't use the byte code */
+.byte	0x0f, 0xa2	/*  opcode for cpuid  */
+	pop	%ebp
+	ret
+0:
+	xor	%eax, %eax
+	pop	%ebp
+	ret
+
+/*===========================================================================*/
+/*				arch_spinlock_lock				    */
+/*===========================================================================*/
+/* void arch_spinlock_lock (u32_t  *lock_data)
+ * {
+ * 	while (test_and_set(lock_data) == 1)
+ *		while (*lock_data == 1)
+ *			;
+ * }
+ * eax register is clobbered.
+ */
+ENTRY(arch_spinlock_lock)
+	mov	4(%esp), %eax
+	mov	$1, %edx
+2:
+	mov	$1, %ecx
+	xchg	%ecx, (%eax)
+	test	%ecx, %ecx
+	je	0f
+
+	cmp	$(1<< 16), %edx
+	je	1f
+	shl	%edx
+1:
+	mov	%edx, %ecx
+3:
+	pause
+	sub	$1, %ecx
+	test	%ecx, %ecx
+	jz	2b
+	jmp	3b
+0:
+	mfence
+	ret
+
+/*===========================================================================*/
+/*				arch_spinlock_unlock	                             */
+/*===========================================================================*/
+/* * void arch_spinlock_unlock (unsigned int *lockp) */
+/*  spin lock release routine. */
+ENTRY(arch_spinlock_unlock)
+	mov	4(%esp), %eax
+	mov	$0, %ecx
+	xchg	%ecx, (%eax)
+	mfence
+	ret
+
+#endif /* CONFIG_SMP */
+
+/*===========================================================================*/
+/*			      mfence					     */
+/*===========================================================================*/
+/*  PUBLIC void mfence (void); */
+/*  architecture specific memory barrier routine. */
+ENTRY(mfence)
+	mfence
+	ret
+
+/*===========================================================================*/
+/*			      arch_pause				     */
+/*===========================================================================*/
+/*  PUBLIC void arch_pause (void); */
+/*  architecture specific pause routine. */
+ENTRY(arch_pause)
+	pause
+	ret
+
+/*===========================================================================*/
+/*			      read_ebp				     	     */
+/*===========================================================================*/
+/*  PUBLIC u16_t cpuid(void) */
+ENTRY(read_ebp)
+	mov	%ebp, %eax
+	ret
+
+ENTRY(interrupts_enable)
+	sti
+	ret
+
+ENTRY(interrupts_disable)
+	cli
+	ret
+
+
+/*
+ * void switch_k_stack(void * esp, void (* continuation)(void));
+ *
+ * sets the current stack pointer to the given value and continues execution at
+ * the given address
+ */
+ENTRY(switch_k_stack)
+	/* get the arguments from the stack */
+	mov	8(%esp), %eax
+	mov	4(%esp), %ecx
+	mov	$0, %ebp	/* reset %ebp for stack trace */
+	mov	%ecx, %esp	/* set the new stack */
+	jmp	*%eax		/* and jump to the continuation */
+
+	/* NOT_REACHABLE */
+0:	jmp	0b
+
+.data
+idt_ptr:
+	.short 0x3ff
+	.long 0x0

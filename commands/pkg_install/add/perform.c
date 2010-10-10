@@ -46,6 +46,7 @@ __RCSID("$NetBSD: perform.c,v 1.97 2010/06/16 23:02:48 joerg Exp $");
 
 #ifdef __minix
 #include <stdint.h>
+#include <assert.h>
 #endif
 
 #include <sys/utsname.h>
@@ -503,8 +504,6 @@ read_buildinfo(struct pkg_task *pkg)
 
 		if (strncmp(data, "OPSYS=", 6) == 0)
 			pkg->buildinfo[BI_OPSYS] = dup_value(data, eol);
-		else if (strncmp(data, "OS_RELEASE=", 11) == 0)
-			pkg->buildinfo[BI_OS_RELEASE] = dup_value(data, eol);
 		else if (strncmp(data, "OS_VERSION=", 11) == 0)
 			pkg->buildinfo[BI_OS_VERSION] = dup_value(data, eol);
 		else if (strncmp(data, "MACHINE_ARCH=", 13) == 0)
@@ -716,7 +715,7 @@ extract_files(struct pkg_task *pkg)
 			continue;
 
 		case PLIST_CMD:
-			if (format_cmd(cmd, sizeof(cmd), p->name, pkg->prefix, last_file))
+			if (format_cmd(cmd, sizeof(cmd), p->name, pkg->install_prefix, last_file))
 				return -1;
 			printf("Executing '%s'\n", cmd);
 			if (!Fake && system(cmd))
@@ -836,6 +835,26 @@ pkg_register_depends(struct pkg_task *pkg)
 	free(text);
 }
 
+static void
+normalise_version(char *release, char *version)
+{
+	char actual_version[20];
+
+	assert(release && version);
+
+	if(strlen(release) > 0 && strlen(version) > 0)
+		sprintf(actual_version, "%s.%s", release, version);
+        else if(strlen(release) > 0)
+		strcpy(actual_version, release);
+	else if(strlen(version) > 0)
+		strcpy(actual_version, version);
+	else
+		errx(EXIT_FAILURE, "no version info");
+
+	strcpy(release, actual_version);
+	version[0] = '\0';
+}
+
 /*
  * Reduce the result from uname(3) to a canonical form.
  */
@@ -848,6 +867,7 @@ normalise_platform(struct utsname *host_name)
 	span = strspn(host_name->release, "0123456789.");
 	host_name->release[span] = '\0';
 #endif
+	normalise_version(host_name->release, host_name->version);
 }
 
 /*
@@ -882,24 +902,21 @@ check_platform(struct pkg_task *pkg)
 	    strcmp(effective_arch, pkg->buildinfo[BI_MACHINE_ARCH]) != 0)
 		fatal = 1;
 
-	if (strcmp(host_uname.release, pkg->buildinfo[BI_OS_RELEASE]) != 0)
-		fatal = 1;
+	normalise_version(host_uname.release, host_uname.version);
 
-	if (strcmp(host_uname.version, pkg->buildinfo[BI_OS_VERSION]) != 0)
+	if (strcmp(host_uname.release, pkg->buildinfo[BI_OS_VERSION]) != 0)
 		fatal = 1;
 
 	if (fatal) {
 		warnx("Warning: package `%s' was built for a platform:",
 		    pkg->pkgname);
-		warnx("%s/%s %s %s (pkg) vs. %s/%s %s %s (this host)",
+		warnx("%s/%s %s (pkg) vs. %s/%s %s (this host)",
 		    pkg->buildinfo[BI_OPSYS],
 		    pkg->buildinfo[BI_MACHINE_ARCH],
-		    pkg->buildinfo[BI_OS_RELEASE],
 		    pkg->buildinfo[BI_OS_VERSION],
 		    OPSYS_NAME,
 		    effective_arch,
-		    host_uname.release,
-			host_uname.version);
+		    host_uname.release);
 		if (!Force && fatal)
 			return -1;
 	}

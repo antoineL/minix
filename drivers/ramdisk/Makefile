@@ -1,7 +1,13 @@
 # Makefile for ramdisk image
 
-PROGRAMS=at_wini bios_wini cdprobe dev2name floppy loadramdisk newroot \
-	pci sh service sysenv mfs
+PROGRAMS=ahci at_wini bios_wini cdprobe dev2name floppy loadramdisk mount \
+	newroot pci sh service sysenv mfs ext2
+
+# acpi is not compiled with ack
+.if ${COMPILER_TYPE} == "gnu"
+PROGRAMS += acpi
+.endif
+
 EXTRA=system.conf passwd rs.single
 
 CPPFLAGS+= -I${MINIXSRCDIR}/servers -I${MINIXSRCDIR}
@@ -22,8 +28,14 @@ image.c:	bintoc image
 bintoc:	bintoc.c
 	$(CC) -o $@ bintoc.c
 
-image:	proto.gen mtab rc $(PROGRAMS) $(EXTRA)
-	mkfs image proto.gen || { rm -f image; false; }
+image:	proto.gen mtab rc $(EXTRA)
+	mkfs.mfs image proto.gen || { rm -f image; false; }
+
+ahci: ../ahci/ahci
+	install -s ../$@/$@ $@
+
+../ahci/ahci:
+	$(MAKE) -C ../ahci
 
 at_wini: ../at_wini/at_wini
 	install -s ../$@/$@ $@
@@ -42,6 +54,12 @@ floppy: ../floppy/floppy
 
 ../floppy/floppy:
 	$(MAKE) -C ../floppy
+
+acpi: ../acpi/acpi
+	install -s ../$@/$@ $@
+
+../acpi/acpi:
+	$(MAKE) -C ../acpi
 
 pci: ../pci/pci
 	install -s ../$@/$@ $@
@@ -67,8 +85,14 @@ loadramdisk:  ../../commands/loadramdisk/loadramdisk
 ../../commands/loadramdisk/loadramdisk:
 	$(MAKE) -C ../../commands/loadramdisk
 
-newroot:  ../../commands/newroot/newroot
+mount:  ../../commands/mount/mount
 	install -s ../../commands/$@/$@ $@
+
+../../commands/mount/mount:
+	$(MAKE) -C ../../commands/mount
+
+newroot:  ../../commands/newroot/newroot.sh
+	install -s ../../commands/$@/$@.sh $@
 
 ../../commands/newroot/newroot:
 	$(MAKE) -C ../../commands/newroot
@@ -97,6 +121,12 @@ mfs: ../../servers/mfs/mfs
 ../../servers/mfs/mfs:
 	$(MAKE) -C ../../servers/mfs
 
+ext2: ../../servers/ext2/ext2
+	install -s ../../servers/ext2/$@ $@
+
+../../servers/ext2/ext2:
+	$(MAKE) -C ../../servers/ext2
+
 system.conf: ../../etc/system.conf
 	install -s ../../etc/$@ $@
 
@@ -106,7 +136,7 @@ passwd: ../../etc/passwd
 rs.single: ../../etc/rs.single
 	install -s ../../etc/$@ $@
 
-proto.gen: $(MAKEDEV) proto.sh proto
+proto.gen: $(PROGRAMS) $(MAKEDEV) proto.sh proto
 	sh -e proto.sh >proto.gen
 
 .include <bsd.prog.mk>

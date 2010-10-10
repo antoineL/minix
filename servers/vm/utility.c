@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <memory.h>
 #include <assert.h>
+#include <sys/param.h>
 
 #include "proto.h"
 #include "glo.h"
@@ -36,8 +37,6 @@
 #include "kernel/config.h"
 #include "kernel/type.h"
 #include "kernel/proc.h"
-
-#define SWAP_PROC_DEBUG 0
 
 /*===========================================================================*
  *                              get_mem_map                                  *
@@ -72,7 +71,7 @@ struct memory *mem_chunks;                      /* store mem chunks here */
   /* Obtain and parse memory from system environment. */
   if(env_memory_parse(mem_chunks, NR_MEMS) != OK) 
         panic("couldn't obtain memory chunks"); 
-   
+        
   /* Round physical memory to clicks. Round start up, round end down. */
   for (i = 0; i < NR_MEMS; i++) {
         memp = &mem_chunks[i];          /* next mem chunk is stored here */
@@ -97,22 +96,35 @@ PUBLIC void reserve_proc_mem(mem_chunks, map_ptr)
 struct memory *mem_chunks;                      /* store mem chunks here */
 struct mem_map *map_ptr;                        /* memory to remove */
 {
-/* Remove server memory from the free memory list. The boot monitor
- * promises to put processes at the start of memory chunks. The 
- * tasks all use same base address, so only the first task changes
- * the memory lists. The servers and init have their own memory
- * spaces and their memory will be removed from the list.
+/* Remove server memory from the free memory list.
  */
   struct memory *memp;
   for (memp = mem_chunks; memp < &mem_chunks[NR_MEMS]; memp++) {
-        if (memp->base == map_ptr[T].mem_phys) {
-                memp->base += map_ptr[T].mem_len + map_ptr[S].mem_vir;
-                memp->size -= map_ptr[T].mem_len + map_ptr[S].mem_vir;
-                break;
-        }
+		if(memp->base <= map_ptr[T].mem_phys 
+			&& memp->base+memp->size >= map_ptr[T].mem_phys)
+		{
+			if (memp->base == map_ptr[T].mem_phys) {
+					memp->base += map_ptr[T].mem_len + map_ptr[S].mem_vir;
+					memp->size -= map_ptr[T].mem_len + map_ptr[S].mem_vir;
+			} else {
+				struct memory *mempr;
+				/* have to split mem_chunks */
+				if(mem_chunks[NR_MEMS-1].size>0)
+					panic("reserve_proc_mem: can't find free mem_chunks to map: 0x%lx",
+						map_ptr[T].mem_phys);
+				for(mempr=&mem_chunks[NR_MEMS-1];mempr>memp;mempr--) {
+					*mempr=*(mempr-1);
+				}
+				assert(memp < &mem_chunks[NR_MEMS-1]);
+				(memp+1)->base = map_ptr[T].mem_phys + map_ptr[T].mem_len + map_ptr[S].mem_vir;
+				(memp+1)->size = memp->base + memp->size 
+					- (map_ptr[T].mem_phys + map_ptr[T].mem_len + map_ptr[S].mem_vir);
+				memp->size = map_ptr[T].mem_phys - memp->base;
+			}
+			break;
+		}
   }
-  if (memp >= &mem_chunks[NR_MEMS])
-  {
+  if (memp >= &mem_chunks[NR_MEMS]) {
 		panic("reserve_proc_mem: can't find map in mem_chunks: 0x%lx",
 			map_ptr[T].mem_phys);
   }
@@ -161,7 +173,7 @@ PUBLIC int do_info(message *m)
 	static struct vm_region_info vri[MAX_VRI_COUNT];
 	struct vmproc *vmp;
 	vir_bytes addr, size, next, ptr;
-	int r, pr, dummy, count;
+	int r, pr, dummy, count, free_pages, largest_contig;
 
 	if (vm_isokendpt(m->m_source, &pr) != OK)
 		return EINVAL;
@@ -173,7 +185,11 @@ PUBLIC int do_info(message *m)
 	case VMIW_STATS:
 		vsi.vsi_pagesize = VM_PAGE_SIZE;
 		vsi.vsi_total = total_pages;
-		memstats(&dummy, &vsi.vsi_free, &vsi.vsi_largest);
+		memstats(&dummy, &free_pages, &largest_contig);
+		vsi.vsi_free = free_pages;
+		vsi.vsi_largest = largest_contig;
+
+		get_stats_info(&vsi);
 
 		addr = (vir_bytes) &vsi;
 		size = sizeof(vsi);
@@ -232,36 +248,16 @@ PUBLIC int do_info(message *m)
 }
 
 /*===========================================================================*
- *				swap_proc	     			     *
+ *				swap_proc_slot	     			     *
  *===========================================================================*/
-PUBLIC int swap_proc(endpoint_t src_e, endpoint_t dst_e)
+PUBLIC int swap_proc_slot(struct vmproc *src_vmp, struct vmproc *dst_vmp)
 {
-	struct vmproc *src_vmp, *dst_vmp;
 	struct vmproc orig_src_vmproc, orig_dst_vmproc;
-	int src_p, dst_p, r;
-	struct vir_region *vr;
 
-	/* Lookup slots for source and destination process. */
-	if(vm_isokendpt(src_e, &src_p) != OK) {
-		printf("swap_proc: bad src endpoint %d\n", src_e);
-		return EINVAL;
-	}
-	src_vmp = &vmproc[src_p];
-	if(vm_isokendpt(dst_e, &dst_p) != OK) {
-		printf("swap_proc: bad dst endpoint %d\n", dst_e);
-		return EINVAL;
-	}
-	dst_vmp = &vmproc[dst_p];
-
-#if SWAP_PROC_DEBUG
-	printf("swap_proc: swapping %d (%d, %d) and %d (%d, %d)\n",
-	    src_vmp->vm_endpoint, src_p, src_vmp->vm_slot,
-	    dst_vmp->vm_endpoint, dst_p, dst_vmp->vm_slot);
-
-	printf("swap_proc: map_printmap for source before swapping:\n");
-	map_printmap(src_vmp);
-	printf("swap_proc: map_printmap for destination before swapping:\n");
-	map_printmap(dst_vmp);
+#if LU_DEBUG
+	printf("VM: swap_proc: swapping %d (%d) and %d (%d)\n",
+	    src_vmp->vm_endpoint, src_vmp->vm_slot,
+	    dst_vmp->vm_endpoint, dst_vmp->vm_slot);
 #endif
 
 	/* Save existing data. */
@@ -278,33 +274,74 @@ PUBLIC int swap_proc(endpoint_t src_e, endpoint_t dst_e)
 	dst_vmp->vm_endpoint = orig_dst_vmproc.vm_endpoint;
 	dst_vmp->vm_slot = orig_dst_vmproc.vm_slot;
 
-	/* Preserve vir_region's parents. */
-	for(vr = src_vmp->vm_regions; vr; vr = vr->next) {
-		USE(vr, vr->parent = src_vmp;);
-	}
-	for(vr = dst_vmp->vm_regions; vr; vr = vr->next) {
-		USE(vr, vr->parent = dst_vmp;);
-	}
+	/* Preserve yielded blocks. */
+	src_vmp->vm_yielded_blocks = orig_src_vmproc.vm_yielded_blocks;
+	dst_vmp->vm_yielded_blocks = orig_dst_vmproc.vm_yielded_blocks;
 
-	/* Adjust page tables. */
-	if(src_vmp->vm_flags & VMF_HASPT)
-		pt_bind(&src_vmp->vm_pt, src_vmp);
-	if(dst_vmp->vm_flags & VMF_HASPT)
-		pt_bind(&dst_vmp->vm_pt, dst_vmp);
-	if((r=sys_vmctl(SELF, VMCTL_FLUSHTLB, 0)) != OK) {
-		panic("swap_proc: VMCTL_FLUSHTLB failed: %d", r);
-	}
-
-#if SWAP_PROC_DEBUG
-	printf("swap_proc: swapped %d (%d, %d) and %d (%d, %d)\n",
-	    src_vmp->vm_endpoint, src_p, src_vmp->vm_slot,
-	    dst_vmp->vm_endpoint, dst_p, dst_vmp->vm_slot);
-
-	printf("swap_proc: map_printmap for source after swapping:\n");
-	map_printmap(src_vmp);
-	printf("swap_proc: map_printmap for destination after swapping:\n");
-	map_printmap(dst_vmp);
+#if LU_DEBUG
+	printf("VM: swap_proc: swapped %d (%d) and %d (%d)\n",
+	    src_vmp->vm_endpoint, src_vmp->vm_slot,
+	    dst_vmp->vm_endpoint, dst_vmp->vm_slot);
 #endif
+
+	return OK;
+}
+
+/*===========================================================================*
+ *			      swap_proc_dyn_data	     		     *
+ *===========================================================================*/
+PUBLIC int swap_proc_dyn_data(struct vmproc *src_vmp, struct vmproc *dst_vmp)
+{
+	int is_vm;
+	int r;
+
+	is_vm = (dst_vmp->vm_endpoint == VM_PROC_NR);
+
+        /* For VM, transfer memory regions above the stack first. */
+        if(is_vm) {
+#if LU_DEBUG
+		printf("VM: swap_proc_dyn_data: tranferring regions above the stack from old VM (%d) to new VM (%d)\n",
+			src_vmp->vm_endpoint, dst_vmp->vm_endpoint);
+#endif
+		assert(src_vmp->vm_stacktop == dst_vmp->vm_stacktop);
+		r = pt_map_in_range(src_vmp, dst_vmp,
+			arch_vir2map(src_vmp, src_vmp->vm_stacktop), 0);
+		if(r != OK) {
+			printf("swap_proc_dyn_data: pt_map_in_range failed\n");
+			return r;
+		}
+        }
+
+#if LU_DEBUG
+	printf("VM: swap_proc_dyn_data: swapping regions' parents for %d (%d) and %d (%d)\n",
+	    src_vmp->vm_endpoint, src_vmp->vm_slot,
+	    dst_vmp->vm_endpoint, dst_vmp->vm_slot);
+#endif
+
+	/* Swap vir_regions' parents. */
+	map_setparent(src_vmp);
+	map_setparent(dst_vmp);
+
+	/* For regular processes, transfer regions above the stack now.
+	 * In case of rollback, we need to skip this step. To sandbox the
+	 * new instance and prevent state corruption on rollback, we share all
+	 * the regions between the two instances as COW.
+	 */
+	if(!is_vm && (dst_vmp->vm_flags & VMF_HASPT)) {
+		struct vir_region *vr;
+		vr = map_lookup(dst_vmp, arch_vir2map(dst_vmp, dst_vmp->vm_stacktop));
+		if(vr && !map_lookup(src_vmp, arch_vir2map(src_vmp, src_vmp->vm_stacktop))) {
+#if LU_DEBUG
+			printf("VM: swap_proc_dyn_data: tranferring regions above the stack from %d to %d\n",
+				src_vmp->vm_endpoint, dst_vmp->vm_endpoint);
+#endif
+			assert(src_vmp->vm_stacktop == dst_vmp->vm_stacktop);
+			r = map_proc_copy_from(src_vmp, dst_vmp, vr);
+			if(r != OK) {
+				return r;
+			}
+		}
+	}
 
 	return OK;
 }

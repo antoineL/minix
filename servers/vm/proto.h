@@ -44,7 +44,8 @@ _PROTOTYPE( void reserve_proc_mem, (struct memory *mem_chunks,
 _PROTOTYPE( int vm_isokendpt, (endpoint_t ep, int *proc)	     );
 _PROTOTYPE( int get_stack_ptr, (int proc_nr, vir_bytes *sp)             );
 _PROTOTYPE( int do_info, (message *)					);
-_PROTOTYPE( int swap_proc, (endpoint_t src_e, endpoint_t dst_e)		);
+_PROTOTYPE( int swap_proc_slot, (struct vmproc *src_vmp, struct vmproc *dst_vmp));
+_PROTOTYPE( int swap_proc_dyn_data, (struct vmproc *src_vmp, struct vmproc *dst_vmp));
 
 /* exit.c */
 _PROTOTYPE( void clear_proc, (struct vmproc *vmp)			);
@@ -97,13 +98,18 @@ _PROTOTYPE( int handle_memory, (struct vmproc *vmp, vir_bytes mem,
 
 /* $(ARCH)/pagetable.c */
 _PROTOTYPE( void pt_init, (phys_bytes limit)				);
+_PROTOTYPE( void pt_init_mem, (void)					);
 _PROTOTYPE( void pt_check, (struct vmproc *vmp)				);
 _PROTOTYPE( int pt_new, (pt_t *pt)					);
 _PROTOTYPE( void pt_free, (pt_t *pt)					);
+_PROTOTYPE( int pt_map_in_range, (struct vmproc *src_vmp, struct vmproc *dst_vmp,
+	vir_bytes start, vir_bytes end) );
+_PROTOTYPE( int pt_ptmap, (struct vmproc *src_vmp, struct vmproc *dst_vmp) );
 _PROTOTYPE( int pt_ptalloc_in_range, (pt_t *pt, vir_bytes start, vir_bytes end,
         u32_t flags, int verify));
-_PROTOTYPE( int pt_writemap, (pt_t *pt, vir_bytes v, phys_bytes physaddr, 
-        size_t bytes, u32_t flags, u32_t writemapflags));
+_PROTOTYPE( int pt_writemap, (struct vmproc * vmp, pt_t *pt, vir_bytes v,
+			phys_bytes physaddr, size_t bytes, u32_t flags,
+			u32_t writemapflags));
 _PROTOTYPE( int pt_checkrange, (pt_t *pt, vir_bytes v,  size_t bytes, int write));
 _PROTOTYPE( int pt_bind, (pt_t *pt, struct vmproc *who)			);
 _PROTOTYPE( void *vm_allocpage, (phys_bytes *p, int cat));
@@ -152,6 +158,7 @@ _PROTOTYPE(void map_printmap, (struct vmproc *vmp));
 _PROTOTYPE(int map_writept, (struct vmproc *vmp));
 _PROTOTYPE(void printregionstats, (struct vmproc *vmp));
 _PROTOTYPE(phys_bytes map_lookup_phys, (struct vmproc *vmp, u32_t tag));
+_PROTOTYPE(void map_setparent, (struct vmproc *vmp));
 
 _PROTOTYPE(struct vir_region * map_region_lookup_tag, (struct vmproc *vmp, u32_t tag));
 _PROTOTYPE(void map_region_set_tag, (struct vir_region *vr, u32_t tag));
@@ -163,6 +170,7 @@ _PROTOTYPE(int map_get_ref, (struct vmproc *vmp, vir_bytes addr, u8_t *cnt));
 
 _PROTOTYPE(void pb_unreferenced, (struct vir_region *region,
 	struct phys_region *pr));
+_PROTOTYPE(void get_stats_info, (struct vm_stats_info *vsi));
 _PROTOTYPE(void get_usage_info, (struct vmproc *vmp,
 	struct vm_usage_info *vui));
 _PROTOTYPE(int get_region_info, (struct vmproc *vmp,

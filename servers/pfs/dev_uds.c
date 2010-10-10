@@ -32,6 +32,11 @@
 #include "glo.h"
 #include "uds.h"
 
+FORWARD _PROTOTYPE( int uds_perform_read, (int minor, endpoint_t m_source,
+	size_t size, int pretend));
+FORWARD _PROTOTYPE( int uds_perform_write, (int minor, endpoint_t m_source,
+	size_t size, int pretend));
+
 PUBLIC int uds_open(message *dev_m_in, message *dev_m_out)
 {
 	message fs_m_in, fs_m_out;
@@ -50,12 +55,13 @@ PUBLIC int uds_open(message *dev_m_in, message *dev_m_out)
 	 * Find a slot in the descriptor table for the new descriptor.
 	 * The index of the descriptor in the table will be returned.
 	 * Subsequent calls to read/write/close/ioctl/etc will use this
-	 * minor number.
+	 * minor number. The minor number must be different from the
+	 * the /dev/uds device's minor number (currently 0).
 	 */
 
 	minor = -1; /* to trap error */
 
-	for (i = 0; i < NR_FDS; i++) {
+	for (i = 1; i < NR_FDS; i++) {
 		if (uds_fd_table[i].state == UDS_FREE) {
 			minor = i;
 			break;
@@ -117,6 +123,12 @@ PUBLIC int uds_open(message *dev_m_in, message *dev_m_out)
 		uds_fd_table[minor].backlog[i] = -1;
 	}
 
+	memset(&uds_fd_table[minor].ancillary_data, '\0', sizeof(struct 
+								ancillary));
+	for (i = 0; i < OPEN_MAX; i++) {
+		uds_fd_table[minor].ancillary_data.fds[i] = -1;
+	}
+
 	/* default the size to UDS_SOMAXCONN */
 	uds_fd_table[minor].backlog_size = UDS_SOMAXCONN;
 
@@ -133,6 +145,8 @@ PUBLIC int uds_open(message *dev_m_in, message *dev_m_out)
 
 	/* initially the socket is not bound or listening on an address */
 	memset(&(uds_fd_table[minor].addr), '\0', sizeof(struct sockaddr_un));
+	memset(&(uds_fd_table[minor].source), '\0', sizeof(struct sockaddr_un));
+	memset(&(uds_fd_table[minor].target), '\0', sizeof(struct sockaddr_un));
 
 	/* Initially the socket isn't suspended. */
 	uds_fd_table[minor].suspended = UDS_NOT_SUSPENDED;
@@ -240,6 +254,10 @@ PUBLIC int uds_close(message *dev_m_in, message *dev_m_out)
 		}
 	}
 
+	if (uds_fd_table[minor].ancillary_data.nfiledes > 0) {
+		clear_fds(minor, &(uds_fd_table[minor].ancillary_data));
+	}
+
 	/* Prepare Request to the FS side of PFS */
 
 	fs_m_in.m_type = REQ_PUTNODE;
@@ -267,7 +285,6 @@ PUBLIC int uds_select(message *dev_m_in, message *dev_m_out)
 {
 	int i, bytes;
 	int minor;
-	message fs_m_in, fs_m_out;
 
 #if DEBUG == 1
 	static int call_count = 0;
@@ -321,8 +338,8 @@ PUBLIC int uds_select(message *dev_m_in, message *dev_m_out)
 		}
 	}
 
-	/* check if we can write at least 1 byte */
-	bytes = uds_perform_write(minor, dev_m_in->m_source, 1, 1);
+	/* check if we can write without blocking */
+	bytes = uds_perform_write(minor, dev_m_in->m_source, PIPE_BUF, 1);
 	if (bytes > 0) {
 		uds_fd_table[minor].sel_ops_out |= SEL_WR;
 	}
@@ -336,10 +353,10 @@ PUBLIC int uds_select(message *dev_m_in, message *dev_m_out)
 	return uds_fd_table[minor].sel_ops_out;
 }
 
-PRIVATE int uds_perform_read(int minor, endpoint_t m_source, size_t 
-				size, int pretend)
+PRIVATE int uds_perform_read(int minor, endpoint_t m_source,
+	size_t size, int pretend)
 {
-	int rc, bytes;
+	int rc;
 	message fs_m_in;
 	message fs_m_out;
 
@@ -543,6 +560,11 @@ PRIVATE int uds_perform_write(int minor, endpoint_t m_source,
 				break;
 			}
 		}
+
+		if (peer == -1) {
+			errno = ENOENT;
+			return -1;
+		}
 	}
 
 	/* check if write would overrun buffer. check if message 
@@ -640,15 +662,15 @@ PRIVATE int uds_perform_write(int minor, endpoint_t m_source,
 
 PUBLIC int uds_read(message *dev_m_in, message *dev_m_out)
 {
-	int rc, bytes;
+	int bytes;
 	int minor;
-	message fs_m_in, fs_m_out;
 
 #if DEBUG == 1
 	static int call_count = 0;
 	printf("(uds) [%d] uds_read() call_count=%d\n", uds_minor(dev_m_in),
 							++call_count);
-	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT, dev_m_in->POSITION);
+	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT,
+							dev_m_in->POSITION);
 #endif
 
 	minor = uds_minor(dev_m_in);
@@ -703,17 +725,15 @@ PUBLIC int uds_read(message *dev_m_in, message *dev_m_out)
 
 PUBLIC int uds_write(message *dev_m_in, message *dev_m_out)
 {
-	int rc;
 	int bytes;
 	int minor;
-	int peer;
-	message fs_m_in, fs_m_out;
 
 #if DEBUG == 1
 	static int call_count = 0;
 	printf("(uds) [%d] uds_write() call_count=%d\n", uds_minor(dev_m_in),
 							++call_count);
-	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT, dev_m_in->POSITION);
+	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT, 
+							dev_m_in->POSITION);
 #endif
 
 	minor = uds_minor(dev_m_in);
@@ -769,15 +789,14 @@ PUBLIC int uds_write(message *dev_m_in, message *dev_m_out)
 
 PUBLIC int uds_ioctl(message *dev_m_in, message *dev_m_out)
 {
-	int rc, i;
 	int minor;
-	struct sockaddr_un addr;
 
 #if DEBUG == 1
 	static int call_count = 0;
 	printf("(uds) [%d] uds_ioctl() call_count=%d\n", uds_minor(dev_m_in),
 							++call_count);
-	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT, dev_m_in->POSITION);
+ 	printf("Endpoint: 0x%x | Position 0x%x\n", dev_m_in->IO_ENDPT, 
+							dev_m_in->POSITION);
 #endif
 
 	minor = uds_minor(dev_m_in);
@@ -896,6 +915,16 @@ PUBLIC int uds_ioctl(message *dev_m_in, message *dev_m_out)
 
 			/* set the send buffer size -- setsockopt(SO_SNDBUF) */
 			return do_setsockopt_rcvbuf(dev_m_in, dev_m_out);
+
+		case NWIOSUDSCTRL:
+
+			/* set the control data -- sendmsg() */
+			return do_sendmsg(dev_m_in, dev_m_out);
+
+		case NWIOGUDSCTRL:
+
+			/* set the control data -- recvmsg() */
+			return do_recvmsg(dev_m_in, dev_m_out);
 
 		default:
 

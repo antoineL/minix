@@ -20,12 +20,21 @@
 /* user address to write info struct */
 PRIVATE vir_bytes sprof_info_addr_vir;
 
+PRIVATE clean_seen_flag(void)
+{
+	int i;
+
+	for (i = 0; i < NR_TASKS + NR_PROCS; i++)
+		proc[i].p_misc_flags &= ~MF_SPROF_SEEN;
+}
+
 /*===========================================================================*
  *				do_sprofile				     *
  *===========================================================================*/
 PUBLIC int do_sprofile(struct proc * caller, message * m_ptr)
 {
   int proc_nr;
+  int err;
 
   switch(m_ptr->PROF_ACTION) {
 
@@ -56,11 +65,26 @@ PUBLIC int do_sprofile(struct proc * caller, message * m_ptr)
 	sprof_info.system_samples = 0;
 	sprof_info.user_samples = 0;
 
-	sprof_mem_size = m_ptr->PROF_MEM_SIZE;
+	sprof_mem_size = m_ptr->PROF_MEM_SIZE < SAMPLE_BUFFER_SIZE ?
+				m_ptr->PROF_MEM_SIZE : SAMPLE_BUFFER_SIZE;
 
-	init_profile_clock(m_ptr->PROF_FREQ);
+	switch (sprofiling_type = m_ptr->PROF_INTR_TYPE) {
+		case PROF_RTC:
+			init_profile_clock(m_ptr->PROF_FREQ);
+			break;
+		case PROF_NMI:
+			err = nmi_watchdog_start_profiling(m_ptr->PROF_FREQ);
+			if (err)
+				return err;
+			break;
+		default:
+			printf("ERROR : unknown profiling interrupt type\n");
+			return EINVAL;
+	}
 	
 	sprofiling = 1;
+
+	clean_seen_flag();
 
   	return OK;
 
@@ -77,10 +101,21 @@ PUBLIC int do_sprofile(struct proc * caller, message * m_ptr)
 
 	sprofiling = 0;
 
-	stop_profile_clock();
+	switch (sprofiling_type) {
+		case PROF_RTC:
+			stop_profile_clock();
+			break;
+		case PROF_NMI:
+			nmi_watchdog_stop_profiling();
+			break;
+	}
 
 	data_copy(KERNEL, (vir_bytes) &sprof_info,
 		sprof_ep, sprof_info_addr_vir, sizeof(sprof_info));
+	data_copy(KERNEL, (vir_bytes) sprof_sample_buffer,
+		sprof_ep, sprof_data_addr_vir, sprof_info.mem_used);
+
+	clean_seen_flag();
 
   	return OK;
 

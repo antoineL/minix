@@ -2,7 +2,9 @@
 #define KERNEL_H
 
 /* APIC is turned on by default */
+#ifndef CONFIG_APIC
 #define CONFIG_APIC
+#endif
 /* boot verbose */
 #define CONFIG_BOOT_VERBOSE
 /*
@@ -10,9 +12,10 @@
  * (non-zero) is set in monitor
  */
 #define CONFIG_WATCHDOG
-/* We only support 1 cpu now */
+
+#ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
-#define cpuid		0
+#endif
 
 /* OXPCIe952 PCIe with 2 UARTs in-kernel support */
 #define CONFIG_OXPCIE	0
@@ -40,6 +43,7 @@
 #include <minix/sysutil.h>	/* MINIX utility library functions */
 #include <timers.h>		/* watchdog timer management */
 #include <errno.h>		/* return codes and error numbers */
+#include <sys/param.h>
 
 /* Important kernel header files. */
 #include "config.h"		/* configuration, MUST be first */
@@ -51,6 +55,20 @@
 #include "profile.h"		/* system profiling */
 #include "perf.h"		/* performance-related definitions */
 #include "debug.h"		/* debugging, MUST be last kernel header */
+#include "cpulocals.h"
+
+#ifndef CONFIG_SMP
+/* We only support 1 cpu now */
+#define CONFIG_MAX_CPUS	1
+#define cpuid		0
+/* this is always true on an uniprocessor */
+#define cpu_is_bsp(x) 1
+
+#else
+
+#include "smp.h"
+
+#endif
 
 #endif /* __ASSEMBLY__ */
 

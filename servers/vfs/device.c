@@ -621,30 +621,48 @@ message *mess_ptr;		/* pointer to message for task */
 
   int r, proc_e;
 
-  if(task_nr == SYSTEM) printf("VFS: sending %d to SYSTEM\n", mess_ptr->m_type);
-
-  proc_e = mess_ptr->IO_ENDPT;
-  r = sendrec(task_nr, mess_ptr);
-  if(r == OK && mess_ptr->REP_STATUS == ERESTART) r = EDEADEPT;
-  if (r != OK) {
-	if (r == EDEADSRCDST || r == EDEADEPT) {
-		printf("fs: dead driver %d\n", task_nr);
-		dmap_unmap_by_endpt(task_nr);
-		return(r);
-	}
-	if (r == ELOCKED) {
-		printf("fs: ELOCKED talking to %d\n", task_nr);
-		return(r);
-	}
-	panic("call_task: can't send/receive: %d", r);
+  if(task_nr == SYSTEM) {
+	printf("VFS: sending %d to SYSTEM\n", mess_ptr->m_type);
   }
 
-  /* Did the process we did the sendrec() for get a result? */
-  if (mess_ptr->REP_ENDPT != proc_e) {
-	printf("fs: strange device reply from %d, type = %d, proc = %d "
-	       "(not %d) (2) ignored\n", mess_ptr->m_source, mess_ptr->m_type,
-	       proc_e, mess_ptr->REP_ENDPT);
-	return(EIO);
+  proc_e = mess_ptr->IO_ENDPT;
+
+  for (;;) {
+
+	r = sendrec(task_nr, mess_ptr);
+	if(r == OK && mess_ptr->REP_STATUS == ERESTART) r = EDEADEPT;
+	if (r != OK) {
+		if (r == EDEADSRCDST || r == EDEADEPT) {
+			printf("fs: dead driver %d\n", task_nr);
+			dmap_unmap_by_endpt(task_nr);
+			return(r);
+		}
+		if (r == ELOCKED) {
+			printf("fs: ELOCKED talking to %d\n", task_nr);
+			return(r);
+		}
+		panic("call_task: can't send/receive: %d", r);
+	}
+
+	/* Did the process we did the sendrec() for get a result? */
+	if (mess_ptr->REP_ENDPT != proc_e && VFS_PROC_NR != proc_e) {
+
+		printf("fs: strange device reply from %d, type = %d, "
+		"proc = %d (not %d) (2) ignored\n", mess_ptr->m_source, 
+		mess_ptr->m_type, proc_e, mess_ptr->REP_ENDPT);
+
+		return(EIO);
+	}
+
+	if (mess_ptr->m_type == TASK_REPLY ||
+		IS_DEV_RS(mess_ptr->m_type) ||
+		mess_ptr->m_type <= 0) {
+
+		break; /* reply */
+	} else {
+
+		nested_dev_call(mess_ptr);
+	}
   }
 
   return(OK);
@@ -870,8 +888,8 @@ PUBLIC void dev_up(int maj)
 	if(rfp->fp_blocked_on != FP_BLOCKED_ON_DOPEN) continue;
 
 	printf("dev_up: found process in FP_BLOCKED_ON_DOPEN, fd %d\n",
-		rfp->fp_fd >> 8);
-	fd_nr = (rfp->fp_fd >> 8);
+		rfp->fp_block_fd);
+	fd_nr = rfp->fp_block_fd;
 	fp = rfp->fp_filp[fd_nr];
 	vp = fp->filp_vno;
 	if (!vp) panic("restart_reopen: no vp");
@@ -963,8 +981,8 @@ int maj;
 	    !(rfp->fp_flags & SUSP_REOPEN)) continue;
 
 	printf("restart_reopen: found process in FP_BLOCKED_ON_DOPEN, fd %d\n",
-		rfp->fp_fd >> 8);
-	fd_nr = (rfp->fp_fd >> 8);
+		rfp->fp_block_fd);
+	fd_nr =	rfp->fp_block_fd;
 	fp = rfp->fp_filp[fd_nr];
 
 	if (!fp) {

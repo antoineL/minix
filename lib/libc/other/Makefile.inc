@@ -20,7 +20,6 @@ SRCS+=  \
 	_getpprocnr.c \
 	_getprocnr.c \
 	_getsigset.c \
-	_getsysinfo.c \
 	_lseek64.c \
 	_mapdriver.c \
 	_mcontext.c \
@@ -57,6 +56,8 @@ SRCS+=  \
 	fts.c \
 	fgetln.c \
 	fsversion.c \
+	gcov.c \
+	gcov_flush.c \
 	getgrent.c \
 	getlogin.c \
 	getopt_long.c \
@@ -86,6 +87,8 @@ SRCS+=  \
 	putw.c \
 	pwcache.c \
 	random.c \
+	read_tsc.S \
+	read_tsc_64.c \
 	realpath.c \
 	rindex.c \
 	rlimit.c \

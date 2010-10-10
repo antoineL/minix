@@ -7,8 +7,9 @@
 #include <ansi.h>
 #endif
 
-/* The macros are NULL, EXIT_FAILURE, EXIT_SUCCESS, RAND_MAX, and MB_CUR_MAX.*/
-#define NULL    ((void *)0)
+#include <stddef.h>
+#include <sys/cdefs.h>
+#include <sys/null.h>
 
 #define EXIT_FAILURE       1	/* standard error return using exit() */
 #define EXIT_SUCCESS       0	/* successful return using exit() */
@@ -18,16 +19,7 @@
 typedef struct { int quot, rem; } div_t;
 typedef struct { long quot, rem; } ldiv_t;
 
-/* The types are size_t, wchar_t, div_t, and ldiv_t. */
-#ifndef _SIZE_T
-#define _SIZE_T
-typedef unsigned int size_t;	/* type returned by sizeof */
-#endif
-
-#ifndef _WCHAR_T
-#define _WCHAR_T
-typedef char wchar_t;		/* type expanded character set */
-#endif
+/* The types are div_t, and ldiv_t. */
 
 /* Function Prototypes. */
 _PROTOTYPE( void abort, (void)						);
@@ -38,7 +30,7 @@ _PROTOTYPE( int atoi, (const char *_nptr)				);
 _PROTOTYPE( long atol, (const char *_nptr)				);
 _PROTOTYPE( void *calloc, (size_t _nmemb, size_t _size)			);
 _PROTOTYPE( div_t div, (int _numer, int _denom)				);
-_PROTOTYPE( void exit, (int _status)					);
+_PROTOTYPE( __dead void exit, (int _status)				);
 _PROTOTYPE( void free, (void *_ptr)					);
 _PROTOTYPE( char *getenv, (const char *_name)				);
 _PROTOTYPE( long labs, (long _j)					);

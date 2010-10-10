@@ -13,16 +13,10 @@ Created:	Jan 15, 1992 by Philip Homburg
 
 unsigned inb(u16_t _port);
 unsigned inw(u16_t _port);
-unsigned inl(u32_t _port);
+unsigned inl(u16_t _port);
 void outb(u16_t _port, u8_t _value);
 void outw(u16_t _port, u16_t _value);
 void outl(u16_t _port, u32_t _value);
-void insb(u16_t _port, void *_buf, size_t _count);
-void insw(u16_t _port, void *_buf, size_t _count);
-void insl(u16_t _port, void *_buf, size_t _count);
-void outsb(u16_t _port, void *_buf, size_t _count);
-void outsw(u16_t _port, void *_buf, size_t _count);
-void outsl(u16_t _port, void *_buf, size_t _count);
 void intr_disable(void);
 void intr_enable(void);
 

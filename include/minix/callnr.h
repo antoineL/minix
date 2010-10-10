@@ -1,4 +1,4 @@
-#define NCALLS		 112	/* number of system calls allowed */
+#define NCALLS		 113	/* number of system calls allowed */
 
 #define EXIT		   1 
 #define FORK		   2 
@@ -69,8 +69,8 @@
 #define REBOOT		  76
 #define SVRCTL		  77
 #define SYSUNAME	  78
-#define GETSYSINFO	  79	/* to PM, VFS, RS, or DS */
-#define GETDENTS	  80	/* to FS */
+#define GETSYSINFO	  79	/* to PM or VFS (obsolete) */
+#define GETDENTS	  80	/* to VFS */
 #define LLSEEK		  81	/* to VFS */
 #define FSTATFS	 	  82	/* to VFS */
 #define STATVFS 	  83	/* to VFS */
@@ -87,7 +87,7 @@
 #define FTRUNCATE	  94	/* to VFS */
 #define FCHMOD		  95	/* to VFS */
 #define FCHOWN		  96	/* to VFS */
-#define GETSYSINFO_UP	  97	/* to PM or VFS */
+#define GETSYSINFO_UP	  97	/* to PM (obsolete) */
 #define SPROF             98    /* to PM */
 #define CPROF             99    /* to PM */
 
@@ -112,6 +112,8 @@
 				 * any longer
 				 */
 #define SRV_KILL  	111	/* to PM: special kill call for RS */
+
+#define GCOV_FLUSH	112	/* flush gcov data from server to gcov files */
 
 #define TASK_REPLY	121	/* to VFS: reply code from drivers, not 
 				 * really a standalone call.

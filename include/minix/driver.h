@@ -1,3 +1,6 @@
+#ifndef __MINIX_DRIVER_H__
+#define __MINIX_DRIVER_H__
+
 /* Types and constants shared between the generic and device dependent
  * device driver code.
  */
@@ -23,6 +26,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <errno.h>
+#include <sys/param.h>
 
 #include <minix/partition.h>
 #include <minix/u64.h>
@@ -64,6 +68,7 @@ _PROTOTYPE( void driver_announce, (void) );
 _PROTOTYPE( int driver_receive, (endpoint_t src, message *m_ptr,
 	int *status_ptr) );
 _PROTOTYPE( int driver_receive_mq, (message *m_ptr, int *status_ptr) );
+_PROTOTYPE( void driver_terminate, (void) );
 _PROTOTYPE( void driver_task, (struct driver *dr, int type) );
 _PROTOTYPE( int driver_mq_queue, (message *m_ptr, int status) );
 _PROTOTYPE( void driver_init_buffer, (void) );
@@ -95,3 +100,5 @@ extern u8_t *tmp_buf;			/* the DMA buffer */
 extern u8_t tmp_buf[];			/* the DMA buffer */
 #endif
 extern phys_bytes tmp_phys;		/* phys address of DMA buffer */
+
+#endif /* __MINIX_DRIVER_H__ */

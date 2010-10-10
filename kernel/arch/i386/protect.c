@@ -7,7 +7,7 @@
 #include "kernel/proc.h"
 #include "archconst.h"
 
-#include "proto.h"
+#include "arch_proto.h"
 
 #define INT_GATE_TYPE	(INT_286_GATE | DESC_386_BIT)
 #define TSS_TYPE	(AVL_286_TSS  | DESC_386_BIT)
@@ -25,9 +25,18 @@ struct gatedesc_s {
   u16_t offset_high;
 };
 
-PUBLIC struct segdesc_s gdt[GDT_SIZE];		/* used in klib.s and mpx.s */
+PUBLIC struct segdesc_s gdt[GDT_SIZE]=		/* used in klib.s and mpx.s */
+{	{0},
+	{0,0,0,0}, 				/* GDT descriptor */
+	{0,0,0,0}, 				/* IDT descriptor */
+	{0xffff,0,0,0x92,0x4f,0}, 	/* kernel DS */
+	{0xffff,0,0,0x92,0xcf,0},	/* kernel ES (386: flag 4 Gb at startup) */
+	{0xffff,0,0,0x92,0x4f,0},	/* kernel SS (386: monitor SS at startup) */
+	{0xffff,0,0,0x9a,0x4f,0},	/* kernel CS */
+	{0xffff,0,0,0x9a,0x0f,0},	/* temp for BIOS (386: monitor CS at startup) */
+};
 PRIVATE struct gatedesc_s idt[IDT_SIZE];	/* zero-init so none present */
-PUBLIC struct tss_s tss;			/* zero init */
+PUBLIC struct tss_s tss[CONFIG_MAX_CPUS];			/* zero init */
 
 FORWARD _PROTOTYPE( void sdesc, (struct segdesc_s *segdp, phys_bytes base,
 		vir_bytes size) );
@@ -121,6 +130,31 @@ PUBLIC struct gate_table_s gate_table_pic[] = {
 	{ NULL, 0, 0}
 };
 
+PUBLIC void tss_init(unsigned cpu, void * kernel_stack)
+{
+	struct tss_s * t = &tss[cpu];
+  
+	t->ss0 = DS_SELECTOR;
+	init_dataseg(&gdt[TSS_INDEX(cpu)], vir2phys(t),
+			sizeof(struct tss_s), INTR_PRIVILEGE);
+	gdt[TSS_INDEX(cpu)].access = PRESENT |
+		(INTR_PRIVILEGE << DPL_SHIFT) | TSS_TYPE;
+
+	/* Complete building of main TSS. */
+	t->iobase = sizeof(struct tss_s);	/* empty i/o permissions map */
+
+	/* 
+	 * make space for process pointer and cpu id and point to the first
+	 * usable word
+	 */
+	t->sp0 = ((unsigned) kernel_stack) - X86_STACK_TOP_RESERVED;
+	/* 
+	 * set the cpu id at the top of the stack so we know on which cpu is
+	 * this stak in use when we trap to kernel
+	 */
+	*((reg_t *)(t->sp0 + 1 * sizeof(reg_t))) = cpu;
+}
+
 /*===========================================================================*
  *				prot_init				     *
  *===========================================================================*/
@@ -166,13 +200,8 @@ PUBLIC void prot_init(void)
 	rp->p_seg.p_ldt_sel = ldt_index * DESC_SIZE;
   }
 
-  /* Build main TSS */
-  tss.ss0 = DS_SELECTOR;
-  init_dataseg(&gdt[TSS_INDEX], vir2phys(&tss), sizeof(tss), INTR_PRIVILEGE);
-  gdt[TSS_INDEX].access = PRESENT | (INTR_PRIVILEGE << DPL_SHIFT) | TSS_TYPE;
-
-  /* Complete building of main TSS. */
-  tss.iobase = sizeof tss;	/* empty i/o permissions map */
+  /* Build boot TSS */
+  tss_init(0, &k_boot_stktop);
 }
 
 PUBLIC void idt_copy_vectors(struct gate_table_s * first)

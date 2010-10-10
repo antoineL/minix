@@ -112,7 +112,7 @@ PUBLIC _PROTOTYPE (int (*call_vec[]), (void) ) = {
 	do_ftruncate,	/* 94 = truncate */
 	do_chmod,	/* 95 = fchmod */
 	do_chown,	/* 96 = fchown */
-	no_sys,		/* 97 = getsysinfo_up */
+	no_sys,		/* 97 = (getsysinfo_up) */
 	no_sys,		/* 98 = (sprofile) */
 	no_sys,		/* 99 = (cprofile) */
 	/* THE MINIX3 ABI ENDS HERE */
@@ -128,7 +128,18 @@ PUBLIC _PROTOTYPE (int (*call_vec[]), (void) ) = {
 	no_sys,		/* 109 = (deldma) */
 	no_sys,		/* 110 = (getdma) */
 	no_sys,		/* 111 = (srv_kill) */
+	do_gcov_flush,	/* 112 = gcov_flush */
 };
 /* This should not fail with "array size is negative": */
 extern int dummy[sizeof(call_vec) == NCALLS * sizeof(call_vec[0]) ? 1 : -1];
 
+PUBLIC _PROTOTYPE (int (*pfs_call_vec[]), (void) ) = {
+
+	no_sys,		/* 0 */
+	do_check_perms,	/* 1 */
+	do_verify_fd,	/* 2 */ 
+	do_set_filp,	/* 3 */
+	do_copy_filp,	/* 4 */
+	do_put_filp,	/* 5 */
+	do_cancel_fd	/* 6 */
+};
