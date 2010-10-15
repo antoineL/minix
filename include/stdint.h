@@ -201,23 +201,27 @@ typedef unsigned long	uintmax_t;
 /* Constants of the proper type. */
 #define INT8_C(c)	c
 #define INT16_C(c)	c
-#if _WORD_SIZE == 2
-#define INT32_C(c)	__CONCAT(c,l)
-#else
+#if __SIZEOF_LONG__ > 4
 #define INT32_C(c)	c
+#else
+#define INT32_C(c)	__CONCAT(c,l)
 #endif
-#if defined(__LONG_LONG_SUPPORTED) || (_WORD_SIZE > 2 && __L64)
+#if defined(__LONG_LONG_SUPPORTED)
+#define INT64_C(c)	__CONCAT(c,ll)
+#elif _WORD_SIZE > 2 && __L64
 #define INT64_C(c)	__CONCAT(c,l)
 #endif
 
 #define UINT8_C(c)	__CONCAT(c,u)
 #define UINT16_C(c)	__CONCAT(c,u)
-#if _WORD_SIZE == 2
-#define UINT32_C(c)	__CONCAT(c,lu)
-#else
+#if __SIZEOF_LONG__ > 4
 #define UINT32_C(c)	__CONCAT(c,u)
+#else
+#define UINT32_C(c)	__CONCAT(c,lu)
 #endif
-#if defined(__LONG_LONG_SUPPORTED) || (_WORD_SIZE > 2 && __L64)
+#if defined(__LONG_LONG_SUPPORTED)
+#define UINT64_C(c)	__CONCAT(c,llu)
+#elif _WORD_SIZE > 2 && __L64
 #define UINT64_C(c)	__CONCAT(c,lu)
 #endif
 

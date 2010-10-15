@@ -39,6 +39,8 @@ MKB_NO_JOBS=-j
 
 CPPFLAGS+=-DSHELL -I. -I${.CURDIR}
 CPPFLAGS+=${EDIT} ${NO_PATHS_H} ${NO_JOBS}
+HOST_CPPFLAGS+=-DSHELL -I. -I${.CURDIR}
+HOST_CPPFLAGS+=${EDIT} ${NO_PATHS_H} ${NO_JOBS}
 
 .PATH:	${.CURDIR}/bltin
 
@@ -50,35 +52,47 @@ build-tools: mkinit mknodes mksyntax mksignames
 
 .ORDER: builtins.c builtins.h
 builtins.c builtins.h: mkbuiltins builtins.def shell.h
-	cd ${.CURDIR}; sh mkbuiltins ${MKB_NO_JOBS} ${.OBJDIR} shell.h builtins.def
+	${_MKTARGET_CREATE}
+	cd ${.CURDIR}; ${HOST_SH} mkbuiltins \
+		${MKB_NO_JOBS} ${.OBJDIR} shell.h builtins.def
 
-init.c: mkinit alias.c eval.c exec.c input.c jobs.c options.c parser.c \
-	redir.c trap.c var.c
-	./mkinit ${.ALLSRC:S/^mkinit$//}
-
-mkinit: mkinit.o
-mknodes: mknodes.o
-mksyntax: mksyntax.o
-mksignames: mksignames.o
+init.c: mkinit.c alias.c eval.c exec.c input.c jobs.c options.c parser.c \
+		redir.c trap.c var.c
+	${_MKMSG_COMPILE} mkinit
+	${HOST_LINK.c} -o ${.OBJDIR}/mkinit ${.CURDIR}/mkinit.c
+	${_MKTARGET_CREATE}
+	${.OBJDIR}/mkinit ${.ALLSRC:C/.*mkinit.c$//}
 
 .ORDER: nodes.c nodes.h
-nodes.c nodes.h: mknodes nodetypes nodes.c.pat
-	./mknodes ${.CURDIR}/nodetypes ${.CURDIR}/nodes.c.pat
+nodes.c nodes.h: mknodes.c nodetypes nodes.c.pat
+	${_MKMSG_COMPILE} mksyntax
+	${HOST_LINK.c} -o ${.OBJDIR}/mknodes ${.CURDIR}/mknodes.c
+	${_MKTARGET_CREATE}
+	${.OBJDIR}/mknodes ${.ALLSRC:C/.*mknodes.c$//}
 
 .ORDER: syntax.c syntax.h
-syntax.c syntax.h: mksyntax
-	./mksyntax
+syntax.c syntax.h: mksyntax.c
+	${_MKMSG_COMPILE} mksyntax
+	${HOST_LINK.c} -o ${.OBJDIR}/mksyntax ${.CURDIR}/mksyntax.c
+	${_MKTARGET_CREATE}
+	${.OBJDIR}/mksyntax
 
 token.h: mktokens
-	sh ${.CURDIR}/mktokens
+	${_MKTARGET_CREATE}
+	${HOST_SH} ${.ALLSRC}
 
 .ORDER: signames.c signames.h
-signames.c signames.h: mksignames
-	./mksignames
+signames.c signames.h: mksignames.c
+	${_MKMSG_COMPILE} mksignames
+	${HOST_LINK.c} -o ${.OBJDIR}/mksignames ${.CURDIR}/mksignames.c
+	${_MKTARGET_CREATE}
+	${.OBJDIR}/mksignames
 
 .ORDER: operators.c operators.h
 operators.c operators.h: mkexpr unary_op binary_op
-	sh ${.CURDIR}/bltin/mkexpr ${.CURDIR}/bltin/unary_op ${.CURDIR}/bltin/binary_op
+	${_MKTARGET_CREATE}
+	#sh ${.CURDIR}/bltin/mkexpr ${.CURDIR}/bltin/unary_op ${.CURDIR}/bltin/binary_op
+	${HOST_SH} ${.ALLSRC}
 
 arith.h: arith.c
 arith.c: arith.y

@@ -37,8 +37,7 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Sorry, advent needs 32-bit `long int's.\n");
 	exit(EXIT_FAILURE);
     }
-    sprintf(filename, "%s/advtext.h", inputprefix);
-    isam = fopen(filename, "w");
+    isam = fopen("advtext.h", "w");
     if (!isam) {
 	fprintf(stderr, "Sorry, I can't open advtext.h...\n");
 	exit(EXIT_FAILURE);

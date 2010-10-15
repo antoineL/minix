@@ -140,7 +140,7 @@ SRCS+=${ACPICA_SRCS}
 DPADD+=	${LIBDRIVER} ${LIBSYS}
 LDADD+=	-ldriver -lsys
 
-CFLAGS += -I./include
+CFLAGS += -I${.CURDIR}/include
 CFLAGS += -DACPI_LIBRARY
 CFLAGS += -std=c99
 

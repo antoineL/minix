@@ -8,7 +8,7 @@ LINKS=	${BINDIR}/grep ${BINDIR}/egrep \
 	${BINDIR}/grep ${BINDIR}/zegrep \
 	${BINDIR}/grep ${BINDIR}/zfgrep \
 
-OPSYS!= uname
+# OPSYS!= uname
 MLINKS= grep.1 egrep.1 \
 	grep.1 fgrep.1 \
 	grep.1 zgrep.1 \
@@ -23,8 +23,8 @@ CFLAGS+= -Wall
 CPPFLAGS+= -isystem ../../../include
 .endif
 
-.if ${OPSYS} == "Minix"
+# .if ${OPSYS} == "Minix"
 .include <bsd.prog.mk>
-.else
-.include <bsd.prog.mk>
-.endif
+# .else
+# .include <bsd.prog.mk>
+# .endif

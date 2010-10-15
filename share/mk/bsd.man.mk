@@ -263,13 +263,13 @@ cleandir: cleanman
 
 cleanman: .PHONY
 .if !empty(MAN) && (${MKMAN} != "no")
-.if (${MKCATPAGES} != "no")
+.if !empty(CATPAGES) && (${MKCATPAGES} != "no")
 	rm -f ${CATPAGES}
 .endif
 .if !empty(MANSUFFIX)
 	rm -f ${MANPAGES} ${CATPAGES:S/${MANSUFFIX}$//}
 .endif
-.if ${MKHTML} != "no"
+.if !empty(HTMLPAGES) && (${MKHTML} != "no")
 	rm -f ${HTMLPAGES}
 .endif
 .endif
