@@ -11,6 +11,7 @@ PROGRAMS += acpi
 EXTRA=system.conf passwd rs.single
 
 CPPFLAGS+= -I${MINIXSRCDIR}/servers -I${MINIXSRCDIR}
+TOOLS_MKFS?=	mkfs.mfs
 MAKEDEV=/usr/bin/MAKEDEV
 
 install: all
@@ -28,10 +29,10 @@ image.c:	bintoc image
 # host system
 bintoc:	bintoc.c
 	${_MKTARGET_BUILD}
-	$(HOST_CC) -o $@ ${.ALLSRC}
+	${HOST_LINK.c} -o $@ ${.ALLSRC}
 
 image:	proto.gen ${.OBJDIR}/mtab ${.OBJDIR}/rc $(PROGRAMS) $(EXTRA)
-	mkfs.mfs image proto.gen || { rm -f image; false; }
+	$(TOOLS_MKFS) image proto.gen || { rm -f image; false; }
 
 ahci: ../ahci/ahci
 	${_MKTARGET_LINK}
