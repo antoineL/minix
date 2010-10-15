@@ -56,16 +56,15 @@ MKDEP_SUFFIXES?=	.o .ln
 # 	rumpfs_cd9660fs rumpfs_efs rumpfs_ext2fs rumpfs_ffs rumpfs_hfs \
 # 	rumpfs_lfs rumpfs_msdosfs rumpfs_nfs rumpfs_ntfs rumpfs_syspuffs \
 # 	rumpfs_tmpfs rumpfs_udf rumpfs_ufs
+
 .for _lib in \
-	c curses driver netdriver edit end m sys timers util bz2 l hgfs audiodriver
+	archive audiodriver bz2 c \
+	curses driver edit end \
+	fetch hgfs l m mthread netdriver \
+	sys timers util vtreefs z
 .ifndef LIB${_lib:tu}
-LIB${_lib:tu}=	${DESTDIR}/usr/lib/lib${_lib}.a
-.if ${COMPILER_TYPE} == "ack"
-LIB${_lib:tu}=	${DESTDIR}/usr/lib/i386/lib${_lib}.a
-.elif ${COMPILER_TYPE} == "gnu"
-LIB${_lib:tu}=	${DESTDIR}/usr/lib/lib${_lib}.a
-.endif
-.MADE:		${LIB${_lib:tu}}	# Note: ${DESTDIR} will be expanded
+LIB${_lib:tu}=	${DESTDIR}${LIBDIR}/lib${_lib}.a
+.MADE:		${LIB${_lib:tu}} # Note: ${DESTDIR}${LIBDIR} will be expanded
 .endif
 .endfor
 
