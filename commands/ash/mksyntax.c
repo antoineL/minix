@@ -116,7 +116,7 @@ static void output_type_macros(void);
 static void digit_convert(void);
 
 int
-main(int argc __unused, char **argv __unused)
+main(void)
 {
 	char c;
 	char d;
