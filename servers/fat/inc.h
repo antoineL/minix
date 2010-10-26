@@ -35,3 +35,11 @@
   #define DBGprintf(x) if(verbose)printf x
  #endif 
 #endif
+
+#ifndef static_assert
+#define JOIN_VALUES(x, y) JOIN(x, y)
+#define JOIN(x, y) x ## y
+
+#define static_assert(e, msg) \
+typedef char JOIN_VALUES(assertion_failed_at_line_, __LINE__) [(e) ? 1 : -1]
+#endif

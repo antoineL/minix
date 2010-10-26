@@ -1,0 +1,40 @@
+
+* Add the new server in the Makefile
+
+Index: src/servers/Makefile
+===================================================================
+--- Makefile    (revision 8573)
++++ Makefile    (working copy)
+@@ -3,7 +3,7 @@
+
+ .include <bsd.own.mk>
+
+-SUBDIR=        ds ext2 hgfs inet init ipc is iso9660fs \
++SUBDIR=        ds ext2 fat hgfs inet init ipc is iso9660fs \
+        mfs pfs pm procfs rs sched vfs vm
+
+ IMAGE_SUBDIR=  ds init mfs pfs pm rs sched vfs vm
+
+* Enable the service
+
+Index: src/etc/system.conf
+===================================================================
+--- system.conf	(revision 8573)
++++ system.conf	(working copy)
+@@ -455,6 +455,15 @@
+ 	;
+ };
+ 
++service fat
++{
++	ipc
++		SYSTEM vfs rs pm vm	# unchecked, might be stripped down; pm and vm are candidates to exclusion...
++	system
++		UMAP            # 14
++	;
++};
++
+ service printer
+ {
+        io      378:4           # LPT1
+

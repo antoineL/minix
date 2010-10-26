@@ -14,6 +14,6 @@ LDADD+=	-lsys
 
 MAN=	fat.8
 
-BINDIR?= ${DESTDIR}/sbin
+BINDIR?= /sbin
 
 .include <bsd.prog.mk>
