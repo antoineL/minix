@@ -399,7 +399,7 @@ PUBLIC void ioapic_mask_irq(unsigned irq)
 
 PUBLIC unsigned int apicid(void)
 {
-	return lapic_read(LAPIC_ID);
+	return lapic_read(LAPIC_ID) >> 24;
 }
 
 PRIVATE int calib_clk_handler(irq_hook_t * UNUSED(hook))
@@ -496,6 +496,7 @@ PRIVATE void apic_calibrate_clocks(unsigned cpu)
 				lapic_bus_freq[cpuid] / 1000000));
 	cpu_freq = mul64(div64u64(tsc_delta, PROBE_TICKS - 1), make64(system_hz, 0));
 	cpu_set_freq(cpuid, cpu_freq);
+	cpu_info[cpuid].freq = div64u(cpu_freq, 1000000);
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
 }
 
@@ -508,14 +509,14 @@ PUBLIC void lapic_set_timer_one_shot(const u32_t usec)
 
 	ticks_per_us = (lapic_bus_freq[cpu] / 1000000) * config_apic_timer_x;
 
+	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
+
 	lvtt = APIC_TDCR_1;
 	lapic_write(LAPIC_TIMER_DCR, lvtt);
 
 	/* configure timer as one-shot */
 	lvtt = APIC_TIMER_INT_VECTOR;
 	lapic_write(LAPIC_LVTTR, lvtt);
-
-	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
 }
 
 PUBLIC void lapic_set_timer_periodic(const unsigned freq)
@@ -715,16 +716,23 @@ PUBLIC int lapic_enable(unsigned cpu)
 	return 1;
 }
 
-PRIVATE void apic_spurios_intr(void)
+PUBLIC void apic_spurios_intr_handler(void)
 {
-	printf("WARNING spurious interrupt\n");
-	for(;;);
+	static unsigned x;
+
+	x++;
+	if (x == 1 || (x % 100) == 0)
+		printf("WARNING spurious interrupt(s) %d on cpu %d\n", x, cpuid);
 }
 
-PRIVATE void apic_error_intr(void)
+PUBLIC void apic_error_intr_handler(void)
 {
-	printf("WARNING local apic error interrupt\n");
-	for(;;);
+	static unsigned x;
+
+	x++;
+	if (x == 1 || (x % 100) == 0)
+		printf("WARNING apic error (0x%x) interrupt(s) %d on cpu %d\n",
+				lapic_errstatus(), x, cpuid);
 }
 
 PRIVATE struct gate_table_s gate_table_ioapic[] = {
@@ -1092,6 +1100,9 @@ PUBLIC int apic_single_cpu_init(void)
 		return 0;
 	}
 
+	bsp_lapic_id = apicid();
+	printf("Boot cpu apic id %d\n", bsp_lapic_id);
+
 	acpi_init();
 
 	if (!detect_ioapics()) {
@@ -1177,7 +1188,7 @@ PUBLIC void ioapic_set_irq(unsigned irq)
 			/*
 			 * route the interrupts to the bsp by default
 			 */
-			hi_32 = 0;
+			hi_32 = bsp_lapic_id << 24;
 			ioapic_redirt_entry_write((void *) io_apic[ioa].addr,
 					io_apic_irq[irq].pin, hi_32, low_32);
 		}
