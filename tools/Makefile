@@ -1,5 +1,6 @@
 # Makefile for the kernel image.
 
+# ?
 u=/usr
 MDEC=	/usr/mdec
 
@@ -17,6 +18,17 @@ PROGRAMS=	kernel \
 	../servers/vm/vm \
 	../servers/pfs/pfs \
 	../servers/init/init
+
+TOOLS_INSTALLBOOT?=	installboot
+
+# Pad the kernel text only if ACK compiler is used. padtext does not work for
+# gnu-like compilers as they generate common I&D and a linker script can do the
+# same in a nicer way
+.if ${COMPILER_TYPE} == "gnu"
+PAD_KERNEL_TEXT := ${HOST_INSTALL_FILE} ../kernel/kernel kernel
+.else
+PAD_KERNEL_TEXT := padtext ../kernel/kernel kernel
+.endif
 
 usage:	
 	@echo " " >&2
@@ -40,16 +52,8 @@ usage:
 	@echo "	make fresh install      # new everything" >&2
 	@echo " " >&2
 
-all: services image
-
-# Pad the kernel text only if ACK compiler is used. padtext does not work for
-# gnu-like compilers as they generate common I&D and a linker script can do the
-# same in a nicer way
-.if ${COMPILER_TYPE} == "gnu"
-PAD_KERNEL_TEXT := cp ../kernel/kernel kernel
-.else
-PAD_KERNEL_TEXT := padtext ../kernel/kernel kernel
-.endif
+Tall: services image
+realall: image
 
 # for fast complie kernel and generate image, skip servers and drivers
 image_mb: includes
@@ -57,15 +61,20 @@ image_mb: includes
 	${PAD_KERNEL_TEXT}
 	installboot -image $@ $(PROGRAMS)
 	
-image:  includes services
+Timage:  includes services
+# PROG=
+image:
+	${_MKTARGET_LINK}
 	${PAD_KERNEL_TEXT}
-	installboot -image $@ $(PROGRAMS)
+	$(TOOLS_INSTALLBOOT) -image $@ $(PROGRAMS)
+
+.PRECIOUS: image
 
 # rebuild the program or system libraries
-includes:
+Tincludes:
 	$(MAKE) -C .. includes
 
-depend: includes
+Tdepend: includes
 	$(MAKE) -C ../ depend
 
 services: includes kernel servers .WAIT drivers
@@ -94,16 +103,19 @@ fdboot:	image
 	exec su root mkboot $@
 	@sync
 
-install: includes services hdboot
+Tinstall: includes services hdboot
 
 # clean up compile results
-clean:
+Tclean:
 	$(MAKE) -C ../kernel $@
 	$(MAKE) -C ../servers $@
 	$(MAKE) -C ../drivers $@
 	rm -rf *.bak image kernel *.iso *.iso.gz cdfdimage rootimage src
 
-cleandepend::
+Tcleandepend::
 	$(MAKE) -C ../kernel $@
 	$(MAKE) -C ../servers  $@
 	$(MAKE) -C ../drivers  $@
+
+
+.include <bsd.prog.mk>

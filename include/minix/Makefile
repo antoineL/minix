@@ -17,6 +17,6 @@ INCS+=	a.out.h acpi.h bitmap.h callnr.h cdrom.h \
 	gcov.h \
 	compiler.h compiler-ack.h \
 	sha2.h sha1.h md5.h \
-	audio_fw.h
+	audio_fw.h hash.h
 
 .include <bsd.kinc.mk>

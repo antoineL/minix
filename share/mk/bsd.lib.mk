@@ -43,6 +43,15 @@ DPADD+=		${LIBDO.${_lib}}/lib${_lib}.so
 ##### Build and install rules
 MKDEP_SUFFIXES?=	.o .po .so .go .ln
 
+.if empty(CPPFLAGS:M-nostdinc)
+CPPFLAGS+=	${DESTDIR:D-nostdinc ${CPPFLAG_ISYSTEM} ${DESTDIR}/usr/include}
+.endif
+.if empty(CXXFLAGS:M-nostdinc++)
+CXXFLAGS+=	${DESTDIR:D-nostdinc++ ${CPPFLAG_ISYSTEMXX} ${DESTDIR}/usr/include/g++}
+.endif
+# _GCC_CRTDIR?=		${DESTDIR}/usr/lib
+_GCC_LIBGCCDIR?=	${DESTDIR}/usr/lib
+
 # add additional suffixes not exported.
 # .po is used for profiling object files.
 # .so is used for PIC object files.
