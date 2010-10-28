@@ -242,6 +242,9 @@ PUBLIC void switch_to_user(void)
 	 * to be scheduled again.
 	 */
 	struct proc * p;
+#ifdef CONFIG_SMP
+	int tlb_must_refresh = 0;
+#endif
 
 	p = get_cpulocal_var(proc_ptr);
 	/*
@@ -279,6 +282,10 @@ not_runnable_pick_new:
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;
 
+#ifdef CONFIG_SMP
+	if (p->p_misc_flags & MF_FLUSH_TLB && get_cpulocal_var(ptproc) == p)
+		tlb_must_refresh = 1;
+#endif
 	switch_address_space(p);
 
 check_misc_flags:
@@ -370,8 +377,6 @@ check_misc_flags:
 	p = arch_finish_switch_to_user();
 	assert(!is_zero64(p->p_cpu_time_left));
 
-	restart_local_timer();
-	
 	context_stop(proc_addr(KERNEL));
 
 	/* If the process isn't the owner of FPU, enable the FPU exception */
@@ -387,8 +392,15 @@ check_misc_flags:
 
   	assert(!(p->p_misc_flags & MF_FULLVM) || p->p_seg.p_cr3 != 0);
 #ifdef CONFIG_SMP
-	refresh_tlb();
+	if (p->p_misc_flags & MF_FLUSH_TLB) {
+		if (tlb_must_refresh)
+			refresh_tlb();
+		p->p_misc_flags &= ~MF_FLUSH_TLB;
+	}
 #endif
+	
+	restart_local_timer();
+	
 	/*
 	 * restore_user_context() carries out the actual mode switch from kernel
 	 * to userspace. This function does not return

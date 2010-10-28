@@ -1,5 +1,7 @@
 # Doing a make includes builds /usr/include
 
+NOOBJ=	# defined; to avoid cd ${.OBJDIR}
+
 INCS=	alloca.h ansi.h a.out.h ar.h assert.h configfile.h ctype.h \
 	curses.h dirent.h env.h err.h errno.h fcntl.h fenv.h \
 	float.h fnmatch.h fts.h getopt.h glob.h grp.h ifaddrs.h \
@@ -12,11 +14,9 @@ INCS=	alloca.h ansi.h a.out.h ar.h assert.h configfile.h ctype.h \
 	hgfs.h tzfile.h util.h fetch.h mpool.h ndbm.h db.h poll.h resolv.h \
 	memory.h
 
-.include <bsd.own.mk>
-
 INCSDIR=        /usr/include
 
 SUBDIR=		arpa net netinet minix net/gen sys arch
 
-.include <bsd.lib.mk>
-.include <bsd.subdir.mk>
+.include <bsd.kinc.mk>
+#.include <bsd.subdir.mk>

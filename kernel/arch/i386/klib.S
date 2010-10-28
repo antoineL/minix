@@ -5,7 +5,7 @@
 #include <minix/const.h>
 #include <machine/asm.h>
 #include <machine/interrupt.h>
-#include <i386/vm.h>
+#include <machine/vm.h>
 #include "archconst.h"
 #include "kernel/const.h"
 #include "sconst.h"
@@ -803,11 +803,9 @@ ENTRY(__switch_address_space)
 	 * test if the cr3 is loaded with the current value to avoid unnecessary
 	 * TLB flushes
 	 */
-#ifndef CONFIG_SMP
 	mov	%cr3, %ecx
 	cmp	%ecx, %eax
 	je	0f
-#endif
 	mov	%eax, %cr3
 	/* get ptproc */
 	mov	8(%esp), %eax
