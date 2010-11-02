@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #ifdef _WIN32
 #include <fcntl.h>              /* _O_BINARY */
