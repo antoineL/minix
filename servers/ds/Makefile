@@ -8,6 +8,6 @@ LDADD+=	-lsys
 MAN=
 
 BINDIR?= /usr/sbin
-INSTALLFLAGS+=	-S 16k
+STACKSIZE=	16k
 
 .include <bsd.prog.mk>

@@ -11,7 +11,7 @@ LDADD+=	-ldriver -lsys -ltimers
 MAN=
 
 BINDIR?= /usr/sbin
-INSTALLFLAGS+=	-S 16k
+STACKSIZE=	16k
 
 SUBDIR= keymaps
 

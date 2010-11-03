@@ -10,7 +10,7 @@ LDADD+=	-ldriver -lsys
 MAN=
 
 BINDIR?= /usr/sbin
-INSTALLFLAGS+=	-S 8k
+STACKSIZE=	8k
 
 CPPFLAGS.memory.c+=	-I${MINIXSRCDIR}
 CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -I../ramdisk -T /usr/tmp

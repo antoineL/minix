@@ -8,6 +8,6 @@ LDADD+=	-ldriver -lsys
 MAN=
 
 BINDIR?= /usr/sbin
-INSTALLFLAGS+=	-S 32k
+STACKSIZE=	32k
 
 .include <bsd.prog.mk>

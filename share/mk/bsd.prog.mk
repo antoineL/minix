@@ -35,6 +35,8 @@ CXXFLAGS+=	${DESTDIR:D-nostdinc++ ${CPPFLAG_ISYSTEMXX} ${DESTDIR}/usr/include/g+
 CFLAGS+=	${COPTS}
 OBJCFLAGS+=	${OBJCOPTS}
 MKDEP_SUFFIXES?=	.o .ln
+_GCC_CRTDIR?=		${DESTDIR}/usr/lib
+_GCC_LIBGCCDIR?=	${DESTDIR}/usr/lib
 
 ##### Installed system library definitions
 #
@@ -379,6 +381,12 @@ all: .PHONY memalloc
 
 memalloc: realall
 	${INSTALL} ${INSTALLFLAGS} ${PROG}
+.endif
+.if defined(STACKSIZE) && ${COMPILER_TYPE} != "ack"
+all: .PHONY memalloc
+
+memalloc: realall
+	${INSTALL} -S ${STACKSIZE} ${PROG}
 .endif
 
 .endif	# HOSTPROG

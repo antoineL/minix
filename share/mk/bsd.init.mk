@@ -1,13 +1,100 @@
-#	$NetBSD: bsd.init.mk,v 1.2 2003/07/28 02:38:33 lukem Exp $
+#	$NetBSD: bsd.kinc.mk,v 1.36 2006/03/16 18:43:34 jwise Exp $
 
-# <bsd.init.mk> includes Makefile.inc and <bsd.own.mk>; this is used at the
-# top of all <bsd.*.mk> files which actually "build something".
+# Variables:
+#
+# INCSDIR	Directory to install includes into (and/or make, and/or
+#		symlink, depending on what's going on).
+#
+# INCS		Headers to install.
+#
+# DEPINCS	Headers to install which are built dynamically.
+#
+# SUBDIR	Subdirectories to enter
+#
+# INCSYMLINKS	Symlinks to make (unconditionally), a la bsd.links.mk.
+#		Note that the original bits will be 'rm -rf'd rather than
+#		just 'rm -f'd, to make the right thing happen with include
+#		directories.
+#
 
-.if !defined(_MINIX_INIT_MK_)
-_MINIX_INIT_MK_=1
+.include <bsd.init.mk>
 
-.-include "${.CURDIR}/../Makefile.inc"
-.include <bsd.own.mk>
-.MAIN:		all
+##### Basic targets
+.PRECIOUS:	${DESTDIR}${INCSDIR}
+includes:	${DESTDIR}${INCSDIR} .WAIT ${INCS} incinstall inclinkinstall
 
-.endif	# !defined(_MINIX_INIT_MK_)
+##### Install rules
+incinstall::	# ensure existence
+.PHONY:		incinstall
+
+# make sure the directory is OK, and install includes.
+
+${DESTDIR}${INCSDIR}: .EXEC
+	@if [ ! -d ${.TARGET} ] || [ -h ${.TARGET} ] ; then \
+		${_MKSHMSG_CREATE} ${.TARGET}; \
+		/bin/rm -rf ${.TARGET}; \
+		${_MKSHECHO} ${INSTALL_DIR} -o ${BINOWN} -g ${BINGRP} -m 755 \
+			${.TARGET}; \
+		${INSTALL_DIR} -o ${BINOWN} -g ${BINGRP} -m 755 \
+			${.TARGET}; \
+	fi
+
+# -c is forced on here, in order to preserve modtimes for "make depend"
+__incinstall: .USE
+	@cmp -s ${.ALLSRC} ${.TARGET} > /dev/null 2>&1 || \
+	    (${_MKSHMSG_INSTALL} ${.TARGET}; \
+	     ${_MKSHECHO} "${INSTALL_FILE} -c -o ${BINOWN} -g ${BINGRP} \
+		-m ${NONBINMODE} ${.ALLSRC} ${.TARGET}" && \
+	     ${INSTALL_FILE} -c -o ${BINOWN} -g ${BINGRP} \
+		-m ${NONBINMODE} ${.ALLSRC} ${.TARGET})
+
+.for F in ${INCS:O:u}
+# _F:=		${DESTDIR}${INCSDIR}/${F}		# installed path
+_FDIR:=		${INCSDIR_${F:C,/,_,g}:U${INCSDIR}}	# dir override
+_FNAME:=	${INCSNAME_${F:C,/,_,g}:U${INCSNAME:U${F}}} # name override
+_F:=		${DESTDIR}${_FDIR}/${_FNAME}		# installed path
+
+.if ${MKUPDATE} == "no"
+${_F}!		${F} __incinstall			# install rule
+.else
+${_F}:		${F} __incinstall			# install rule
+.endif
+
+incinstall::	${_F}
+.PRECIOUS:	${_F}					# keep if install fails
+.endfor
+
+.undef _FDIR
+.undef _FNAME
+.undef _F
+
+.if defined(INCSYMLINKS) && !empty(INCSYMLINKS)
+inclinkinstall:	.PHONY
+# XXX: Minix can't handle stat -qf
+#	@(set ${INCSYMLINKS}; \
+#	 while test $$# -ge 2; do \
+#		l=$$1; shift; \
+#		t=${DESTDIR}$$1; shift; \
+#		if  ttarg=`${TOOL_STAT} -qf '%Y' $$t` && \
+#		    [ "$$l" = "$$ttarg" ]; then \
+#			continue ; \
+#		fi ; \
+#		${_MKSHMSG_INSTALL} $$t; \
+#		${_MKSHECHO} ${INSTALL_SYMLINK} $$l $$t; \
+#		${INSTALL_SYMLINK} $$l $$t; \
+#	 done; )
+	@( set ${INCSYMLINKS}; \
+	 while test $$# -ge 2; do \
+		l=$$1; shift; \
+		t=${DESTDIR}$$1; shift; \
+		${_MKSHMSG_INSTALL} $$t; \
+		${_MKSHECHO} ${INSTALL_SYMLINK} $$l $$t; \
+		${INSTALL_SYMLINK} $$l $$t; \
+	 done; )
+.else
+inclinkinstall::	# ensure existence
+.endif
+
+##### Pull in related .mk logic
+.include <bsd.subdir.mk>
+.include <bsd.sys.mk>

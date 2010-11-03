@@ -65,7 +65,7 @@ init.c: mkinit.c alias.c eval.c exec.c input.c jobs.c options.c parser.c \
 
 .ORDER: nodes.c nodes.h
 nodes.c nodes.h: mknodes.c nodetypes nodes.c.pat
-	${_MKMSG_COMPILE} mksyntax
+	${_MKMSG_COMPILE} mknodes
 	${HOST_LINK.c} -o ${.OBJDIR}/mknodes ${.CURDIR}/mknodes.c
 	${_MKTARGET_CREATE}
 	${.OBJDIR}/mknodes ${.ALLSRC:C/.*mknodes.c$//}

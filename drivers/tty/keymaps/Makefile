@@ -14,18 +14,16 @@ FILESDIR= /usr/lib/keymaps
 .src.map:
 	${_MKTARGET_CREATE}
 	$(HOST_LINK.c) -DKEYSRC=\"${.IMPSRC}\" \
-		-o ${.IMPSRC:T}_genmap ${.CURDIR}/genmap.c
-	echo $$?
-	${.OBJDIR}/${.IMPSRC:T}_genmap > $@
-	echo $$?
-	#@rm -f ${.IMPSRC:T}_genmap
+		-o ${.IMPSRC:T:R}_genmap ${.CURDIR}/genmap.c
+	${.OBJDIR}/${.IMPSRC:T:R}_genmap > $@
+	@-rm ${.IMPSRC:T:R}_genmap
 
 realall: ${FILES}
 
 .for _MAP in ${FILES}
-${_MAP}: ${_MAP:C/map$/src/} genmap.c
+${_MAP}: ${_MAP:R}.src genmap.c
 .endfor
 
-CLEANFILES+= ${FILES} ${FILES:C/map$/src_genmap/}
+CLEANFILES+= ${FILES} ${FILES:R}_genmap
 
 .include <bsd.prog.mk>

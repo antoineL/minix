@@ -59,13 +59,13 @@ realall: image
 image_mb: includes
 	cd ../kernel && $(MAKE)
 	${PAD_KERNEL_TEXT}
-	installboot -image $@ $(PROGRAMS)
+	${_MKTARGET_LINK}
+	$(TOOLS_INSTALLBOOT) -image $@ $(PROGRAMS)
 	
 Timage:  includes services
 # PROG=
-image:
+image: $(PROGRAMS)
 	${_MKTARGET_LINK}
-	${PAD_KERNEL_TEXT}
 	$(TOOLS_INSTALLBOOT) -image $@ $(PROGRAMS)
 
 .PRECIOUS: image
@@ -81,6 +81,7 @@ services: includes kernel servers .WAIT drivers
 
 kernel: includes
 	$(MAKE) -C ../kernel 
+	${PAD_KERNEL_TEXT}
 
 servers: includes
 	$(MAKE) -C ../servers all install
@@ -93,14 +94,14 @@ libraries: includes
 
 # make bootable and place system images
 bootable:
-	exec su root mkboot bootable
+	exec su root ${.CURDIR}/mkboot bootable
 
 hdboot:	image
-	exec sh mkboot $@
+	exec su root ${.CURDIR}/mkboot $@
 	@sync
 
 fdboot:	image
-	exec su root mkboot $@
+	exec su root ${.CURDIR}/mkboot $@
 	@sync
 
 Tinstall: includes services hdboot

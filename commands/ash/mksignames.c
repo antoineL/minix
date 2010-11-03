@@ -144,7 +144,9 @@ struct sig sigtab[] = {
 };
 
 
+#ifndef MAXSIG
 #define MAXSIG 64
+#endif
 
 
 char *sigmesg[MAXSIG + 1];

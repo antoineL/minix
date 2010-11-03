@@ -10,7 +10,7 @@ LDADD+=	-lsys -ltimers
 MAN=
 
 BINDIR?= /usr/sbin
-INSTALLFLAGS+=	-S 32k
+STACKSIZE=	32k
 
 CPPFLAGS.main.c+=	-I${MINIXSRCDIR}
 CPPFLAGS.misc.c+=	-I${MINIXSRCDIR}
