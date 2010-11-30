@@ -23,31 +23,27 @@
  * Special files are created as ordinary files, but the mkfs-listing
  * enables mkfs to restore them to original.
  */
+/* Updated to deal with V3 file systems (only). */
 
 #include <sys/types.h>
-#include <sys/dir.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <utime.h>
-#include <dirent.h>
-
-#define BLOCK_SIZE _STATIC_BLOCK_SIZE
 
 #include <minix/config.h>
 #include <minix/const.h>
-#include <minix/type.h>
+#include <minix/dir.h>
+#include <minix/dirent.h>
+
 #include "mfs/const.h"
 #include "mfs/type.h"
 #include "mfs/buf.h"
 #include "mfs/super.h"
-
-#undef printf			/* Definition used only in the kernel */
-#include <stdio.h>
 
 /* Compile with -I/user0/ast/minix
  * (i.e. the directory containing the MINIX system sources)
@@ -63,19 +59,19 @@ char nofiles = 0;		/* only extract the skeleton FS structure */
 
 struct super_block sb;
 char pathname[1024];
-int inodes_per_block;
+int block_size, inodes_per_block;
 
 _PROTOTYPE(int main, (int argc, char **argv));
 _PROTOTYPE(void get_flags, (char *flags));
 _PROTOTYPE(void readfs, (char *special_file, char *directory));
-_PROTOTYPE(int get_inode, (int fd, Ino_t inum, d1_inode * ip));
-_PROTOTYPE(void dump_dir, (int special, d1_inode * ip, char *directory));
-_PROTOTYPE(int dump_file, (int special, d1_inode * ip, char *filename));
-_PROTOTYPE(int get_fileblock, (int special, d1_inode * ip, block_t b, struct buf * bp));
+_PROTOTYPE(int get_inode, (int fd, Ino_t inum, d2_inode * ip));
+_PROTOTYPE(void dump_dir, (int special, d2_inode * ip, char *directory));
+_PROTOTYPE(int dump_file, (int special, d2_inode * ip, char *filename));
+_PROTOTYPE(int get_fileblock, (int special, d2_inode * ip, block_t b, struct buf * bp));
 _PROTOTYPE(int get_block, (int fd, block_t block, struct buf * bp, int type));
 _PROTOTYPE(int get_rawblock, (int special, block_t blockno, char *bufp));
-_PROTOTYPE(void restore, (char *name, d1_inode * ip));
-_PROTOTYPE(void show_info, (char *name, d1_inode * ip, char *path));
+_PROTOTYPE(void restore, (char *name, d2_inode * ip));
+_PROTOTYPE(void show_info, (char *name, d2_inode * ip, char *path));
 _PROTOTYPE(void do_indent, (int i));
 _PROTOTYPE(int Mkdir, (char *directory));
 
@@ -142,8 +138,8 @@ char *special_file, *directory;
  * and extracts its contents into the given directory.
  */
 {
-  d1_inode root_inode;
-  int special, magic;
+  d2_inode root_inode;
+  int special;
   off_t super_b;
 
   umask(0);
@@ -154,8 +150,8 @@ char *special_file, *directory;
 	return;
   }
 
-  /* Read the superblock */
-  super_b = (off_t) 1 *(off_t) BLOCK_SIZE;
+  /* Read the superblock. (The superblock is always at 1kB offset). */
+  super_b = (off_t) 1024;
   if (lseek(special, super_b, SEEK_SET) != super_b) {
 	fprintf(stderr, "cannot seek to superblock\n");
 	return;
@@ -166,19 +162,15 @@ char *special_file, *directory;
 	return;
   }
 
-  /* The number of inodes in a block differs in V1 and V2. */
-  magic = sb.s_magic;
-  if (magic == SUPER_MAGIC || magic == SUPER_REV) {
-	inodes_per_block = V1_INODES_PER_BLOCK;
-  } else {
-	inodes_per_block = V2_INODES_PER_BLOCK(BLOCK_SIZE);
-  }
-
   /* Is it really a MINIX filesystem ? */
-  if (magic != SUPER_MAGIC && magic != SUPER_V2) {
-	fprintf(stderr, "%s is not a valid MINIX filesystem\n", special_file);
+  if (sb.s_magic != SUPER_V3) {
+	fprintf(stderr, "%s is not a valid MINIX3 filesystem\n", special_file);
 	return;
   }
+
+  /* Fetch fundamental constants. */
+  block_size = sb.s_block_size;
+  inodes_per_block = V2_INODES_PER_BLOCK(block_size);
 
   /* Fetch the inode of the root directory */
   if (get_inode(special, (ino_t) ROOT_INODE, &root_inode) < 0) {
@@ -187,8 +179,8 @@ char *special_file, *directory;
   }
 
   /* Print number of blocks and inodes */
-  if (verbose) printf("boot\n%ld %d\n",
-	       (block_t) sb.s_nzones << zone_shift, sb.s_ninodes);
+  if (verbose) printf("boot\n%ld %ld\n",
+	       (long) sb.s_nzones << zone_shift, (long) sb.s_ninodes);
 
   /* Extract (recursively) the root directory */
   dump_dir(special, &root_inode, directory);
@@ -203,15 +195,16 @@ char *special_file, *directory;
 int get_inode(fd, inum, ip)
 int fd;
 ino_t inum;
-d1_inode *ip;
-
-/* Get inode `inum' from the MINIX filesystem. (Uses the inode-cache) */
+d2_inode *ip;
 {
-  struct buf bp;
+/* Get inode `inum' from the MINIX filesystem. (Uses the inode-cache) */
+  union fsdata_u fsdata;
+  struct buf b;
   block_t block;
   block_t ino_block;
   unsigned short ino_offset;
 
+  b.bp = &fsdata;
   /* Calculate start of i-list */
   block = 1 + 1 + sb.s_imap_blocks + sb.s_zmap_blocks;
 
@@ -221,13 +214,13 @@ d1_inode *ip;
   block += ino_block;
 
   /* Fetch the block */
-  if (get_block(fd, block, &bp, B_INODE) == 0) {
-	memcpy((void *) ip, (void *) &bp.b_v1_ino[ino_offset], sizeof(d1_inode));
+  if (get_block(fd, block, &b, B_INODE) == 0) {
+	memcpy((void *) ip, (void *) &b.b_v2_ino[ino_offset], sizeof(d2_inode));
 	return(0);
   }
 
   /* Oeps, foutje .. */
-  fprintf(stderr, "cannot find inode %d\n", inum);
+  fprintf(stderr, "cannot find inode %ld\n", (long)inum);
   return(-1);
 }
 
@@ -235,7 +228,7 @@ static int indent = 0;		/* current indent (used for mkfs-listing) */
 
 void dump_dir(special, ip, directory)
 int special;
-d1_inode *ip;
+d2_inode *ip;
 char *directory;
 /* Make the given directory (if non-NULL),
  * and recursively extract its contents.
@@ -245,9 +238,11 @@ char *directory;
   register int n_entries;
   register char *name;
   block_t b = 0;
-  d1_inode dip;
+  d2_inode dip;
+  union fsdata_u fsdata;
   struct buf bp;
 
+  bp.bp = &fsdata;
   if (verbose) {
 	show_info(directory, ip, "");
 	indent++;
@@ -263,7 +258,7 @@ char *directory;
 	;
   *name++ = '/';		/* Add trailing slash */
 
-  n_entries = (int) (ip->d1_size / (off_t) sizeof(struct direct));
+  n_entries = (int) (ip->d2_size / (off_t) sizeof(struct direct));
   while (n_entries > 0) {
 
 	/* Read next block of the directory */
@@ -275,7 +270,7 @@ char *directory;
 	}
 
 	/* Extract the files/directories listed in the block */
-	while (n_entries-- > 0 && dp < &bp.b_dir[NR_DIR_ENTRIES(BLOCK_SIZE)]) {
+	while (n_entries-- > 0 && dp < &bp.b_dir[NR_DIR_ENTRIES(block_size)]) {
 		if (dp->d_ino != (ino_t) 0) {
 			if (get_inode(special, dp->d_ino, &dip) < 0) {
 				/* Bad luck */
@@ -288,7 +283,7 @@ char *directory;
 			name[NAME_MAX] = '\0';
 
 			/* Call the right routine */
-			if ((dip.d1_mode & I_TYPE) == I_DIRECTORY)
+			if ((dip.d2_mode & I_TYPE) == I_DIRECTORY)
 				dump_dir(special, &dip, name);
 			else
 				dump_file(special, &dip, name);
@@ -309,7 +304,7 @@ char *directory;
 
 int dump_file(special, ip, filename)
 int special;
-d1_inode *ip;
+d2_inode *ip;
 char *filename;
 /* Extract given filename from the MINIX-filesystem,
  * and store it on the local filesystem.
@@ -317,10 +312,12 @@ char *filename;
 {
   int file;
   block_t b = 0;
+  union fsdata_u fsdata;
   struct buf bp;
   off_t size;
 
-  if (nofiles && (ip->d1_mode & I_TYPE) == I_REGULAR) return(0);
+  bp.bp = &fsdata;
+  if (nofiles && (ip->d2_mode & I_TYPE) == I_REGULAR) return(0);
 
   if (verbose) show_info(filename, ip, pathname);
 
@@ -331,14 +328,14 @@ char *filename;
 	fprintf(stderr, "Will not create %s: file exists\n", filename);
 	return(-1);
   }
-  if ((file = creat(filename, (ip->d1_mode & ALL_MODES))) < 0) {
+  if ((file = creat(filename, (ip->d2_mode & ALL_MODES))) < 0) {
 	fprintf(stderr, "cannot create %s\n", filename);
 	return(-1);
   }
 
   /* Don't try to extract /dev/hd0 */
-  if ((ip->d1_mode & I_TYPE) == I_REGULAR) {
-	size = ip->d1_size;
+  if ((ip->d2_mode & I_TYPE) == I_REGULAR) {
+	size = ip->d2_size;
 	while (size > (off_t) 0) {
 		/* Get next block of file */
 		if (get_fileblock(special, ip, b++, &bp) < 0) {
@@ -347,12 +344,12 @@ char *filename;
 		}
 
 		/* Write it to the file */
-		if (size > (off_t) BLOCK_SIZE)
-			write(file, bp.b_data, BLOCK_SIZE);
+		if (size > (off_t) block_size)
+			write(file, bp.b_data, block_size);
 		else
 			write(file, bp.b_data, (int) size);
 
-		size -= (off_t) BLOCK_SIZE;
+		size -= (off_t) block_size;
 	}
   }
   close(file);
@@ -362,7 +359,7 @@ char *filename;
 
 int get_fileblock(special, ip, b, bp)
 int special;
-d1_inode *ip;
+d2_inode *ip;
 block_t b;
 struct buf *bp;
 /* Read the `b'-th block from the file whose inode is `ip'. */
@@ -378,32 +375,32 @@ struct buf *bp;
   zone_index = b - ((block_t) zone << zone_shift);
 
   /* Go get the zone */
-  if (zone < (zone_t) V1_NR_DZONES) {	/* direct block */
-	zone = ip->d1_zone[(int) zone];
+  if (zone < (zone_t) V2_NR_DZONES) {	/* direct block */
+	zone = ip->d2_zone[(int) zone];
 	z = ((block_t) zone << zone_shift) + zone_index;
 	r = get_block(special, z, bp, B_DATA);
 	return(r);
   }
 
   /* The zone is not a direct one */
-  zone -= (zone_t) V1_NR_DZONES;
+  zone -= (zone_t) V2_NR_DZONES;
 
   /* Is it single indirect ? */
-  if (zone < (zone_t) V1_INDIRECTS) {	/* single indirect block */
-	ind_zone = ip->d1_zone[V1_NR_DZONES];
+  if (zone < (zone_t) V2_INDIRECTS(block_size)) { /* single indirect block */
+	ind_zone = ip->d2_zone[V2_NR_DZONES];
   } else {			/* double indirect block */
 	/* Fetch the double indirect block */
-	ind_zone = ip->d1_zone[V1_NR_DZONES + 1];
+	ind_zone = ip->d2_zone[V2_NR_DZONES + 1];
 	z = (block_t) ind_zone << zone_shift;
 	r = get_block(special, z, bp, B_INDIRECT);
 	if (r < 0) return(r);
 
-	/* Extract the indirect zone number from it */
-	zone -= (zone_t) V1_INDIRECTS;
+	/* The zone is not a single indirect one */
+	zone -= (zone_t) V2_INDIRECTS(block_size);
 
-	/* The next line assumes a V1 file system only! */
-	ind_zone = bp->b_v1_ind[(int) (zone / V1_INDIRECTS)];
-	zone %= (zone_t) V1_INDIRECTS;
+	/* Extract the indirect zone number from it */
+	ind_zone = bp->b_v2_ind[(int) (zone / V2_INDIRECTS(block_size))];
+	zone %= (zone_t) V2_INDIRECTS(block_size);
   }
 
   /* Extract the datablock number from the indirect zone */
@@ -411,8 +408,7 @@ struct buf *bp;
   r = get_block(special, z, bp, B_INDIRECT);
   if (r < 0) return(r);
 
-  /* The next line assumes a V1 file system only! */
-  zone = bp->b_v1_ind[(int) zone];
+  zone = bp->b_v2_ind[(int) zone];
 
   /* Calculate datablock number to be fetched */
   z = ((block_t) zone << zone_shift) + zone_index;
@@ -428,7 +424,7 @@ struct buf *bp;
 struct cache_block {
   block_t b_block;		/* block number of block */
   long b_access;		/* counter value of last access */
-  char b_buf[BLOCK_SIZE];	/* buffer for block */
+  char b_buf[_MAX_BLOCK_SIZE]; /* buffer for block */
 };
 
 #define	NR_CACHES	2	/* total number of caches */
@@ -457,7 +453,7 @@ int type;
 	return(-1);
   }
   if (type < 0 || type >= NR_CACHES)	/* No cache for this type */
-	return(get_rawblock(fd, block, (char *) bp));
+	return(get_rawblock(fd, block, /*(char *)*/ bp->b_data));
 
   cache_p = cache[type];
   cp = (struct cache_block *) 0;
@@ -483,7 +479,7 @@ int type;
   /* Update/store last access counter */
   cp->b_access = ++counter;
   cp->b_block = block;
-  memcpy((void *) bp, (void *) cp->b_buf, BLOCK_SIZE);
+  memcpy(/*(void *)*/ bp->b_data, /*(void *)*/ cp->b_buf, block_size);
   return(0);
 }
 
@@ -496,21 +492,21 @@ char *bufp;
   off_t pos;
 
   /* Calculate the position of the block on the disk */
-  pos = (off_t) blockno *(off_t) BLOCK_SIZE;
+  pos = (off_t) blockno *(off_t) block_size;
 
   /* Read the block from the disk */
   if (lseek(special, pos, SEEK_SET) == pos
-      && read(special, bufp, BLOCK_SIZE) == BLOCK_SIZE)
+      && read(special, bufp, block_size) == block_size)
 	return(0);
 
   /* Should never get here .. */
-  fprintf(stderr, "read block %d failed\n", blockno);
+  fprintf(stderr, "read block %ld failed\n", (long)blockno);
   return(-1);
 }
 
 void restore(name, ip)
 char *name;
-d1_inode *ip;
+d2_inode *ip;
 /* Restores given file's attributes.
  * `ip' contains the attributes of the file on the MINIX filesystem,
  * `name' is the filename of the extracted file on the local filesystem.
@@ -518,9 +514,10 @@ d1_inode *ip;
 {
   long ttime[2];
 
-  chown(name, ip->d1_uid, ip->d1_gid);	/* Fails if not superuser */
-  chmod(name, (ip->d1_mode & ALL_MODES));
-  ttime[0] = ttime[1] = ip->d1_mtime;
+  chown(name, ip->d2_uid, ip->d2_gid);	/* Fails if not superuser */
+  chmod(name, (ip->d2_mode & ALL_MODES));
+  ttime[0] = ip->d2_mtime;
+  ttime[1] = ip->d2_atime;
   utime(name, (struct utimbuf *) ttime);
 }
 
@@ -535,35 +532,35 @@ static char special_chars[] = {
 
 void show_info(name, ip, path)
 char *name;
-d1_inode *ip;
+d2_inode *ip;
 char *path;
 /* Show information about the given file/dir in `mkfs'-format */
 {
   char c1, c2, c3;
 
-  c1 = special_chars[(ip->d1_mode >> 13) & 03];
-  c2 = ((ip->d1_mode & ALL_MODES & ~RWX_MODES) == I_SET_UID_BIT) ? 'u' : '-';
-  c3 = ((ip->d1_mode & ALL_MODES & ~RWX_MODES) == I_SET_GID_BIT) ? 'g' : '-';
+  c1 = special_chars[(ip->d2_mode >> 13) & 03];
+  c2 = ((ip->d2_mode & ALL_MODES & ~RWX_MODES) == I_SET_UID_BIT) ? 'u' : '-';
+  c3 = ((ip->d2_mode & ALL_MODES & ~RWX_MODES) == I_SET_GID_BIT) ? 'g' : '-';
 
   if (*name) {
 	do_indent(indent);
 	printf("%-14s ", name);
   }
   printf("%c%c%c%03o %d %d", c1, c2, c3,
-         (ip->d1_mode & RWX_MODES), ip->d1_uid, ip->d1_gid);
+         (ip->d2_mode & RWX_MODES), ip->d2_uid, ip->d2_gid);
 
-  switch (ip->d1_mode & I_TYPE) {
+  switch (ip->d2_mode & I_TYPE) {
       case I_DIRECTORY:
 	break;
       case I_CHAR_SPECIAL:	/* Print major and minor dev numbers */
-	printf(" %d %d", (ip->d1_zone[0] >> MAJOR) & 0377,
-	       (ip->d1_zone[0] >> MINOR) & 0377);
+	printf(" %u %u", (unsigned)(ip->d2_zone[0] >> MAJOR) & 0377,
+	       (unsigned)(ip->d2_zone[0] >> MINOR) & 0377);
 	break;
       case I_BLOCK_SPECIAL:	/* Print major and minor dev numbers */
-	printf(" %d %d", (ip->d1_zone[0] >> MAJOR) & 0377,
-	       (ip->d1_zone[0] >> MINOR) & 0377);
+	printf(" %u %u", (unsigned)(ip->d2_zone[0] >> MAJOR) & 0377,
+	       (unsigned)(ip->d2_zone[0] >> MINOR) & 0377);
 	/* Also print the number of blocks on the device */
-	printf(" %ld", (ip->d1_size / (off_t) BLOCK_SIZE));
+	printf(" %ld", (long)(ip->d2_size / (off_t) block_size));
 	break;
       default:			/* Just print the pathname */
 	printf(" %s", path);

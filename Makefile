@@ -2,8 +2,12 @@
 
 NOOBJ=	# defined; to avoid cd ${.OBJDIR}
 
-SUBDIR+= etc
+# SUBDIR+= etc	# recursing through etc is done only upon request
+		# (using etcfiles or etcforce)
 SUBDIR+= include .WAIT lib .WAIT
+# FIXME: the following subdirs should NOT be walked if just doing
+# 'make includes'; doing so is just waste; probably the best way to deal
+# with that overhead is to amend the includes target of the sub Makefiles.
 SUBDIR+= boot commands man share
 SUBDIR+= kernel servers drivers
 SUBDIR+= tools
@@ -38,14 +42,14 @@ usage:
 # etcfiles has to be done first.
 
 etcfiles::
-	$(MAKE) -C etc install
+	$(MAKE) -C etc MKUPDATE=no install
 
-world: bootstrap objdirs includes depend libraries install etcforce
+world: bootstrap objdirs includes depend install etcforce
 
 # Force the current set of *.mk files to be in place.
 # This is probably useless when DESTDIR is set, or when make -mxxx is used...
 bootstrap:
-	$(MAKE) -m share/mk -C share/mk includes
+	$(MAKE) -m share/mk -C share/mk MKUPDATE=yes install
 mkfiles: bootstrap	# compatibility
 
 .if defined(MAKEOBJDIRPREFIX) || defined(MAKEOBJDIR) || ${MKOBJ:Uno} != "no"
@@ -56,42 +60,43 @@ objdirs:: # defined
 
 # Force some system files to be reset at the end of world building
 etcforce::
-	$(MAKE) -C etc installforce
+	$(MAKE) -C etc MKUPDATE=yes install
 
+# Maintenance of GCC 'fixed' headers
 MKHEADERS411=/usr/gnu/libexec/gcc/i386-pc-minix/4.1.1/install-tools/mkheaders
 MKHEADERS443=/usr/gnu/libexec/gcc/i686-pc-minix/4.4.3/install-tools/mkheaders
 MKHEADERS443_PKGSRC=/usr/pkg/gcc44/libexec/gcc/i686-pc-minix/4.4.3/install-tools/mkheaders
-#.if ${MAKEVERBOSE} >= 3
-#VERBOSE_MKHEADERS?=	-v
-#.endif
 
+# updates the GCC-specific headers; unfortunately the GCC 'mkheaders' program
+# touches many files, causing MAKE to rebuild the whole tree
+# See bug #531
+gnu-includes:
+	if [ -f $(MKHEADERS411) ] ; \
+	then SHELL=/bin/sh ${SUDO_SH:U${HOST_SH}} -e $(MKHEADERS411) ; fi
+	if [ -f $(MKHEADERS443) ] ; \
+	then ${SUDO_SH:U${HOST_SH}} -e $(MKHEADERS443) ; fi
+	if [ -f $(MKHEADERS443_PKGSRC) ] ; \
+	then ${SUDO_SH:U${HOST_SH}} -e $(MKHEADERS443_PKGSRC) ; fi
+
+#includes: gnu-includes	# currently disabled, too much overhead
+
+# Convenience targets:
 # quickly updates the ACK (ie. default) headers; avoid overhead
 ack-includes:
 	$(MAKE) -C include includes
 	$(MAKE) -C lib includes
-
-#includes: gnu-includes	# currently disabled, too much overhead
-
-# updates the GCC-specific headers; unfortunately the GCC 'mkheaders'
-# touches all the files, causing MAKE to rebuild the whole tree
-# See bug #531
-gnu-includes:
-	if [ -f $(MKHEADERS411) ] ; then SHELL=/bin/sh sh -e $(MKHEADERS411) ; fi
-	if [ -f $(MKHEADERS443) ] ; then sh -e $(MKHEADERS443) ; fi
-	if [ -f $(MKHEADERS443_PKGSRC) ] ; \
-	then sh -e $(MKHEADERS443_PKGSRC) $(VERBOSE_MKHEADERS:D-v) ; fi
 
 libraries: includes
 	$(MAKE) -C lib depend install
 
 # obsolete targets; behaviour really depends upon ${CC} and/or ${COMPILER_TYPE}
 gnu-libraries: includes gnu-includes
-	$(MAKE) -C lib depend install
+	CC=gcc COMPILER_TYPE=gnu $(MAKE) -C lib depend install
 clang-libraries: includes gnu-includes
-	$(MAKE) -C lib depend install
+	CC=clang COMPILER_TYPE=gnu $(MAKE) -C lib depend install
 
-.PHONY: usage etcfiles world bootstrap mkfiles objdirs
-.PHONY: ack-includes gnu-includes gnu-libraries clang-libraries
+.PHONY: usage world etcfiles bootstrap mkfiles objdirs etcforce
+.PHONY: ack-includes libraries gnu-includes gnu-libraries clang-libraries
 
 .if !empty(.TARGETS) && !make(usage)  # Avoid recursion if just giving information
 .include <bsd.subdir.mk>

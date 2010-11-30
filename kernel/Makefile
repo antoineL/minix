@@ -23,16 +23,17 @@ LDFLAGS+= -.o
 .elif ${COMPILER_TYPE} == "gnu"
 CPPFLAGS+= -ffreestanding -fno-stack-protector
 LDFLAGS+= -T ${.CURDIR}/arch/${ARCH}/kernel.lds
-LDFLAGS+= -nostdlib -L/usr/lib
+LDFLAGS+= -nostdlib -L${DESTDIR}${LIBDIR}
 CFLAGS+=-march=i386
 DPADD+=	${LIBC}
+#LDADD+=	-lgcc -lc -lgcc
 LDADD+=	-lc
 .endif
 
 CPPFLAGS+=	-I${.CURDIR} -I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
 AFLAGS+=	-I${.CURDIR} -I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
 
-STACKSIZE=	0
+INSTALLFLAGS+=	-S 0
 BINDIR=	/usr/sbin
 MAN=
 
@@ -42,17 +43,36 @@ MAN=
 
 debug.d: extracted-errno.h extracted-mfield.h extracted-mtype.h
 
-extracted-errno.h: extract-errno.sh ../include/errno.h
+extracted-errno.h: ${MINIXSRCDIR}/include/errno.h
 	${_MKTARGET_CREATE}
-	cd ${.CURDIR} ; sh extract-errno.sh > ${.OBJDIR}/extracted-errno.h
+	sed -n -e '    y/	/ / ; \
+	           /^#/s/^# *define *\([A-Z_][A-Z0-9_]*\)  *(_SIGN *[0-9][0-9]* *).*/IDENT(\1)/p' ${.ALLSRC} | \
+	sort > ${.TARGET}
 
-extracted-mfield.h: extract-mfield.sh ../lib/libc/other/*.c ../lib/libc/posix/*.c ../lib/libsys/*.c
+extracted-mfield.h: extract-mfield.sh
 	${_MKTARGET_CREATE}
-	cd ${.CURDIR} ; sh extract-mfield.sh > ${.OBJDIR}/extracted-mfield.h
+	${HOST_SH} ${.CURDIR}/extract-mfield.sh \
+	            ${MINIXSRCDIR}/lib/libc/other \
+	            ${MINIXSRCDIR}/lib/libc/posix \
+	            ${MINIXSRCDIR}/lib/libsys > ${.TARGET}
 
-extracted-mtype.h: extract-mtype.sh ../include/minix/com.h
+extracted-mfield.h: ${MINIXSRCDIR}/lib/libc/other/*.c
+extracted-mfield.h: ${MINIXSRCDIR}/lib/libc/posix/*.c
+extracted-mfield.h: ${MINIXSRCDIR}/lib/libsys/*.c
+
+extracted-mtype.h: ${MINIXSRCDIR}/include/minix/com.h \
+		${MINIXSRCDIR}/include/minix/callnr.h
 	${_MKTARGET_CREATE}
-	cd ${.CURDIR} ; sh extract-mtype.sh > ${.OBJDIR}/extracted-mtype.h
+	( sed -n -e '  y/	/ / ; \
+	           /^# *define *NCALLS */d ; \
+	           /^#/s/^# *define *\([A-Z_][A-Z0-9_]*\)  *[0-9].*/IDENT(\1)/p' \
+			${MINIXSRCDIR}/include/minix/callnr.h ; \
+	  sed -n -e '  y/	/ / ; \
+	           /^#/s/^# *define *\([A-Z_][A-Z0-9_]*\)  *( *[A-Z0-9_][A-Z0-9_]*_BASE *+.*/IDENT(\1)/p ; \
+	           /^#/s/^# *define *\([A-Z_][A-Z0-9_]*\)  *( *KERNEL_CALL *+.*/IDENT(\1)/p' \
+			${MINIXSRCDIR}/include/minix/com.h ; \
+	) | sort > ${.TARGET}
 
 clean:
 	rm -f extracted-errno.h extracted-mfield.h extracted-mtype.h
+CLEANFILES+=	extracted-errno.h extracted-mfield.h extracted-mtype.h
