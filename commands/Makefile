@@ -12,7 +12,7 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	dhrystone diff dirname  dis386 dis88 diskctl du dumpcore \
 	ed eject elle elvis env expand factor file \
 	find finger fingerd fix fold format fortune fsck.mfs \
-	fsck1 ftp101 ftpd200 gcov-pull getty grep gomoku head hexdump host \
+	ftp101 ftpd200 gcov-pull getty grep gomoku head hexdump host \
 	hostaddr id ifconfig ifdef indent install \
 	intr ipcrm ipcs irdpd isoread join kill last leave \
 	less lex life loadkeys loadramdisk logger login look lp \
@@ -32,7 +32,8 @@ SUBDIR=	aal add_route adduser advent arp ash at autil awk \
 	truncate tsort ttt tty udpstat umount uname unexpand \
 	uniq unstack update uud uue version vol wc \
 	whereis which who write writeisofs fetch \
-	xargs yacc yes zdump zic zmodem pkg_install pkgin_cd
+	xargs yacc yes zdump zic zmodem pkg_install pkgin_cd \
+	mktemp
 
 .if ${ARCH} == "i386"
 SUBDIR+=	atnormalize dosread fdisk loadfont \

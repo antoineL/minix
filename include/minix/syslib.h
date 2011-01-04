@@ -183,6 +183,7 @@ _PROTOTYPE(int sys_segctl, (int *index, u16_t *seg, vir_bytes *off,
 #define sys_getkinfo(dst)	sys_getinfo(GET_KINFO, dst, 0,0,0)
 #define sys_getloadinfo(dst)	sys_getinfo(GET_LOADINFO, dst, 0,0,0)
 #define sys_getmachine(dst)	sys_getinfo(GET_MACHINE, dst, 0,0,0)
+#define sys_getcpuinfo(dst)     sys_getinfo(GET_CPUINFO, dst, 0,0,0)
 #define sys_getproctab(dst)	sys_getinfo(GET_PROCTAB, dst, 0,0,0)
 #define sys_getprivtab(dst)	sys_getinfo(GET_PRIVTAB, dst, 0,0,0)
 #define sys_getproc(dst,nr)	sys_getinfo(GET_PROC, dst, 0,0, nr)
@@ -266,6 +267,9 @@ _PROTOTYPE( int sys_profbuf, (void *ctl_ptr, void *mem_ptr)            );
 /* machine context */
 _PROTOTYPE( int sys_getmcontext, (endpoint_t proc, mcontext_t *mcp)	);
 _PROTOTYPE( int sys_setmcontext, (endpoint_t proc, mcontext_t *mcp)	);
+
+/* input */
+_PROTOTYPE( int tty_input_inject, (int type, int code, int val) );
 
 #endif /* _SYSLIB_H */
 

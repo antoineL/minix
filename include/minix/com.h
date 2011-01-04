@@ -22,6 +22,7 @@
  *    0xE00 -  0xEFF	Common system messages (e.g. system signals)
  *    0xF00 -  0xFFF    Scheduling messages
  *   0x1000 - 0x10FF	Notify messages
+ *   0x1300 - 0x13FF    TTY Input
  *
  * Zero and negative values are widely used for OK and error responses.
  */
@@ -491,6 +492,7 @@
 #   define GET_RANDOMNESS_BIN 20 /* get one randomness bin */
 #   define GET_IDLETSC	  21	/* get cumulative idle time stamp counter */
 #   define GET_AOUTHEADER 22    /* get a.out headers from the boot image */
+#   define GET_CPUINFO    23    /* get information about cpus */
 #define I_ENDPT        m7_i4	/* calling process (may only be SELF) */
 #define I_VAL_PTR      m7_p1	/* virtual address at caller */ 
 #define I_VAL_LEN      m7_i1	/* max length of value */
@@ -1170,6 +1172,18 @@
 
 /* SCHEDULING_INHERIT is like SCHEDULING_START, but without _QUANTUM field */
 #define SCHEDULING_INHERIT	(SCHEDULING_BASE+5)
+
+/*===========================================================================*
+ *              TTY INPUT INJECTION                                          *
+ *===========================================================================*/
+
+#define INPUT_BASE 0x1300
+
+#define INPUT_EVENT      (INPUT_BASE + 0)
+
+#	define INPUT_TYPE        m4_l1
+#	define INPUT_CODE        m4_l2
+#	define INPUT_VALUE       m4_l3
 
 #endif
 
