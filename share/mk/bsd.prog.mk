@@ -15,6 +15,7 @@
 ##### "all" and "depend" targets
 realinstall: realall
 realall: depend
+depend: .gitignore
 
 ##### Basic targets
 realinstall:	proginstall scriptsinstall
@@ -57,7 +58,8 @@ MKDEP_SUFFIXES?=	.o .ln
 # 	rumpfs_lfs rumpfs_msdosfs rumpfs_nfs rumpfs_ntfs rumpfs_syspuffs \
 # 	rumpfs_tmpfs rumpfs_udf rumpfs_ufs
 .for _lib in \
-	c curses driver netdriver edit end m sys timers util bz2 l hgfs audiodriver
+	c curses driver netdriver edit end m sys timers util bz2 l hgfs \
+	audiodriver exec
 .ifndef LIB${_lib:tu}
 LIB${_lib:tu}=	${DESTDIR}/usr/lib/lib${_lib}.a
 .if ${COMPILER_TYPE} == "ack"
@@ -381,5 +383,8 @@ all: .PHONY memalloc
 memalloc: realall
 	${INSTALL} ${INSTALLFLAGS} ${PROG}
 .endif
+
+.gitignore: Makefile
+	echo $(CLEANFILES) $(PROGS) | tr ' ' '\n' >.gitignore
 
 .endif	# HOSTPROG
