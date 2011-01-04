@@ -12,7 +12,7 @@ INCS=	alloca.h ansi.h a.out.h ar.h assert.h configfile.h ctype.h \
 	syslog.h tar.h termcap.h termios.h time.h timers.h tools.h \
 	ttyent.h ucontext.h unistd.h utime.h utmp.h wchar.h wctype.h \
 	hgfs.h tzfile.h util.h fetch.h mpool.h ndbm.h db.h poll.h resolv.h \
-	memory.h
+	memory.h paths.h libexec.h
 
 INCSDIR=        /usr/include
 
