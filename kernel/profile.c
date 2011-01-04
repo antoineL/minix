@@ -28,6 +28,8 @@
 #include <string.h>
 #include "watchdog.h"
 
+char sprof_sample_buffer[SAMPLE_BUFFER_SIZE];
+
 /* Function prototype for the profiling clock handler. */ 
 FORWARD _PROTOTYPE( int profile_clock_handler, (irq_hook_t *hook) );
 
@@ -101,18 +103,19 @@ PRIVATE void profile_sample(struct proc * p, void * pc)
 	return;
   }
 
-  if (!(p->p_misc_flags & MF_SPROF_SEEN)) {
-	  p->p_misc_flags |= MF_SPROF_SEEN;
-	  sprof_save_proc(p);
-  }
-
   /* Runnable system process? */
   if (p->p_endpoint == IDLE)
-	  sprof_info.idle_samples++;
+	sprof_info.idle_samples++;
   else if (p->p_endpoint == KERNEL ||
-		  (priv(p)->s_flags & SYS_PROC && proc_is_runnable(p))) {
-	  sprof_save_sample(p, pc);
-	  sprof_info.system_samples++;
+		(priv(p)->s_flags & SYS_PROC && proc_is_runnable(p))) {
+
+	if (!(p->p_misc_flags & MF_SPROF_SEEN)) {
+		p->p_misc_flags |= MF_SPROF_SEEN;
+		sprof_save_proc(p);
+	}
+
+	sprof_save_sample(p, pc);
+	sprof_info.system_samples++;
   } else {
 	/* User process. */
 	sprof_info.user_samples++;
