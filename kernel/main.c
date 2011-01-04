@@ -29,6 +29,9 @@
 #endif
 #include "spinlock.h"
 
+/* dummy for linking */
+char *** _penviron;
+
 /* Prototype declarations for PRIVATE functions. */
 FORWARD _PROTOTYPE( void announce, (void));	
 
@@ -153,6 +156,7 @@ PUBLIC int main(void)
 	int schedulable_proc;
 	proc_nr_t proc_nr;
 	int ipc_to_m, kcalls;
+	sys_map_t map;
 
 	ip = &image[i];				/* process' attributes */
 	DEBUGEXTRA(("initializing %s... ", ip->proc_name));
@@ -202,7 +206,14 @@ PUBLIC int main(void)
             }
 
             /* Fill in target mask. */
-            fill_sendto_mask(rp, ipc_to_m);
+            memset(&map, 0, sizeof(map));
+
+            if (ipc_to_m == ALL_M) {
+                for(j = 0; j < NR_SYS_PROCS; j++)
+                    set_sys_bit(map, j);
+            }
+
+            fill_sendto_mask(rp, &map);
 
             /* Fill in kernel call mask. */
             for(j = 0; j < SYS_CALL_MASK_SIZE; j++) {
@@ -347,8 +358,8 @@ PRIVATE void announce(void)
 {
   /* Display the MINIX startup banner. */
   printf("\nMINIX %s.%s. "
-#ifdef _SVN_REVISION
-	"(" _SVN_REVISION ")\n"
+#ifdef _VCS_REVISION
+	"(" _VCS_REVISION ")\n"
 #endif
       "Copyright 2010, Vrije Universiteit, Amsterdam, The Netherlands\n",
       OS_RELEASE, OS_VERSION);
