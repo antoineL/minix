@@ -30,7 +30,7 @@ PUBLIC int do_link()
 {
 /* Perform the link(name1, name2) system call. */
   int r = OK;
-  struct vnode *vp, *vp_d;
+  struct vnode *vp = NULL, *vp_d = NULL;
 
   /* See if 'name1' (file to be linked to) exists. */ 
   if(fetch_name(m_in.name1, m_in.name1_length, M1) != OK) return(err_code);
@@ -124,7 +124,7 @@ PUBLIC int do_rename()
 {
 /* Perform the rename(name1, name2) system call. */
   int r = OK, r1;
-  struct vnode *old_dirp, *new_dirp, *vp;
+  struct vnode *old_dirp, *new_dirp = NULL, *vp;
   char old_name[PATH_MAX+1];
   
   /* See if 'name1' (existing file) exists.  Get dir and file inodes. */
@@ -293,6 +293,7 @@ struct fproc *rfp;
   else
 	r = req_rdlink(vp->v_fs_e, vp->v_inode_nr, (endpoint_t) 0,
 						link_path, PATH_MAX+1, 1);
+  if (r > 0) link_path[r] = '\0';
 
   put_vnode(vp);
   return r;

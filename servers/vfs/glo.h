@@ -13,8 +13,6 @@ EXTERN int reviving;		/* number of pipe processes to be revived */
 
 EXTERN dev_t root_dev;		/* device number of the root device */
 EXTERN int ROOT_FS_E;           /* kernel endpoint of the root FS proc */
-EXTERN int last_login_fs_e;     /* endpoint of the FS proc that logged in
-                                   before the corresponding mount request */
 EXTERN u32_t system_hz;		/* system clock frequency. */
 
 /* The parameters of the call are kept here. */
@@ -24,7 +22,6 @@ EXTERN int who_p, who_e;	/* caller's proc number, endpoint */
 EXTERN int call_nr;		/* system call number */
 
 EXTERN message mount_m_in;	/* the input message for a mount request */
-EXTERN endpoint_t mount_fs_e;	/* endpoint of file system to mount */
 EXTERN char mount_label[LABEL_MAX];	/* label of file system to mount */
 
 EXTERN char user_fullpath[PATH_MAX+1];    /* storage for user path name */

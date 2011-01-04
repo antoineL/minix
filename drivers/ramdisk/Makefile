@@ -13,15 +13,13 @@ EXTRA=system.conf passwd rs.single
 CPPFLAGS+= -I${MINIXSRCDIR}/servers -I${MINIXSRCDIR}
 TOOLS_MKFS?=	mkfs.mfs
 MAKEDEV=/usr/bin/MAKEDEV
+CLEANFILES += $(PROGRAMS) $(EXTRA) bintoc image image.c t proto.gen
 
 STRIPFLAG=	-s
 
 install: all
 
 all:	image.c
-
-clean:
-	rm -rf $(PROGRAMS) $(EXTRA) bintoc image image.c t proto.gen
 
 image.c:	bintoc image
 	${_MKTARGET_CREATE}
