@@ -120,11 +120,13 @@ struct loadinfo {
   clock_t last_clock;
 };
 
-struct cpu_type {
+struct cpu_info {
 	u8_t	vendor;
 	u8_t	family;
 	u8_t	model;
 	u8_t	stepping;
+	u32_t	freq;		/* in MHz */
+	u32_t	flags[2];
 };
 
 struct machine {
@@ -138,7 +140,6 @@ struct machine {
   int vdu_vga;
   int apic_enabled; /* does the kernel use APIC or not? */
   phys_bytes	acpi_rsdp; /* where is the acpi RSDP */
-  struct cpu_type	cpu_type;
 };
 
 struct io_range
@@ -156,17 +157,19 @@ struct mem_range
 /* For EXEC_NEWMEM */
 struct exec_newmem
 {
-	vir_bytes text_bytes;
-	vir_bytes data_bytes;
-	vir_bytes bss_bytes;
-	vir_bytes tot_bytes;
-	vir_bytes args_bytes;
-	int sep_id;
-	dev_t st_dev;
-	ino_t st_ino;
-	time_t st_ctime;
-	uid_t new_uid;
-	gid_t new_gid;
+	vir_bytes text_addr;	/* Starting address of text section */
+	vir_bytes text_bytes;	/* Length of text section (in bytes) */
+	vir_bytes data_addr;	/* Starting address of data section */
+	vir_bytes data_bytes;	/* Length of data section (in bytes) */
+	vir_bytes tot_bytes;	/* Minimum stack region size (in bytes) */
+	vir_bytes args_bytes;	/* Arguments/environ size on stack (in bytes) */
+	int sep_id;		/* Separate I&D?  */
+	int is_elf;		/* Is ELF exe? */
+	dev_t st_dev;		/* Device holding executable file */
+	ino_t st_ino;		/* Inode of executable file */
+	time_t st_ctime;	/* Last changed time of executable file */
+	uid_t new_uid;		/* Process UID after exec */
+	gid_t new_gid;		/* Process GID after exec */
 	char progname[16];	/* Should be at least PROC_NAME_LEN */
 };
 

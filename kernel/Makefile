@@ -6,7 +6,7 @@ PROG=	kernel
 # first-stage, arch-dependent startup code
 SRCS=	mpx.S
 SRCS+=	start.c table.c main.c proc.c \
-	system.c clock.c utility.c debug.c profile.c interrupt.c \
+	system.c clock.c utility.c debug.c interrupt.c \
 	watchdog.c cpulocals.c
 
 .ifdef CONFIG_SMP
@@ -22,11 +22,11 @@ CFLAGS += -D__kernel__
 LDFLAGS+= -.o
 .elif ${COMPILER_TYPE} == "gnu"
 CPPFLAGS+= -ffreestanding -fno-stack-protector
-LDFLAGS+= -T arch/${ARCH}/kernel.lds
-LDFLAGS+= -nostdlib -L/usr/lib
+LDFLAGS+= -T ${.CURDIR}/arch/${ARCH}/kernel.lds
+LDFLAGS+= -nostdlib -L${LIBDIR}
 CFLAGS+=-march=i386
 DPADD+=	${LIBC}
-LDADD+=	-lc
+LDADD+=	-lgcc -lc -lgcc
 .endif
 
 CPPFLAGS+=	-I${.CURDIR} -I${.CURDIR}/arch/${ARCH}/include -I${MINIXSRCDIR}
@@ -38,9 +38,15 @@ MAN=
 
 .include "system/Makefile.inc"
 .include "arch/${ARCH}/Makefile.inc"
+
+# These come last, so the profiling buffer is at the end of the data segment
+SRCS+= profile.c do_sprofile.c
+
 .include <bsd.prog.mk>
 
 debug.d: extracted-errno.h extracted-mfield.h extracted-mtype.h
+
+CLEANFILES+=extracted-errno.h extracted-mfield.h extracted-mtype.h
 
 extracted-errno.h: extract-errno.sh ../include/errno.h
 	${_MKTARGET_CREATE}

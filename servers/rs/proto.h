@@ -27,8 +27,6 @@ _PROTOTYPE( int do_getsysinfo, (message *m));
 _PROTOTYPE( int do_lookup, (message *m));
 
 /* manager.c */
-_PROTOTYPE( int caller_is_root, (endpoint_t endpoint) );
-_PROTOTYPE( int caller_can_control, (endpoint_t endpoint, char *label) );
 _PROTOTYPE( int check_call_permission, (endpoint_t caller, int call,
 	struct rproc *rp) );
 _PROTOTYPE( int copy_rs_start, (endpoint_t src_e, char *src_rs_start,
@@ -90,6 +88,7 @@ _PROTOTYPE( void end_update, (int result, int reply_flag) );
 
 /* utility.c */
 _PROTOTYPE( int init_service, (struct rproc *rp, int type));
+_PROTOTYPE( void fill_send_mask, (sys_map_t *send_mask, int set_bits));
 _PROTOTYPE(void fill_call_mask, ( int *calls, int tot_nr_calls,
 	bitchunk_t *call_mask, int call_base, int is_init));
 _PROTOTYPE( char* srv_to_string, (struct rproc *rp));
