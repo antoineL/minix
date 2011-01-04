@@ -31,7 +31,7 @@
  *	@(#)pathnames.h	8.3 (Berkeley) 1/2/94
  */
 
-#include <minix/paths.h>
+#include <paths.h>
 
 #define	_PATH_MANCONF	"/etc/man.conf"
 #define	_PATH_PAGER	"/usr/bin/more -s"

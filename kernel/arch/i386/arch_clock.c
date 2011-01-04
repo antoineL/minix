@@ -115,6 +115,7 @@ PRIVATE void estimate_cpu_freq(void)
 
 	cpu_freq = mul64(div64u64(tsc_delta, PROBE_TICKS - 1), make64(system_hz, 0));
 	cpu_set_freq(cpuid, cpu_freq);
+	cpu_info[cpuid].freq = div64u(cpu_freq, 1000000);
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
 }
 
@@ -124,8 +125,8 @@ PUBLIC int init_local_timer(unsigned freq)
 	/* if we know the address, lapic is enabled and we should use it */
 	if (lapic_addr) {
 		unsigned cpu = cpuid;
-		lapic_set_timer_periodic(freq);
 		tsc_per_ms[cpu] = div64u(cpu_get_freq(cpu), 1000);
+		lapic_set_timer_one_shot(1000000/system_hz);
 	} else
 	{
 		BOOT_VERBOSE(printf("Initiating legacy i8253 timer\n"));
@@ -194,6 +195,7 @@ PUBLIC void cycles_accounting_init(void)
 
 PUBLIC void context_stop(struct proc * p)
 {
+	unsigned cpu = cpuid;
 	u64_t tsc, tsc_delta;
 	u64_t * __tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
 
@@ -207,12 +209,15 @@ PUBLIC void context_stop(struct proc * p)
 	 * for IDLE we must not hold the lock
 	 */
 	if (p == proc_addr(KERNEL)) {
+		u64_t tmp;
+
 		read_tsc_64(&tsc);
-		p->p_cycles = add64(p->p_cycles, sub64(tsc, *__tsc_ctr_switch));
+		tmp = sub64(tsc, *__tsc_ctr_switch);
+		kernel_ticks[cpu] = add64(kernel_ticks[cpu], tmp);
+		p->p_cycles = add64(p->p_cycles, tmp);
 		BKL_UNLOCK();
 	} else {
-		u64_t bkl_tsc, tmp;
-		unsigned cpu = cpuid;
+		u64_t bkl_tsc;
 		atomic_t succ;
 		
 		read_tsc_64(&bkl_tsc);
@@ -227,9 +232,7 @@ PUBLIC void context_stop(struct proc * p)
 		bkl_tries[cpu]++;
 		bkl_succ[cpu] += !(!(succ == 0));
 
-		tmp = sub64(tsc, *__tsc_ctr_switch);
-		kernel_ticks[cpu] = add64(kernel_ticks[cpu], tmp);
-		p->p_cycles = add64(p->p_cycles, tmp);
+		p->p_cycles = add64(p->p_cycles, sub64(tsc, *__tsc_ctr_switch));
 	}
 #else
 	read_tsc_64(&tsc);
@@ -248,9 +251,9 @@ PUBLIC void context_stop(struct proc * p)
 		make_zero64(p->p_cpu_time_left);
 #else
 		/* if (tsc_delta < p->p_cpu_time_left) in 64bit */
-		if (tsc_delta.hi < p->p_cpu_time_left.hi ||
-				(tsc_delta.hi == p->p_cpu_time_left.hi &&
-				 tsc_delta.lo < p->p_cpu_time_left.lo))
+		if (ex64hi(tsc_delta) < ex64hi(p->p_cpu_time_left) ||
+				(ex64hi(tsc_delta) == ex64hi(p->p_cpu_time_left) &&
+				 ex64lo(tsc_delta) < ex64lo(p->p_cpu_time_left)))
 			p->p_cpu_time_left = sub64(p->p_cpu_time_left, tsc_delta);
 		else {
 			make_zero64(p->p_cpu_time_left);
@@ -312,7 +315,7 @@ PUBLIC short cpu_load(void)
 
 		busy = sub64(tsc_delta, idle_delta);
 		busy = mul64(busy, make64(100, 0));
-		load = div64(busy, tsc_delta).lo;
+		load = ex64lo(div64(busy, tsc_delta));
 
 		if (load > 100)
 			load = 100;
