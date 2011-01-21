@@ -3,6 +3,7 @@
 # Doing a make install builds nothing ?!
 
 NOOBJ=	# defined; to avoid cd ${.OBJDIR}
+.include <bsd.own.mk>
 
 # The tree should be in place before actually copying files;
 # fortunately, the realinstall target in the src/etc directory

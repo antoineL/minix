@@ -17,11 +17,11 @@
 PROG=	lex
 CPPFLAGS+=-I. -I${.CURDIR}
 SRCS=	ccl.c dfa.c ecs.c gen.c main.c misc.c nfa.c parse.y sym.c tblcmp.c \
-	yylex.c scan.l skel.c
+	yylex.c
 YHEADER=1
-CLEANFILES+=skel.c
-# C++ stuff... the MINIX default place for C++ include is not fixed...
-#INCS	=FlexLexer.h
+OBJS.lex+=scan.o skel.o
+CLEANFILES+=scan.c skel.c
+INCS	=FlexLexer.h
 #INCSDIR=/usr/local/include
 
 MAN= flex.1
@@ -35,11 +35,13 @@ skel.c:	mkskel.sh flex.skl
 	${HOST_SH} ${.ALLSRC} >${.TARGET}
 
 .ifndef HOSTPROG
+scan.o: scan.c
 scan.c: scan.l
 	${_MKTARGET_LEX}
 	${LEX} -t -p ${.ALLSRC} >${.TARGET}
 .endif
 
 scan.o yylex.o: parse.h
+parse.c parse.h: parse.y
 
 .include <bsd.prog.mk>

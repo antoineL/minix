@@ -14,7 +14,7 @@ PROG=	image
 #BINDIR=	/boot/image
 # extract from hdboot the logic to build the name?
 #PROGNAME=	3.1.9r4
-#MAN=	#none
+MAN=	#none
 
 #u=/usr
 #MDEC=	/usr/mdec
@@ -44,12 +44,17 @@ image_mb: kernel
 	${_MKTARGET_LINK}
 	$(TOOLS_INSTALLBOOT) -image $@ $(PROGRAMS)
 
-# image:
-realall:
+#realall:
+# Override the normal rule to make a program
+image:
 	${_MKTARGET_LINK}
 	$(TOOLS_INSTALLBOOT) -image $@ $(PROGRAMS)
 
 #.PRECIOUS: image
+
+image.d:
+	${_MKTARGET_CREATE}
+	echo>$@ image: $(PROGRAMS)
 
 # Pad the kernel text only if ACK compiler is used. padtext does not work for
 # gnu-like compilers as they generate common I&D and a linker script can do the
@@ -135,14 +140,14 @@ drivers: includes #servers
 
 # make bootable and place system images
 bootable:
-	${SUDO_SH:U${HOST_SH}} mkboot bootable
+	${SUDO_SH:U${HOST_SH}} ${.CURDIR}/mkboot bootable
 
 hdboot:	image
-	${SUDO_SH:U${HOST_SH}} mkboot $@
+	${SUDO_SH:U${HOST_SH}} ${.CURDIR}/mkboot $@
 	@sync
 
 fdboot:	image
-	${SUDO_SH:U${HOST_SH}} mkboot $@
+	${SUDO_SH:U${HOST_SH}} ${.CURDIR}/mkboot $@
 	@sync
 
 install: includes services hdboot

@@ -2,9 +2,21 @@
 
 set -e
 
+case $# in
+ 0)	echo $0 "expects some path(s) to library sources as argument" ; exit 1 ;;
+ *)	;;
+esac
+PATHS="$@" 
+
 find_files_and_lines()
 (
-	find  ../lib/libc/other ../lib/libc/posix ../lib/libsys -name '*.c' | \
+	#BUGGY_with HGFS
+	# find $PATHS -name '*.c' |
+	#ALTERNATES:
+	#( for f in $PATHS ; do find $f -name '*.c' ; done ) |
+	#( for f in $PATHS ; do ls $f/*.c ; done ) |
+
+	( for f in $PATHS ; do ls $f/*.c ; done ) | \
 	xargs egrep -n '((_syscall|_taskcall)\([^,][^,]*,[ 	]*|_kernel_call\()[A-Z_][A-Z0-9_]*,[ 	]*&m\)' | \
 	cut -d: -f1,2
 )

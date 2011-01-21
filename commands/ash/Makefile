@@ -31,7 +31,7 @@ YFLAGS=	-d
 EDIT=-DEDITLINE
 
 # Enable this line if your system does not have a <paths.h>
-NO_PATHS_H=-DNO_PATHS_H 
+#NO_PATHS_H=-DNO_PATHS_H
 
 # Enable this if you don't want job control
 NO_JOBS=-DJOBS=0
@@ -65,7 +65,7 @@ init.c: mkinit.c alias.c eval.c exec.c input.c jobs.c options.c parser.c \
 
 .ORDER: nodes.c nodes.h
 nodes.c nodes.h: mknodes.c nodetypes nodes.c.pat
-	${_MKMSG_COMPILE} mknodes
+	${_MKMSG_COMPILE} mksyntax
 	${HOST_LINK.c} -o ${.OBJDIR}/mknodes ${.CURDIR}/mknodes.c
 	${_MKTARGET_CREATE}
 	${.OBJDIR}/mknodes ${.ALLSRC:C/.*mknodes.c$//}

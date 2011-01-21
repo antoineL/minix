@@ -8,8 +8,8 @@ INCS+=	a.out.h acpi.h bitmap.h callnr.h cdrom.h \
 	drivers.h drvlib.h ds.h endpoint.h \
 	fslib.h ioctl.h ipc.h ipcconst.h \
 	keymap.h limits.h minlib.h mq.h mthread.h \
-	netdriver.h partition.h paths.h \
-	portio.h priv.h procfs.h profile.h queryparam.h \
+	netdriver.h partition.h portio.h \
+	priv.h procfs.h profile.h queryparam.h \
 	rs.h safecopies.h sched.h sef.h sound.h \
 	spin.h sys_config.h sysinfo.h syslib.h \
 	sysutil.h timers.h tty.h type.h types.h \

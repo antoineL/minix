@@ -8,8 +8,9 @@ SUBDIR+= include .WAIT lib .WAIT
 # FIXME: the following subdirs should NOT be walked if just doing
 # 'make includes'; doing so is just waste; probably the best way to deal
 # with that overhead is to amend the includes target of the sub Makefiles.
-SUBDIR+= boot commands man share
+SUBDIR+= commands man # share
 SUBDIR+= kernel servers drivers
+#SUBDIR+= boot
 SUBDIR+= tools
 
 usage:

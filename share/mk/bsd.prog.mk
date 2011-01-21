@@ -15,6 +15,7 @@
 ##### "all" and "depend" targets
 realinstall: realall
 realall: depend
+depend: .gitignore
 
 ##### Basic targets
 realinstall:	proginstall scriptsinstall
@@ -60,10 +61,8 @@ _GCC_LIBGCCDIR?=	${DESTDIR}/usr/lib
 # 	rumpfs_tmpfs rumpfs_udf rumpfs_ufs
 
 .for _lib in \
-	archive audiodriver bz2 c \
-	curses driver edit end \
-	fetch hgfs l m mthread netdriver \
-	sys timers util vtreefs z
+	archive audiodriver bz2 c curses driver edit end exec \
+	fetch hgfs l m mthread netdriver sys timers util vtreefs z
 .ifndef LIB${_lib:tu}
 LIB${_lib:tu}=	${DESTDIR}${LIBDIR}/lib${_lib}.a
 .MADE:		${LIB${_lib:tu}} # Note: ${DESTDIR}${LIBDIR} will be expanded
@@ -382,11 +381,8 @@ all: .PHONY memalloc
 memalloc: realall
 	${INSTALL} ${INSTALLFLAGS} ${PROG}
 .endif
-.if defined(STACKSIZE) && ${COMPILER_TYPE} != "ack"
-all: .PHONY memalloc
 
-memalloc: realall
-	${INSTALL} -S ${STACKSIZE} ${PROG}
-.endif
+.gitignore: Makefile
+	echo $(CLEANFILES) $(PROGS) | tr ' ' '\n' >.gitignore
 
 .endif	# HOSTPROG
