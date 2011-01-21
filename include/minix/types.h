@@ -26,17 +26,25 @@ typedef unsigned long  u32_t;	   /* 32 bit type */
 typedef long           i32_t;      /* 32 bit signed type */
 #endif
 
+#if !defined(__LONG_LONG_SUPPORTED)
 typedef struct {
 	u32_t lo;
 	u32_t hi;
 } u64_t;
+#else
+#if __SIZEOF_LONG__ > 4
+typedef unsigned long u64_t;
+#else
+typedef unsigned long long u64_t;
+#endif
+#endif
 
 /* some Minix specific types that do not conflict with posix */
 typedef u32_t zone_t;	   /* zone number */
 typedef u32_t block_t;	   /* block number */
 typedef u32_t bit_t;	   /* bit number in a bit map */
 typedef u16_t zone1_t;	   /* zone number for V1 file systems */
-typedef u16_t bitchunk_t; /* collection of bits in a bitmap */
+typedef u32_t bitchunk_t; /* collection of bits in a bitmap */
 
 /* ANSI C makes writing down the promotion of unsigned types very messy.  When
  * sizeof(short) == sizeof(int), there is no promotion, so the type stays

@@ -9,6 +9,7 @@
 
 #include <minix/callnr.h>
 #include <minix/sysutil.h>
+#include <minix/u64.h>
 #include <limits.h>
 #include <string.h>
 
@@ -262,7 +263,8 @@ PUBLIC void print_proc(struct proc *pp)
 			"cr3 0x%lx rts %s misc %s sched %s ",
 		proc_nr(pp), pp->p_name, pp->p_endpoint, 
 		pp->p_priority, pp->p_user_time,
-		pp->p_sys_time, pp->p_cycles.hi, pp->p_cycles.lo, pp->p_cpu,
+		pp->p_sys_time, ex64hi(pp->p_cycles),
+		ex64lo(pp->p_cycles), pp->p_cpu,
 		pp->p_seg.p_cr3,
 		rtsflagstr(pp->p_rts_flags), miscflagstr(pp->p_misc_flags),
 		schedulerstr(pp->p_scheduler));
@@ -322,13 +324,13 @@ PRIVATE const char *mtypename(int mtype, int iscall)
 		switch(mtype) {
 #define IDENT(x) case x: return #x;
 #include "extracted-mtype.h"
-#undef IDENT(
+#undef IDENT
 		}
 	} else {
 		switch(mtype) {
 #define IDENT(x) case x: return #x;
 #include "extracted-errno.h"
-#undef IDENT(
+#undef IDENT
 		}
 	}
 

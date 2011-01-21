@@ -8,6 +8,7 @@ PROG=	acpi
 
 SRCS= \
 	acpi.c \
+	pci.c \
 	osminixxf.c
 
 ACPICA_SRCS= \
@@ -140,7 +141,7 @@ SRCS+=${ACPICA_SRCS}
 DPADD+=	${LIBDRIVER} ${LIBSYS}
 LDADD+=	-ldriver -lsys
 
-CFLAGS += -I./include
+CPPFLAGS += -I${.CURDIR}/include
 CFLAGS += -DACPI_LIBRARY
 CFLAGS += -std=c99
 

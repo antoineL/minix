@@ -67,6 +67,12 @@ ENTRY(apic_hwint##irq)							\
 ENTRY(lapic_timer_int_handler)
 	lapic_intr(_C_LABEL(timer_int_handler))
 
+ENTRY(apic_spurios_intr)
+	lapic_intr(_C_LABEL(apic_spurios_intr_handler))
+
+ENTRY(apic_error_intr)
+	lapic_intr(_C_LABEL(apic_error_intr_handler))
+
 #ifdef CONFIG_SMP
 
 ENTRY(apic_ipi_sched_intr)
@@ -88,7 +94,7 @@ lapic_intr_dummy_handler_msg:
 #define lapic_intr_dummy_handler(vect)			\
 	pushl	$vect;					\
 	push	$lapic_intr_dummy_handler_msg;		\
-	call	_C_LABEL(printf);			\
+	call	_C_LABEL(panic);			\
 1:	jmp	1b; /* never return */
 
 #define LAPIC_INTR_DUMMY_HANDLER(vect)			\
