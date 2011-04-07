@@ -989,7 +989,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
          * space above our stack. We want to increase it to VM_DATATOP,
          * like regular processes have.
          */
-        extra_clicks = ABS2CLICK(VM_DATATOP - hi);
+        extra_clicks = ABS2CLICK(VM_DATATOP - (hi+moveup));
         vmprocess->vm_arch.vm_seg[S].mem_len += extra_clicks;
        
         /* We pretend to the kernel we have a huge stack segment to
