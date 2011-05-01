@@ -17,7 +17,6 @@
 #include <errno.h>
 #include <dirent.h>
 #include <a.out.h>
-#include <minix/config.h>
 #include <minix/const.h>
 #include <minix/partition.h>
 #include <minix/u64.h>
@@ -45,7 +44,7 @@ static void report(const char *label)
 	fprintf(stderr, "installboot: %s: %s\n", label, strerror(errno));
 }
 
-static void fatal(const char *label)
+__dead static void fatal(const char *label)
 {
 	report(label);
 	exit(1);
@@ -92,13 +91,12 @@ static void bwrite(FILE *f, const char *name, const void *buf, size_t len)
 long total_text= 0, total_data= 0, total_bss= 0;
 int making_image= 0;
 
-void read_header(int talk, char *proc, FILE *procf, struct image_header *ihdr)
-/* Read the a.out header of a program and check it.  If procf happens to be
+void read_header(char *proc, FILE *procf, struct image_header *ihdr)
+/* Read the a.out header of a program.  If procf happens to be
  * NULL then the header is already in *image_hdr and need only be checked.
  */
 {
-	int n, big= 0;
-	static int banner= 0;
+	int n;
 	struct exec *phdr= &ihdr->process;
 
 	if (procf == NULL) {
@@ -124,6 +122,18 @@ void read_header(int talk, char *proc, FILE *procf, struct image_header *ihdr)
 	if (procf != NULL) {
 		bread(procf, proc, ((char *) phdr) + A_MINHDR,
 						phdr->a_hdrlen - A_MINHDR);
+	}
+}
+
+void check_header(int talk, char *proc, struct exec *phdr)
+/* Check the a.out header of a program or of part of an image. */
+{
+	int big= 0;
+	static int banner= 0;
+
+	if (phdr->a_hdrlen < A_MINHDR || BADMAG(*phdr)) {
+		fprintf(stderr, "installboot: %s is not an executable\n", proc);
+		exit(1);
 	}
 
 	if (talk && !banner) {
@@ -217,11 +227,12 @@ void make_image(char *image, char **procv)
 			|| (procf= fopen(file, "r")) == NULL
 		) fatal(proc);
 
-		/* Read a.out header. */
-		read_header(1, proc, procf, &ihdr);
+		/* Read process header. */
+		read_header(proc, procf, &ihdr);
 
-		/* Scratch. */
+		/* Check the a.out header. */
 		phdr= ihdr.process;
+		check_header(1, proc, &phdr);
 
 		/* The symbol table is always stripped off. */
 		ihdr.process.a_syms= 0;
@@ -306,7 +317,7 @@ void extract_image(char *image)
 		phdr= ihdr.process;
 
 		/* Check header. */
-		read_header(1, ihdr.name, NULL, &ihdr);
+		check_header(1, ihdr.name, &phdr);
 
 		if ((procf= fopen(ihdr.name, "w")) == NULL) fatal(ihdr.name);
 
@@ -486,6 +497,9 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 		if (stat(bootcode, &st) < 0) fatal(bootcode);
 
 		if ((bootf= fopen(bootcode, "r")) == NULL) fatal(bootcode);
+		read_header(bootcode, bootf, &dummy);
+		fclose(bootf);
+		boothdr= dummy.process;
 	} else {
 		/* Boot code is present in the file system. */
 		r_stat(ino, &st);
@@ -497,14 +511,9 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			readblock(addr, buf, block_size);
 			memcpy(&boothdr, buf, sizeof(struct exec));
 		}
-		bootf= NULL;
-		dummy.process= boothdr;
 	}
-	/* See if it is an executable (read_header does the check). */
-	read_header(0, bootcode, bootf, &dummy);
-	boothdr= dummy.process;
-
-	if (bootf != NULL) fclose(bootf);
+	/* See if it is an executable. */
+	check_header(0, bootcode, &boothdr);
 
 	/* Get all the sector addresses of the secondary boot code. */
 	max_sector= (boothdr.a_hdrlen + boothdr.a_text
@@ -551,8 +560,9 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 
 	if ((bootf= fopen(bootblock, "r")) == NULL) fatal(bootblock);
 
-	read_header(0, bootblock, bootf, &dummy);
+	read_header(bootblock, bootf, &dummy);
 	boothdr= dummy.process;
+	check_header(0, bootblock, &boothdr);
 
 	if (boothdr.a_text + boothdr.a_data +
 					 4 * (bap - bootaddr) + 1 > PARTPOS) {
@@ -709,7 +719,8 @@ static void install_master(const char *device, char *masterboot, char **guide)
 		/* Read and check header otherwise. */
 		struct image_header ihdr;
 
-		read_header(1, masterboot, masf, &ihdr);
+		read_header(masterboot, masf, &ihdr);
+		check_header(1, masterboot, &ihdr.process);
 		size= ihdr.process.a_text + ihdr.process.a_data;
 	}
 	if (size > PARTPOS) {
