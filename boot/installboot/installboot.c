@@ -7,6 +7,7 @@
 #define _MINIX		1
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -36,7 +37,7 @@
 #define between(a, c, z)	((unsigned) ((c) - (a)) <= ((z) - (a)))
 #define control(c)		between('\0', (c), '\37')
 
-#define BOOT_BLOCK_SIZE 1024
+#define BOOT_BLOCK_SIZE 1024	/* Fixed size for MFS boot block. */
 
 static void report(const char *label)
 /* installboot: label: No such file or directory */
@@ -316,11 +317,11 @@ void extractexec(FILE *imagef, char *image, FILE *procf, char *proc,
 
 	while (count > 0) {
 		bread(imagef, image, buf, sizeof(buf));
-		*alen-= sizeof(buf);
+		*alen-= (int)sizeof(buf);
 
 		bwrite(procf, proc, buf,
-			count < sizeof(buf) ? (size_t) count : sizeof(buf));
-		count-= sizeof(buf);
+			count<(int)sizeof(buf) ? (size_t)count : sizeof(buf));
+		count-= (long)sizeof(buf);
 	}
 }
 
@@ -418,7 +419,7 @@ int raw_install(char *file, off_t *start, off_t *len, int block_size)
 	struct partition entry;
 
 	/* See if the device has a maximum size. */
-	devsize= -1;
+	devsize= -1ul;
 	if (ioctl(rawfd, DIOCGETP, &entry) == 0) devsize= cv64ul(entry.size);
 
 	if ((f= fopen(file, "r")) == NULL) fatal(file);
@@ -426,26 +427,28 @@ int raw_install(char *file, off_t *start, off_t *len, int block_size)
 	/* Copy sectors from file onto the boot device. */
 	sec= *start;
 	do {
-		int off= sec % RATIO(BOOT_BLOCK_SIZE);
+		int off= sec % RATIO(block_size);
 
 		if (fread(buf + off * SECTOR_SIZE, 1, SECTOR_SIZE, f) == 0)
 			break;
 
-		if (sec >= devsize) {
+		if (sec < 0 || (uintmax_t)sec >= devsize) {
 			fprintf(stderr,
 			"installboot: %s can't be attached to %s\n",
 				file, rawdev);
 			return 0;
 		}
 
-		if (off == RATIO(BOOT_BLOCK_SIZE) - 1) writeblock(sec / RATIO(BOOT_BLOCK_SIZE), buf, BOOT_BLOCK_SIZE);
+		if (off == RATIO(block_size) - 1)
+			writeblock(sec / RATIO(block_size), buf, block_size);
 	} while (++sec != *start + *len);
 
 	if (ferror(f)) fatal(file);
 	(void) fclose(f);
 
 	/* Write a partial block, this may be the last image. */
-	if (sec % RATIO(BOOT_BLOCK_SIZE) != 0) writeblock(sec / RATIO(BOOT_BLOCK_SIZE), buf, BOOT_BLOCK_SIZE);
+	if (sec % RATIO(block_size) != 0)
+		writeblock(sec / RATIO(block_size), buf, block_size);
 
 	if (!banner) {
 		printf("  sector  length\n");
@@ -511,6 +514,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			fputc('\n', stdout);
 		}
 		fssize= 1;	/* Just a boot block. */
+		block_size= BOOT_BLOCK_SIZE;
 	}
 
 	if (how == FS) {
@@ -630,7 +634,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	 * filled with null commands (newlines).  Initialize it only if
 	 * necessary.
 	 */
-	for (parmp= buf + SECTOR_SIZE; parmp < buf + 2*SECTOR_SIZE; parmp++) {
+	for (parmp= buf + SECTOR_SIZE; parmp < buf + BOOT_BLOCK_SIZE; parmp++) {
 		if (*imagev != NULL || (control(*parmp) && *parmp != '\n')) {
 			/* Param sector must be initialized. */
 			memset(buf + SECTOR_SIZE, '\n', SECTOR_SIZE);
@@ -704,19 +708,19 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			parmp+= strlen(parmp);
 		}
 
-		if (parmp > buf + block_size) {
+		if (parmp > buf + BOOT_BLOCK_SIZE) {
 			fprintf(stderr,
 		"installboot: Out of parameter space, too many images\n");
 			exit(1);
 		}
 	}
 	/* Install boot block. */
-	writeblock((off_t) BOOTBLOCK, buf, 1024);
+	writeblock((off_t) BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
 
 	if (pos > fssize * RATIO(block_size)) {
 		/* Tell the total size of the data on the device. */
 		printf("%16ld  (%ld kb) total\n", pos,
-						(pos + RATIO(block_size) - 1) / RATIO(block_size));
+			   (pos + RATIO(block_size) - 1) / RATIO(block_size));
 	}
 }
 
