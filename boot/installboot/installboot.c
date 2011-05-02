@@ -1,4 +1,4 @@
-/*	installboot 3.0 - Make a device bootable	Author: Kees J. Bot
+/*	installboot 3.1 - Make a device bootable	Author: Kees J. Bot
  *								21 Dec 1991
  *
  * Either make a device bootable or make an image from kernel, mm, fs, etc.
@@ -166,6 +166,39 @@ void check_header(int talk, char *proc, struct exec *phdr)
 			big == 3 ? " and " : "",
 			big & 2 ? "data" : "",
 			big == 3 ? "s are" : " is");
+	}
+}
+
+unsigned long sizefromexec(char *proc, FILE *procf)
+/* Read the a.out header of a program to learn its size.
+ * The file pointer is left at the start of the text segment.
+ */
+{
+	int n;
+	struct exec hdr;
+
+	if (procf == NULL) fatal(proc);
+
+	/* Read the smallest header. */
+	n= fread(&hdr, sizeof(char), A_MINHDR, procf);
+	if (ferror(procf)) fatal(proc);
+
+	if (n < A_MINHDR) {
+		fprintf(stderr, "installboot: %s is too small\n", proc);
+		exit(1);
+	}
+
+	if (!BADMAG(hdr)) {
+		/* Get the rest of the 'struct exec' header. */
+		bread(procf, proc, ((char *) &hdr) + A_MINHDR,
+					hdr.a_hdrlen - A_MINHDR);
+
+		/* Text section just follows the header, we are done. */
+		return hdr.a_text + hdr.a_data;
+
+	} else {
+		fprintf(stderr, "installboot: %s is not an executable\n", proc);
+		exit(1);
 	}
 }
 
@@ -440,7 +473,6 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 		int	count;
 	} bootaddr[BOOT_MAX + 1], *bap= bootaddr;
 	struct exec boothdr;
-	struct image_header dummy;
 	struct stat st;
 	ino_t ino;
 	off_t sector, max_sector;
@@ -449,6 +481,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	char *labels, *label, *image;
 	int nolabel;
 	int block_size = 0;
+	unsigned long bootblocksize;
 
 	/* Open device and set variables for readblock. */
 	if ((rawfd= open(rawdev= device, O_RDWR)) < 0) fatal(device);
@@ -497,9 +530,8 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 		if (stat(bootcode, &st) < 0) fatal(bootcode);
 
 		if ((bootf= fopen(bootcode, "r")) == NULL) fatal(bootcode);
-		read_header(bootcode, bootf, &dummy);
+		bread(bootf, bootcode, &boothdr, sizeof boothdr);
 		fclose(bootf);
-		boothdr= dummy.process;
 	} else {
 		/* Boot code is present in the file system. */
 		r_stat(ino, &st);
@@ -559,13 +591,8 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	readblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
 
 	if ((bootf= fopen(bootblock, "r")) == NULL) fatal(bootblock);
-
-	read_header(bootblock, bootf, &dummy);
-	boothdr= dummy.process;
-	check_header(0, bootblock, &boothdr);
-
-	if (boothdr.a_text + boothdr.a_data +
-					 4 * (bap - bootaddr) + 1 > PARTPOS) {
+	bootblocksize= sizefromexec(bootblock, bootf);
+	if (bootblocksize + 4 * (bap - bootaddr) + 1 > PARTPOS) {
 		fprintf(stderr,
 	"installboot: %s + addresses to %s don't fit in the boot sector\n",
 			bootblock, bootcode);
@@ -576,11 +603,11 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	}
 
 	/* All checks out right.  Read bootblock into the boot block! */
-	bread(bootf, bootblock, buf, boothdr.a_text + boothdr.a_data);
+	bread(bootf, bootblock, buf, bootblocksize);
 	(void) fclose(bootf);
 
 	/* Patch the addresses in. */
-	adrp= buf + (int) (boothdr.a_text + boothdr.a_data);
+	adrp= buf + (int)bootblocksize;
 	for (bap= bootaddr; bap->count != 0; bap++) {
 		*adrp++= bap->count;
 		*adrp++= (bap->address >>  0) & 0xFF;
@@ -717,11 +744,8 @@ static void install_master(const char *device, char *masterboot, char **guide)
 		size= PARTPOS;
 	else {
 		/* Read and check header otherwise. */
-		struct image_header ihdr;
-
-		read_header(masterboot, masf, &ihdr);
-		check_header(1, masterboot, &ihdr.process);
-		size= ihdr.process.a_text + ihdr.process.a_data;
+		size= sizefromexec(masterboot, masf);
+		printf("Reading %lu (%#lX) bytes from %s\n", size, size, masterboot);
 	}
 	if (size > PARTPOS) {
 		fprintf(stderr, "installboot: %s is too big\n", masterboot);
