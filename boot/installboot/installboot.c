@@ -731,7 +731,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	FILE *masf;
 	unsigned long size;
 	struct stat st;
-	static char buf[_MAX_BLOCK_SIZE];
+	static char buf[SECTOR_SIZE];
 
 	/* Open device. */
 	if ((rawfd= open(rawdev= device, O_RDWR)) < 0) fatal(device);
@@ -753,7 +753,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	}
 
 	/* Read the master boot block, patch it, write. */
-	readblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
+	readblock(BOOTBLOCK, buf, SECTOR_SIZE);
 
 	memset(buf, 0, PARTPOS);
 	(void) bread(masf, masterboot, buf, size);
@@ -812,7 +812,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	buf[SIGPOS+0]= (SIGNATURE >> 0) & 0xFF;
 	buf[SIGPOS+1]= (SIGNATURE >> 8) & 0xFF;
 
-	writeblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
+	writeblock(BOOTBLOCK, buf, SECTOR_SIZE);
 }
 
 static void usage(void)
