@@ -7,6 +7,6 @@ SRCS=	installboot.c rawfs.c
 .PATH:	${.CURDIR}/..
 CPPFLAGS= -I${MINIXSRCDIR} -I${.CURDIR}/..
 
-MAN=	# installboot.8
+MAN=	installboot.8
 
 .include <bsd.prog.mk>
