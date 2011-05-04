@@ -5,7 +5,7 @@ installboot \- make a device bootable
 .B installboot \-i(mage)
 .I image
 .RI [ label :] kernel
-.IR "mm fs" " ... " init
+.IR "ds rs" " ... " init
 .br
 .B installboot \-(e)x(tract)
 .I image
@@ -17,8 +17,8 @@ installboot \- make a device bootable
 .br
 .B installboot \-b(oot)
 .I device bootblock boot
-.RI [ label :] image
-\&...
+.RI [ label :] image [
+\&...]
 .br
 .B installboot \-m(aster)
 .I device masterboot
@@ -38,14 +38,15 @@ When the power is turned on the typical PC will try to read the first sector
 from the first floppy disk or from the first hard disk into memory and execute
 it.  The code obtained from the hard disk (from the so-called master boot
 sector) will immediately replace itself by the code found in the first sector
-of the active partition.  Thus the PC is now executing the bootstrap code found
-in the first sector of /dev/fd0, /dev/c0d0p0, /dev/c0d0p1, /dev/c0d0p2, or
-/dev/c0d0p3 (assuming the boot disk is attached to controller 0.)
+of the active partition.  Usually this process is repeated, in order to reach
+the subpartition.  Thus the PC is now executing the bootstrap code found
+in the first sector of /dev/fd0, /dev/c0d0p0s0, or /dev/c0d0p1s0 etc.
+(according to the active selections.)
 The bootstrap will locate the operating system on the device it itself was
 loaded from, load it, and execute it.
 .PP
 To make a MINIX 3 file system
-.B /dev/fd0
+.B /dev/c0d0p0s0
 mounted on
 .B /mnt
 bootable, enter the following:
@@ -54,21 +55,21 @@ bootable, enter the following:
 .ft B
 cp /usr/mdec/boot /mnt/boot
 .SP
-installboot \-i /mnt/minix kernel mm fs init
+installboot \-i /mnt/minix kernel ds rs pm vfs vm ... init
 .SP
-installboot \-d /dev/fd0 /usr/mdec/bootblock boot
+installboot \-d /dev/c0d0p0s0 /usr/mdec/bootblock boot
 .ft P
 .RE
 .PP
 The "boot" program in the example is named the "Boot Monitor".  It is loaded
-by the bootblock code placed in the boot sector of /dev/fd0 and it will take
-care of loading the kernel image "minix" from the root directory of the
+by the bootblock code placed in the boot sector of /dev/c0d0p0s0 and it will
+take care of loading the kernel image "minix" from the root directory of the
 file system.  See
 .BR monitor (8)
 for a description of the Boot Monitor.  Note that
 .B boot
 is a name in the file system on
-.B /dev/fd0
+.B /dev/c0d0p0s0
 in this example, the same file as
 .BR /mnt/boot .
 Making
@@ -76,11 +77,30 @@ Making
 is normally not necessary, there is usually a kernel image in the
 .B tools
 directory.
+On regularly installed MINIX 3 file systems,
+.B boot
+is usually stored inside a subdirectory
+.BR /boot ,
+and the image is usually stored in a subdirectory named
+.BR /boot/image ,
+thus the Boot Monitor is actually installed
+.SP
+.RS
+.ft B
+mkdir -p /mnt/boot/image
+.SP
+cp /usr/mdec/boot /mnt/boot/boot
+.SP
+installboot \-i /mnt/boot/image/minix kernel ds rs ... init
+.SP
+installboot \-d /dev/c0d0p0s0 /usr/mdec/bootblock boot/boot
+.ft P
+.RE
 .SH OPTIONS
 .B \-i(mage)
 .I image
 .RI [ label :] kernel
-.IR "mm fs" " ... " init
+.IR "ds rs" " ... " init
 .RS
 The
 .B \-image
@@ -94,10 +114,10 @@ sector boundaries for fast loading.
 An executable may be prefixed by a label.  The Monitor may be instructed to
 load processes by label.  So more than one kernel process may be included in
 the image, each with a different winchester driver for instance.  So if you
-have compiled two different kernels with an AT or XT driver then
+have compiled two different kernels with an legacy ISA PIC or APIC then
 .SP
 .RS
-.BI "installboot \-i" " image AT:at_kernel XT:xt_kernel mm fs init"
+.BI "installboot \-i" " image ISA:isa_kernel APIC:apic_kernel ds ... init"
 .RE
 .SP
 will make an image with two different labeled kernels and one
@@ -381,8 +401,7 @@ Partition does not exist (jumpboot), or it's bootstrap isn't executable.
 .RE
 .SH NOTES
 The MINIX 3 bootstraps can boot beyond the 8G disk size limit if the BIOS
-supports the IBM/MS INT 13 Extensions.  Alas only Minix-vmd can make use of
-this, standard MINIX 3 has a 4G disk size limit.
+supports the IBM/MS INT 13 Extensions.
 .SH BUGS
 It has four more options than the SunOS installboot program it is modeled
 after.
@@ -392,4 +411,3 @@ to scare little kids out of your garden.
 .SH AUTHOR
 Kees J. Bot (kjb@cs.vu.nl)
 .\"
-.\" $PchId: installboot.8,v 1.7 2000/08/13 22:09:31 philip Exp $
