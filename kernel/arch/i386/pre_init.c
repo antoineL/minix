@@ -345,6 +345,8 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	multiboot_module_t *module;
 	u32_t mods_count = mbi.mods_count;
 	int r, i;
+	struct image_memmap memmap;
+	int maxsize_headers;	/* estimated */
 	vir_bytes text_vaddr, text_filebytes, text_membytes;
 	vir_bytes data_vaddr, data_filebytes, data_membytes;
 	phys_bytes text_paddr, data_paddr;
@@ -353,12 +355,20 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	off_t text_offset, data_offset;
 
 	/* Save memory map for kernel tasks */
+	/* FIXME: error checking... */
+	maxsize_headers = (int)&mb_extract_image - MULTIBOOT_KERNEL_ADDR;
+	if (maxsize_headers < 0 || maxsize_headers > 4096)
+		maxsize_headers = 4096;
 	r = read_header_elf((const char *)MULTIBOOT_KERNEL_ADDR,
-			    &text_vaddr, &text_paddr,
-			    &text_filebytes, &text_membytes,
-			    &data_vaddr, &data_paddr,
-			    &data_filebytes, &data_membytes,
-			    &pc, &text_offset, &data_offset);
+		maxsize_headers, &memmap);
+
+	text_vaddr = memmap.text_.vaddr;
+	text_paddr = memmap.text_.paddr;
+	text_membytes = memmap.text_.membytes;
+	data_vaddr = memmap.data_.vaddr;
+	data_paddr = memmap.data_.paddr;
+	data_membytes = memmap.data_.membytes;
+	pc  = memmap.entry;
 
 	for (i = 0; i < NR_TASKS; ++i) {
 	    image[i].memmap.text_vaddr = trunc_page(text_vaddr);
@@ -378,8 +388,12 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	mb_print_hex(trunc_page(data_paddr) + data_membytes + stack_bytes);
 	mb_print(" Entry: ");
 	mb_print_hex(pc);
+ #if 0
 	mb_print(" Stack: ");
 	mb_print_hex(stack_bytes);
+ #else
+	mb_print(" Stack: 0");
+ #endif
 #endif
 
 	mb_module_info = ((multiboot_module_t *)mbi.mods_addr);
@@ -390,17 +404,24 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	    char zero = 0;
 
 	    r = read_header_elf((const char *)module->mod_start,
-				&text_vaddr, &text_paddr,
-				&text_filebytes, &text_membytes,
-				&data_vaddr, &data_paddr,
-				&data_filebytes, &data_membytes,
-				&pc, &text_offset, &data_offset);
+		module->mod_end - module->mod_start, &memmap);
 	    if (r) {
 		mb_print("fatal: ELF parse failure\n");
 		/* Spin here */
 		while (1)
 			;
 	    }
+		text_vaddr = memmap.text_.vaddr;
+		text_paddr = memmap.text_.paddr;
+		text_filebytes = memmap.text_.filebytes;
+		text_membytes = memmap.text_.membytes;
+		data_vaddr = memmap.data_.vaddr;
+		data_paddr = memmap.data_.paddr;
+		data_filebytes = memmap.data_.filebytes;
+		data_membytes = memmap.data_.membytes;
+		pc  = memmap.entry;
+		text_offset = memmap.text_.fileoffset;
+		data_offset = memmap.data_.fileoffset;
 
 	    stack_bytes = round_page(image[NR_TASKS+i].stack_kbytes * 1024);
 
