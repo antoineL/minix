@@ -93,26 +93,21 @@ long total_text= 0, total_data= 0, total_bss= 0;
 int making_image= 0;
 
 void read_header(char *proc, FILE *procf, struct image_header *ihdr)
-/* Read the a.out header of a program.  If procf happens to be
- * NULL then the header is already in *image_hdr and need only be checked.
+/* Read the a.out header of a program.
  */
 {
 	int n;
 	struct exec *phdr= &ihdr->process;
 
-	if (procf == NULL) {
-		/* Header already present. */
-		n= phdr->a_hdrlen;
-	} else {
+	if (procf == NULL) fatal(proc);
 		memset(ihdr, 0, sizeof(*ihdr));
 
 		/* Put the basename of proc in the header. */
-		strncpy(ihdr->name, basename(proc), IM_NAME_MAX);
+		strlcpy(ihdr->name, basename(proc), IM_NAME_MAX+1);
 
 		/* Read the header. */
 		n= fread(phdr, sizeof(char), A_MINHDR, procf);
 		if (ferror(procf)) fatal(proc);
-	}
 
 	if (n < A_MINHDR || BADMAG(*phdr)) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
