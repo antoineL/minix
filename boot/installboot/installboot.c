@@ -345,7 +345,7 @@ void extract_image(char *image)
 		memcpy(&ihdr, buf, sizeof(ihdr));
 		phdr= ihdr.process;
 
-		/* Check header. */
+		/* Check the header, echo the values. */
 		check_header(1, ihdr.name, &phdr);
 
 		if ((procf= fopen(ihdr.name, "w")) == NULL) fatal(ihdr.name);
@@ -398,7 +398,7 @@ void writeblock(off_t blk, const char *buf, int block_size)
 	) fatal(rawdev);
 }
 
-int raw_install(char *file, off_t *start, off_t *len, int block_size)
+int raw_install(const char *file, off_t *start, off_t *len, int block_size)
 /* Copy bootcode or an image to the boot device at the given absolute disk
  * block number.  This "raw" installation is used to place bootcode and
  * image on a disk without a filesystem to make a simple boot disk.  Useful
@@ -543,7 +543,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			memcpy(&boothdr, buf, sizeof(struct exec));
 		}
 	}
-	/* See if it is an executable. */
+	/* See if it is an executable, and check sizes of segments. */
 	check_header(0, bootcode, &boothdr);
 
 	/* Get all the sector addresses of the secondary boot code. */
@@ -860,7 +860,3 @@ int main(int argc, char **argv)
 	}
 	exit(0);
 }
-
-/*
- * $PchId: installboot.c,v 1.10 2000/08/13 22:07:50 philip Exp $
- */
