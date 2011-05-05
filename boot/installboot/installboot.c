@@ -133,14 +133,29 @@ void check_header(int talk, char *proc, struct exec *phdr)
 	}
 
 	if (talk && !banner) {
+#ifdef DEBUG
+		printf("     text     data      bss      size fl stack initSP\n");
+#else
 		printf("     text     data      bss      size\n");
+#endif
 		banner= 1;
 	}
 
 	if (talk) {
+#ifdef DEBUG
+		long stack_bytes = phdr->a_total - phdr->a_data - phdr->a_bss
+			- (phdr->a_flags & A_SEP ? 0 : phdr->a_text);
+
+
+		printf(" %8ld %8ld %8ld %9ld %0.2X %4ldK %0.6lX  %s\n",
+			phdr->a_text, phdr->a_data, phdr->a_bss,
+			phdr->a_text + phdr->a_data + phdr->a_bss,
+			phdr->a_flags, stack_bytes/1024, phdr->a_total, proc);
+#else
 		printf(" %8ld %8ld %8ld %9ld  %s\n",
 			phdr->a_text, phdr->a_data, phdr->a_bss,
 			phdr->a_text + phdr->a_data + phdr->a_bss, proc);
+#endif
 	}
 	total_text+= phdr->a_text;
 	total_data+= phdr->a_data;
