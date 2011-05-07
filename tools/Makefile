@@ -2,7 +2,7 @@
 
 u=/usr
 MDEC=	/usr/mdec
-GEN_FILES=	*.bak image kernel *.iso *.iso.gz cdfdimage rootimage src
+GEN_FILES= *.bak image image_mb kernel *.iso *.iso.gz cdfdimage rootimage src
 
 # Specify the programs that are part of the system image.
 PROGRAMS=	kernel \

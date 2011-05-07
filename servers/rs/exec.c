@@ -31,6 +31,9 @@ struct exec_loaders {
 	{ NULL }
 };
 
+/*===========================================================================*
+ *				srv_execve				     *
+ *===========================================================================*/
 int srv_execve(int proc_e, char *exec, size_t exec_len, char **argv,
 	char **Xenvp)
 {
@@ -121,7 +124,9 @@ int srv_execve(int proc_e, char *exec, size_t exec_len, char **argv,
 	return r;
 }
 
-
+/*===========================================================================*
+ *				do_exec					     *
+ *===========================================================================*/
 static int do_exec(int proc_e, char *exec, size_t exec_len, char *progname,
 	char *frame, int frame_len)
 {
@@ -166,11 +171,14 @@ static int do_exec(int proc_e, char *exec, size_t exec_len, char *progname,
 	return exec_restart(proc_e, OK, execi.pc);
 }
 
+/*===========================================================================*
+ *				load_aout				     *
+ *===========================================================================*/
 static int load_aout(struct exec_info *execi)
 {
 	int r;
 	int hdrlen, sep_id, load_text, allow_setuid;
-	vir_bytes text_bytes, data_bytes, bss_bytes;
+	struct image_memmap emap;	/* map read from executable */ 
 	phys_bytes tot_bytes;
 	off_t off;
 	uid_t new_uid;
@@ -183,23 +191,34 @@ static int load_aout(struct exec_info *execi)
 	proc_e = execi->proc_e;
 
 	/* Read the file header and extract the segment sizes. */
-	r = read_header_aout(execi->image, execi->image_len, &sep_id,
-		&text_bytes, &data_bytes, &bss_bytes,
-		&tot_bytes, &execi->pc, &hdrlen);
-	if (r != OK)
-	{
-		return r;
-	}
+	r = read_header_aout(execi->image, execi->image_len, /*&sep_id,*/
+		&emap);
+	if (r != OK) return r;
+	if (emap.machine != EXEC_TARGET_MACHINE) return ENOEXEC;
+
+	execi->pc = emap.entry;
+	tot_bytes = emap.data_.vaddr
+		+ emap.data_.membytes
+		+ emap.stack_bytes;
+
+	sep_id = emap.nr_regions > 1;
 
 	new_uid= getuid();
 	new_gid= getgid();
 
 	/* XXX what should we use to identify the executable? */
-	r= exec_newmem(proc_e, 0 /*text_addr*/, text_bytes,
-		0 /*data_addr*/, data_bytes + bss_bytes, tot_bytes,
+#if 1
+	r= exec_newmem(proc_e, trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		trunc_page(emap.data_.vaddr), emap.data_.membytes, tot_bytes,
 		execi->frame_len, sep_id, 0 /*is_elf*/, 0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
 		execi->progname, new_uid, new_gid, &execi->stack_top, &load_text,
 		&allow_setuid);
+#else
+	r= exec_newmem(proc_e, &emap, tot_bytes,
+		execi->frame_len, sep_id, 0 /*is_elf*/, 0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
+		execi->progname, new_uid, new_gid, &execi->stack_top, &load_text,
+		&allow_setuid);
+#endif
 	if (r != OK)
 	{
 		printf("RS: load_aout: exec_newmem failed: %d\n", r);
@@ -207,11 +226,12 @@ static int load_aout(struct exec_info *execi)
 		return r;
 	}
 
-	off = hdrlen;
+	off = emap.text_.fileoffset;
 
 	/* Read in text and data segments. */
 	if (load_text) {
-		r= read_seg(execi, off, proc_e, T, 0, text_bytes);
+		r= read_seg(execi, off, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
+
 		if (r != OK)
 		{
 			printf("RS: load_aout: read_seg failed: %d\n", r);
@@ -222,8 +242,8 @@ static int load_aout(struct exec_info *execi)
 	else
 		printf("RS: load_aout: not loading text segment\n");
 
-	off += text_bytes;
-	r= read_seg(execi, off, proc_e, D, 0, data_bytes);
+	off += emap.text_.filebytes;
+	r= read_seg(execi, off, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
 	if (r != OK)
 	{
 		printf("RS: load_aout: read_seg failed: %d\n", r);
@@ -234,14 +254,20 @@ static int load_aout(struct exec_info *execi)
 	return OK;
 }
 
+/*===========================================================================*
+ *				load_elf				     *
+ *===========================================================================*/
 static int load_elf(struct exec_info *execi)
 {
   int r;
   int proc_e;
   phys_bytes tot_bytes;		/* total space for program, including gap */
+  struct image_memmap emap;	/* map read from executable */ 
+/*
   vir_bytes text_vaddr, text_paddr, text_filebytes, text_membytes;
   vir_bytes data_vaddr, data_paddr, data_filebytes, data_membytes;
   off_t text_offset, data_offset;
+ */
   int sep_id, is_elf, load_text, allow_setuid;
   uid_t new_uid;
   gid_t new_gid;
@@ -252,11 +278,8 @@ static int load_elf(struct exec_info *execi)
   proc_e = execi->proc_e;
 
   /* Read the file header and extract the segment sizes. */
-  r = read_header_elf(execi->image, &text_vaddr, &text_paddr,
-		      &text_filebytes, &text_membytes,
-		      &data_vaddr, &data_paddr,
-		      &data_filebytes, &data_membytes,
-		      &execi->pc, &text_offset, &data_offset);
+  r = read_header_elf(execi->image, execi->image_len, &emap);
+  execi->pc = emap.entry;
   if (r != OK) {
       return(r);
   }
@@ -268,13 +291,21 @@ static int load_elf(struct exec_info *execi)
   is_elf = 1;
   tot_bytes = 0; /* Use default stack size */
 
+#if 1
   r = exec_newmem(proc_e,
-		  trunc_page(text_vaddr), text_membytes,
-		  trunc_page(data_vaddr), data_membytes,
+		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
 		  tot_bytes, execi->frame_len, sep_id, is_elf,
 		  0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
 		  execi->progname, new_uid, new_gid,
 		  &execi->stack_top, &load_text, &allow_setuid);
+#else
+  r = exec_newmem(proc_e, &emap,
+		  tot_bytes, execi->frame_len, sep_id, is_elf,
+		  0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
+		  execi->progname, new_uid, new_gid,
+		  &execi->stack_top, &load_text, &allow_setuid);
+#endif
   if (r != OK)
   {
       printf("RS: load_elf: exec_newmem failed: %d\n", r);
@@ -284,7 +315,7 @@ static int load_elf(struct exec_info *execi)
 
   /* Read in text and data segments. */
   if (load_text) {
-      r = read_seg(execi, text_offset, proc_e, T, text_vaddr, text_filebytes);
+      r = read_seg(execi, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
       if (r != OK)
       {
 	  printf("RS: load_elf: read_seg failed: %d\n", r);
@@ -295,7 +326,7 @@ static int load_elf(struct exec_info *execi)
   else
       printf("RS: load_elf: not loading text segment\n");
 
-  r = read_seg(execi, data_offset, proc_e, D, data_vaddr, data_filebytes);
+  r = read_seg(execi, emap.data_.fileoffset, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
   if (r != OK)
   {
       printf("RS: load_elf: read_seg failed: %d\n", r);

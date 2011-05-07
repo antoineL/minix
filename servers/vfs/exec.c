@@ -201,6 +201,9 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   return(OK);
 }
 
+/*===========================================================================*
+ *				load_aout				     *
+ *===========================================================================*/
 static int load_aout(struct exec_info *execi)
 {
   int r;
@@ -209,7 +212,7 @@ static int load_aout(struct exec_info *execi)
   off_t off;
   int hdrlen;
   int sep_id;
-  vir_bytes text_bytes, data_bytes, bss_bytes;
+  struct image_memmap emap;	/* map read from executable */
   phys_bytes tot_bytes;		/* total space for program, including gap */
 
   assert(execi != NULL);
@@ -220,42 +223,56 @@ static int load_aout(struct exec_info *execi)
   vp = execi->vp;
 
   /* Read the file header and extract the segment sizes. */
-  r = read_header_aout(execi->hdr, execi->vp->v_size, &sep_id,
-		       &text_bytes, &data_bytes, &bss_bytes,
-		       &tot_bytes, &execi->pc, &hdrlen);
+  r = read_header_aout(execi->hdr, PAGE_SIZE, /*&sep_id,*/ &emap);
   if (r != OK) return(r);
+  if (emap.machine != EXEC_TARGET_MACHINE) return ENOEXEC;
 
-  r = exec_newmem(proc_e, 0 /* text_addr */, text_bytes,
-		  0 /* data_addr */, data_bytes + bss_bytes, tot_bytes,
+  execi->pc = emap.entry;
+  sep_id = emap.nr_regions > 1;
+  tot_bytes = emap.data_.vaddr
+	    + emap.data_.membytes
+	    + emap.stack_bytes;
+
+#if 1
+  r= exec_newmem(proc_e, trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		  trunc_page(emap.data_.vaddr), emap.data_.membytes, tot_bytes,
 		  execi->frame_len, sep_id, 0 /* is_elf */, vp->v_dev, vp->v_inode_nr,
 		  execi->sb.st_ctime,
 		  execi->progname, execi->new_uid, execi->new_gid,
 		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
+#else
+  r= exec_newmem(proc_e, &emap, tot_bytes,
+		  execi->frame_len, sep_id, 0 /* is_elf */, vp->v_dev, vp->v_inode_nr,
+		  execi->sb.st_ctime,
+		  execi->progname, execi->new_uid, execi->new_gid,
+		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
+#endif
 
   if (r != OK) {
         printf("VFS: load_aout: exec_newmem failed: %d\n", r);
         return(r);
   }
 
-  off = hdrlen;
+  off = emap.text_.fileoffset;
 
   /* Read in text and data segments. */
-  if (execi->load_text) r = read_seg(vp, off, proc_e, T, 0, text_bytes);
-  off += text_bytes;
-  if (r == OK) r = read_seg(vp, off, proc_e, D, 0, data_bytes);
+  if (execi->load_text) r = read_seg(vp, off, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
+  off += emap.text_.filebytes;
+  if (r == OK) r = read_seg(vp, off, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
 
   return (r);
 }
 
+/*===========================================================================*
+ *				load_elf				     *
+ *===========================================================================*/
 static int load_elf(struct exec_info *execi)
 {
   int r;
   struct vnode *vp;
   int proc_e;
   phys_bytes tot_bytes;		/* total space for program, including gap */
-  vir_bytes text_vaddr, text_paddr, text_filebytes, text_membytes;
-  vir_bytes data_vaddr, data_paddr, data_filebytes, data_membytes;
-  off_t text_offset, data_offset;
+  struct image_memmap emap;	/* map read from executable */
   int sep_id, is_elf;
 
   assert(execi != NULL);
@@ -266,23 +283,28 @@ static int load_elf(struct exec_info *execi)
   vp = execi->vp;
 
   /* Read the file header and extract the segment sizes. */
-  r = read_header_elf(execi->hdr, &text_vaddr, &text_paddr,
-		      &text_filebytes, &text_membytes,
-		      &data_vaddr, &data_paddr,
-		      &data_filebytes, &data_membytes,
-		      &execi->pc, &text_offset, &data_offset);
+  r = read_header_elf(execi->hdr, PAGE_SIZE, &emap);
   if (r != OK) return(r);
 
+  execi->pc = emap.entry;
   sep_id = 1;
   is_elf = 1;
   tot_bytes = 0; /* Use default stack size */
+#if 1
   r = exec_newmem(proc_e,
-		  trunc_page(text_vaddr), text_membytes,
-		  trunc_page(data_vaddr), data_membytes,
+		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
 		  tot_bytes, execi->frame_len, sep_id, is_elf,
 		  vp->v_dev, vp->v_inode_nr, execi->sb.st_ctime,
 		  execi->progname, execi->new_uid, execi->new_gid,
 		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
+#else
+  r = exec_newmem(proc_e, &emap,
+		  tot_bytes, execi->frame_len, sep_id, is_elf,
+		  vp->v_dev, vp->v_inode_nr, execi->sb.st_ctime,
+		  execi->progname, execi->new_uid, execi->new_gid,
+		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
+#endif
 
   if (r != OK) {
         printf("VFS: load_elf: exec_newmem failed: %d\n", r);
@@ -291,10 +313,10 @@ static int load_elf(struct exec_info *execi)
 
   /* Read in text and data segments. */
   if (execi->load_text)
-      r = read_seg(vp, text_offset, proc_e, T, text_vaddr, text_filebytes);
+	r = read_seg(vp, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
 
   if (r == OK)
-      r = read_seg(vp, data_offset, proc_e, D, data_vaddr, data_filebytes);
+	r = read_seg(vp, emap.data_.fileoffset, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
 
   return(r);
 }
@@ -355,6 +377,9 @@ static int exec_newmem(
   return(m.m_type);
 }
 
+/*===========================================================================*
+ *				is_script				     *
+ *===========================================================================*/
 /* Is Interpreted script? */
 static int is_script(const char *exec_hdr, size_t exec_len)
 {
@@ -623,6 +648,9 @@ static void clo_exec(struct fproc *rfp)
 		(void) close_fd(rfp, i);
 }
 
+/*===========================================================================*
+ *				map_header				     *
+ *===========================================================================*/
 static int map_header(char **exec_hdr, const struct vnode *vp)
 {
   int r;
@@ -642,5 +670,7 @@ static int map_header(char **exec_hdr, const struct vnode *vp)
   }
 
   *exec_hdr = hdr;
+/* FIXME: cum_io could be less than PAGE_SIZE... */
+
   return(OK);
 }

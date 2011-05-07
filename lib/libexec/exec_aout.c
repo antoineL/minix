@@ -1,23 +1,17 @@
 #define _SYSTEM 1
 
-#include <minix/type.h>
+#include "libexec.h"
 #include <minix/const.h>
-#include <a.out.h>
+#include <sys/param.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
-#include <libexec.h>
+#include <minix/a.out.h>
+#include <sys/mman.h>
 
 int read_header_aout(
   const char *exec_hdr,		/* executable header */
   size_t exec_len,		/* executable file size */
-  int *sep_id,			/* true iff sep I&D */
-  vir_bytes *text_bytes,	/* place to return text size */
-  vir_bytes *data_bytes,	/* place to return initialized data size */
-  vir_bytes *bss_bytes,		/* place to return bss size */
-  phys_bytes *tot_bytes,	/* place to return total size */
-  vir_bytes *pc,		/* program entry point (initial PC) */
-  int *hdrlenp
+  struct image_memmap *p	/* place to return values */
 )
 {
 /* Read the header and extract the text, data, bss and total sizes from it. */
@@ -51,36 +45,78 @@ int read_header_aout(
    */
 
   assert(exec_hdr != NULL);
+  assert(p != NULL);
+  memset(p, 0, sizeof(struct image_memmap));
 
   hdr = (struct exec *)exec_hdr;
   if (exec_len < A_MINHDR) return(ENOEXEC);
 
   /* Check magic number, cpu type, and flags. */
   if (BADMAG(*hdr)) return(ENOEXEC);
-#if (CHIP == INTEL && _WORD_SIZE == 2)
-  if (hdr->a_cpu != A_I8086) return(ENOEXEC);
+
+  switch(hdr->a_cpu) {
+#if _MINIX_CHIP == _CHIP_INTEL
+  case A_I8086:	p->machine = MACHINE_I8086;	break;
+  case A_I80386:p->machine = MACHINE_I80386;	break;
 #endif
-#if (CHIP == INTEL && _WORD_SIZE == 4)
-  if (hdr->a_cpu != A_I80386) return(ENOEXEC);
-#endif
-  if ((hdr->a_flags & ~(A_NSYM | A_EXEC | A_SEP)) != 0) return(ENOEXEC);
-
-  *sep_id = !!(hdr->a_flags & A_SEP);	    /* separate I & D or not */
-
-  /* Get text and data sizes. */
-  *text_bytes = (vir_bytes) hdr->a_text;	/* text size in bytes */
-  *data_bytes = (vir_bytes) hdr->a_data;	/* data size in bytes */
-  *bss_bytes  = (vir_bytes) hdr->a_bss;	/* bss size in bytes */
-  *tot_bytes  = hdr->a_total;		/* total bytes to allocate for prog */
-  if (*tot_bytes == 0) return(ENOEXEC);
-
-  if (!*sep_id) {
-	/* If I & D space is not separated, it is all considered data. Text=0*/
-	*data_bytes += *text_bytes;
-	*text_bytes = 0;
+  default: return(ENOEXEC);	/* unrecognized */
   }
-  *pc = hdr->a_entry;	/* initial address to start execution */
-  *hdrlenp = hdr->a_hdrlen & BYTE;		/* header length */
+
+  if ((hdr->a_flags & ~(A_NSYM | A_EXEC | A_SEP | A_PAL | A_UZP)) != 0)
+	return(ENOEXEC);
+#if 0
+  if ((hdr->a_flags & (A_EXEC | A_SEP)) == 0)  /* either bit should be set */
+	return(ENOEXEC);
+#else
+  /* Some tools (like GNU binutils) do not set up correctly the A_EXEC
+   * bit; so we skip this check. We ought to set the flag right too...
+   */
+#endif
+
+  if (hdr->a_total == 0) return(ENOEXEC);
+
+  /* Get text position and sizes. */
+  p->text_.fileoffset =
+	hdr->a_flags & A_PAL ? 0 : hdr->a_hdrlen & BYTE; /* header-in-text? */
+  p->text_.vaddr = p->text_.paddr =
+	hdr->a_flags & A_UZP ? PAGE_SIZE : 0;	/* unmapped zero-page? */
+  p->text_.filebytes = p->text_.membytes =
+	(hdr->a_flags & A_PAL ? hdr->a_hdrlen & BYTE : 0) /* header-in-text?*/
+	+ (vir_bytes) hdr->a_text;		/* text size in bytes */
+  p->text_.flags = 0;
+  p->text_.prot = PROT_READ | PROT_EXEC;
+  if (hdr->a_entry < p->text_.vaddr
+   || hdr->a_entry >= (p->text_.vaddr + p->text_.membytes) )
+	return(ENOEXEC);	/* entry point should be within .text */
+
+  /* Get data position and sizes. */
+  p->data_.fileoffset = p->text_.fileoffset + p->text_.filebytes;
+  if (hdr->a_flags & A_SEP)
+	  p->data_.vaddr = p->data_.paddr =
+		hdr->a_flags & A_UZP ? PAGE_SIZE : 0; /* unmapped zero-page? */
+  else /* common I+D */
+	  p->data_.vaddr = p->data_.paddr = p->text_.vaddr + p->text_.membytes;
+  p->data_.filebytes = (vir_bytes) hdr->a_data;	/* data size in bytes */
+  p->data_.membytes = (vir_bytes) hdr->a_data + hdr->a_bss; /* to allocate */
+  p->data_.flags = MAP_PRIVATE;
+  p->data_.prot = PROT_READ | PROT_WRITE;
+
+  p->top_alloc = hdr->a_total;	/* total bytes to allocate for prog */
+  p->stack_bytes = hdr->a_total - (p->data_.vaddr + p->data_.membytes);
+  p->entry = hdr->a_entry;	/* initial address to start execution */
+
+  if (! (hdr->a_flags & A_SEP)) {
+	/* If I & D spaces are not separated, all is considered data. Text=0*/
+	p->data_.fileoffset = p->text_.fileoffset;
+	p->data_.vaddr = p->data_.paddr = p->text_.vaddr;
+	p->data_.filebytes += p->text_.filebytes;
+	p->data_.membytes += p->text_.membytes;
+	p->data_.flags |= p->text_.flags & ~MAP_SHARED;
+	p->data_.prot |= p->text_.prot;
+	p->text_.filebytes = p->text_.membytes = 0;
+	p->nr_regions = 1;	/* just one region to allocate */
+  } else
+	p->nr_regions = 2;
 
   return(OK);
 }
