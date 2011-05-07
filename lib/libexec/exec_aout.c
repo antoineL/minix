@@ -80,17 +80,23 @@ int read_header_aout(
   else /* common I+D */
 	  p->data_.vaddr = p->data_.paddr = p->text_.vaddr + p->text_.membytes;
 
+  p->text_.flags = 0;
+  p->data_.flags = MAP_PRIVATE;
+  p->text_.prot = PROT_READ | PROT_EXEC;
+  p->data_.prot = PROT_READ | PROT_WRITE;
+
   if (! (hdr->a_flags & A_SEP)) {
 	/* If I & D space is not separated, it is all considered data. Text=0*/
 	p->data_.fileoffset = p->text_.fileoffset;
 	p->data_.vaddr = p->data_.paddr = p->text_.vaddr;
 	p->data_.filebytes += p->text_.filebytes;
 	p->data_.membytes += p->text_.membytes;
+	p->data_.flags |= p->text_.flags & ~MAP_SHARED;
+	p->data_.prot |= p->text_.prot;
 	p->text_.filebytes = p->text_.membytes = 0;
 	p->nr_regions = 1;	/* just one region to allocate */
-  } else {
+  } else
 	p->nr_regions = 2;
-  }
 
   return(OK);
 }

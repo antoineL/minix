@@ -7,6 +7,8 @@
 struct region_infos {
   off_t 	fileoffset;	/* offset into file */
   phys_bytes	paddr;		/* physical address space, loading addr. */
+  unsigned	flags;		/* flags (as passed with mmap(2); unused */
+  int   	prot;		/* protection required; unused */
   vir_bytes	vaddr;		/* virtual address space */
   vir_bytes	filebytes;	/* bytes as part of the file */
   vir_bytes	membytes;	/* bytes as reserved space; .data+.bss */

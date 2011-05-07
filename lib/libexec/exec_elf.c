@@ -96,6 +96,9 @@ int read_header_elf(
 	  segp->filebytes = seg_filebytes;
 	  segp->membytes = seg_membytes;
 	  segp->fileoffset = phdr[i].p_offset;
+	  segp->prot = (phdr[i].p_flags & PF_X ? PROT_EXEC : 0)
+	             | (phdr[i].p_flags & PF_W ? PROT_WRITE : 0)
+	             | (phdr[i].p_flags & PF_R ? PROT_READ : 0);
 	  break;
       default:
 	  break;
