@@ -181,6 +181,8 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 	incheck = nocheck = 0;
 #endif
 
+	/* See if we run in verbose mode. */
+	env_parse("vm_verbose", "d", 0, &vm_verbose, 0, 1);
 #if SANITYCHECKS
 	env_parse("vm_sanitychecklevel", "d", 0, &vm_sanitychecklevel, 0, SCL_MAX);
 #endif

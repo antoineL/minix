@@ -28,3 +28,6 @@ EXTERN long vm_sanitychecklevel;
 EXTERN int total_pages;
 
 EXTERN int meminit_done;
+
+/* Enable/disable verbose output. */
+EXTERN long vm_verbose;
