@@ -73,7 +73,10 @@ EXTERN int vm_running;
 EXTERN int catch_pagefaults;
 
 /* Variables that are initialized elsewhere are just extern here. */
+#if 0
+/* moved to "bootimage.h", where the declaration is, to calm gcc */
 extern struct boot_image image[]; 	/* system image processes */
+#endif
 extern struct segdesc_s gdt[];		/* global descriptor table */
 
 EXTERN volatile int serial_debug_active;

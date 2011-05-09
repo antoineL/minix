@@ -41,6 +41,7 @@ extern int missing_spares;
 #include "kernel/const.h"
 #include "kernel/config.h"
 #include "kernel/proc.h"
+#include "kernel/bootimage.h"
 
 #include <signal.h>
 

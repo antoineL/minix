@@ -15,6 +15,7 @@
 #include "kernel/const.h"
 #include "kernel/type.h"
 #include "kernel/proc.h"
+#include "kernel/bootimage.h"
 
 /* Declare some local functions. */
 FORWARD _PROTOTYPE(void boot_image_info_lookup, ( endpoint_t endpoint,

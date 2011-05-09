@@ -20,6 +20,7 @@
 #include "debug.h"
 #include "clock.h"
 #include "hw_intr.h"
+#include "bootimage.h"
 
 #ifdef CONFIG_SMP
 #include "smp.h"
