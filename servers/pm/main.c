@@ -34,6 +34,7 @@
 #include "kernel/const.h"
 #include "kernel/config.h"
 #include "kernel/proc.h"
+#include "kernel/bootimage.h"
 
 #if ENABLE_SYSCALL_STATS
 EXTERN unsigned long calls_stats[NCALLS];

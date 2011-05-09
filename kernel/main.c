@@ -12,7 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
-#include <a.out.h>
+#include <minix/a.out.h>
 #include <minix/com.h>
 #include <minix/endpoint.h>
 #include <minix/u64.h>
@@ -20,6 +20,7 @@
 #include "debug.h"
 #include "clock.h"
 #include "hw_intr.h"
+#include "bootimage.h"
 
 #ifdef CONFIG_SMP
 #include "smp.h"

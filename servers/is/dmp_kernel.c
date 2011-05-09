@@ -12,6 +12,7 @@
 #include "kernel/type.h"
 #include "kernel/proc.h"
 #include "kernel/ipc.h"
+#include "kernel/bootimage.h"
 
 #define LINES 22
 

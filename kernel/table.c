@@ -32,6 +32,7 @@
 #include "kernel.h"
 #include "proc.h"
 #include "ipc.h"
+#include "bootimage.h"
 #include <minix/com.h>
 
 /* Define boot process flags. */

@@ -13,10 +13,11 @@
 #include <minix/com.h>
 #include <sys/param.h>
 #include <machine/partition.h>
+#include "kernel/bootimage.h"
 #include "../../../boot/image.h"
-#include "string.h"
+#include <string.h>
 #include "arch_proto.h"
-#include "libexec.h"
+#include <libexec.h>
 #include "multiboot.h"
 
 #define MULTIBOOT_VERBOSE 1
