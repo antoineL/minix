@@ -13,7 +13,7 @@
 #include <minix/endpoint.h>
 
 #include "kernel/system.h"
-
+#include "kernel/bootimage.h"
 
 #if USE_GETINFO
 

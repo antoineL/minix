@@ -4,20 +4,14 @@
 #include <minix/const.h>
 #include <a.out.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #include <libexec.h>
+#include <sys/mman.h>
 
 int read_header_aout(
-  const char *exec_hdr,		/* executable header */
+  const char exec_hdr[],	/* executable header */
   size_t exec_len,		/* executable file size */
-  int *sep_id,			/* true iff sep I&D */
-  vir_bytes *text_bytes,	/* place to return text size */
-  vir_bytes *data_bytes,	/* place to return initialized data size */
-  vir_bytes *bss_bytes,		/* place to return bss size */
-  phys_bytes *tot_bytes,	/* place to return total size */
-  vir_bytes *pc,		/* program entry point (initial PC) */
-  int *hdrlenp
+  struct image_memmap *p	/* place to return values */
 )
 {
 /* Read the header and extract the text, data, bss and total sizes from it. */
@@ -59,28 +53,44 @@ int read_header_aout(
   if (BADMAG(*hdr)) return(ENOEXEC);
 #if (CHIP == INTEL && _WORD_SIZE == 2)
   if (hdr->a_cpu != A_I8086) return(ENOEXEC);
+	else p->machine = MACHINE_I8086;
 #endif
 #if (CHIP == INTEL && _WORD_SIZE == 4)
   if (hdr->a_cpu != A_I80386) return(ENOEXEC);
+	else p->machine = MACHINE_I80386;
 #endif
   if ((hdr->a_flags & ~(A_NSYM | A_EXEC | A_SEP)) != 0) return(ENOEXEC);
 
-  *sep_id = !!(hdr->a_flags & A_SEP);	    /* separate I & D or not */
-
   /* Get text and data sizes. */
-  *text_bytes = (vir_bytes) hdr->a_text;	/* text size in bytes */
-  *data_bytes = (vir_bytes) hdr->a_data;	/* data size in bytes */
-  *bss_bytes  = (vir_bytes) hdr->a_bss;	/* bss size in bytes */
-  *tot_bytes  = hdr->a_total;		/* total bytes to allocate for prog */
-  if (*tot_bytes == 0) return(ENOEXEC);
+  p->text_.filebytes = p->text_.membytes =
+	(vir_bytes) hdr->a_text;		/* text size in bytes */
+  p->data_.filebytes = (vir_bytes) hdr->a_data;	/* data size in bytes */
+  p->data_.membytes = (vir_bytes) hdr->a_data + hdr->a_bss; /* to allocate */
+  p->top_alloc = hdr->a_total;	/* total bytes to allocate for prog */
+  if (p->top_alloc == 0) return(ENOEXEC);
+  p->stack_bytes = hdr->a_total - (p->data_.vaddr + p->data_.membytes);
 
-  if (!*sep_id) {
+  p->entry = hdr->a_entry;	/* initial address to start execution */
+  /* Get text and data positions. */
+  p->text_.fileoffset = hdr->a_hdrlen & BYTE;	/* header length */
+  p->data_.fileoffset = p->text_.fileoffset + p->text_.filebytes;
+  p->text_.vaddr = p->text_.paddr = 0;
+  if (hdr->a_flags & A_SEP)
+	  p->data_.vaddr = p->data_.paddr = 0;
+  else /* common I+D */
+	  p->data_.vaddr = p->data_.paddr = p->text_.vaddr + p->text_.membytes;
+
+  if (! (hdr->a_flags & A_SEP)) {
 	/* If I & D space is not separated, it is all considered data. Text=0*/
-	*data_bytes += *text_bytes;
-	*text_bytes = 0;
+	p->data_.fileoffset = p->text_.fileoffset;
+	p->data_.vaddr = p->data_.paddr = p->text_.vaddr;
+	p->data_.filebytes += p->text_.filebytes;
+	p->data_.membytes += p->text_.membytes;
+	p->text_.filebytes = p->text_.membytes = 0;
+	p->nr_regions = 1;	/* just one region to allocate */
+  } else {
+	p->nr_regions = 2;
   }
-  *pc = hdr->a_entry;	/* initial address to start execution */
-  *hdrlenp = hdr->a_hdrlen & BYTE;		/* header length */
 
   return(OK);
 }

@@ -11,13 +11,6 @@ typedef struct {			/* bitmap for system indexes */
   bitchunk_t chunk[BITMAP_CHUNKS(NR_SYS_PROCS)];
 } sys_map_t;
 
-struct boot_image {
-  proc_nr_t proc_nr;			/* process number to use */
-  int flags;				/* process flags */
-  char proc_name[P_NAME_LEN];		/* name in process table */
-  endpoint_t endpoint;			/* endpoint number when started */
-};
-
 typedef unsigned long irq_policy_t;	
 typedef unsigned long irq_id_t;	
 
