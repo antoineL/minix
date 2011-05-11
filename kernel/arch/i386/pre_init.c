@@ -347,30 +347,33 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	int r, i;
 	struct image_memmap memmap;
 	int maxsize_headers;	/* estimated */
+/*
 	vir_bytes text_vaddr, text_filebytes, text_membytes;
 	vir_bytes data_vaddr, data_filebytes, data_membytes;
 	phys_bytes text_paddr, data_paddr;
 	vir_bytes stack_bytes;
 	vir_bytes pc;
 	off_t text_offset, data_offset;
+*/
 
 	/* Save memory map for kernel tasks */
-	/* FIXME: error checking... */
+#if 0
+	r = read_header_elf((const char *)MULTIBOOT_KERNEL_ADDR,
+			    &text_vaddr, &text_paddr,
+			    &text_filebytes, &text_membytes,
+			    &data_vaddr, &data_paddr,
+			    &data_filebytes, &data_membytes,
+			    &pc, &text_offset, &data_offset);
+#else
 	maxsize_headers = (int)&mb_extract_image - MULTIBOOT_KERNEL_ADDR;
 	if (maxsize_headers < 0 || maxsize_headers > 4096)
 		maxsize_headers = 4096;
 	r = read_header_elf((const char *)MULTIBOOT_KERNEL_ADDR,
 		maxsize_headers, &memmap);
-
-	text_vaddr = memmap.text_.vaddr;
-	text_paddr = memmap.text_.paddr;
-	text_membytes = memmap.text_.membytes;
-	data_vaddr = memmap.data_.vaddr;
-	data_paddr = memmap.data_.paddr;
-	data_membytes = memmap.data_.membytes;
-	pc  = memmap.entry;
+#endif
 
 	for (i = 0; i < NR_TASKS; ++i) {
+#if 0
 	    image[i].memmap.text_vaddr = trunc_page(text_vaddr);
 	    image[i].memmap.text_paddr = trunc_page(text_paddr);
 	    image[i].memmap.text_bytes = text_membytes;
@@ -379,21 +382,22 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	    image[i].memmap.data_bytes = data_membytes;
 	    image[i].memmap.stack_bytes = 0;
 	    image[i].memmap.entry = pc;
+#else
+		image[i].memmap = memmap;
+#endif
 	}
 
 #ifdef MULTIBOOT_VERBOSE
 	mb_print("\nKernel:   ");
-	mb_print_hex(trunc_page(text_paddr));
+	mb_print_hex(trunc_page(memmap.text_.paddr));
 	mb_print("-");
-	mb_print_hex(trunc_page(data_paddr) + data_membytes + stack_bytes);
+	mb_print_hex(trunc_page(memmap.data_.paddr)
+		 + memmap.data_.membytes
+		 + memmap.stack_bytes);
 	mb_print(" Entry: ");
-	mb_print_hex(pc);
- #if 0
+	mb_print_hex(memmap.entry);
 	mb_print(" Stack: ");
-	mb_print_hex(stack_bytes);
- #else
-	mb_print(" Stack: 0");
- #endif
+	mb_print_hex(memmap.stack_bytes);
 #endif
 
 	mb_module_info = ((multiboot_module_t *)mbi.mods_addr);
@@ -403,63 +407,57 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	for (i = 0; module < &mb_module_info[mods_count]; ++module, ++i) {
 	    char zero = 0;
 
+#if 0
+	    r = read_header_elf((const char *)module->mod_start,
+				&text_vaddr, &text_paddr,
+				&text_filebytes, &text_membytes,
+				&data_vaddr, &data_paddr,
+				&data_filebytes, &data_membytes,
+				&pc, &text_offset, &data_offset);
+#else
 	    r = read_header_elf((const char *)module->mod_start,
 		module->mod_end - module->mod_start, &memmap);
+#endif
 	    if (r) {
 		mb_print("fatal: ELF parse failure\n");
 		/* Spin here */
 		while (1)
 			;
 	    }
-		text_vaddr = memmap.text_.vaddr;
-		text_paddr = memmap.text_.paddr;
-		text_filebytes = memmap.text_.filebytes;
-		text_membytes = memmap.text_.membytes;
-		data_vaddr = memmap.data_.vaddr;
-		data_paddr = memmap.data_.paddr;
-		data_filebytes = memmap.data_.filebytes;
-		data_membytes = memmap.data_.membytes;
-		pc  = memmap.entry;
-		text_offset = memmap.text_.fileoffset;
-		data_offset = memmap.data_.fileoffset;
 
-	    stack_bytes = round_page(image[NR_TASKS+i].stack_kbytes * 1024);
+	    memmap.stack_bytes = round_page(image[NR_TASKS+i].stack_kbytes * 1024);
 
 	    /* Load text segment */
-	    phys_copy(module->mod_start+text_offset, text_paddr,
-		      text_filebytes);
-	    mb_clear_memrange(text_paddr+text_filebytes,
-			      trunc_page(text_paddr) + text_membytes);
+	    phys_copy(module->mod_start+memmap.text_.fileoffset, memmap.text_.paddr,
+		      memmap.text_.filebytes);
+	    mb_clear_memrange(memmap.text_.paddr+memmap.text_.filebytes,
+			      trunc_page(memmap.text_.paddr)
+				+ memmap.text_.membytes);
 
 	    /* Load data and stack segments */
-	    phys_copy(module->mod_start+data_offset, data_paddr,
-		      data_filebytes);
-	    mb_clear_memrange(data_paddr+data_filebytes,
-			      trunc_page(data_paddr) + data_membytes
-			      + stack_bytes);
+	    phys_copy(module->mod_start+memmap.data_.fileoffset, memmap.data_.paddr,
+		      memmap.data_.filebytes);
+	    mb_clear_memrange(memmap.data_.paddr+memmap.data_.filebytes,
+			      trunc_page(memmap.data_.paddr)
+				+ memmap.data_.membytes
+			      + memmap.stack_bytes);
 
 	    /* Save memmap for  non-kernel tasks, so subscript past kernel
 	       tasks. */
-	    image[NR_TASKS+i].memmap.text_vaddr = trunc_page(text_vaddr);
-	    image[NR_TASKS+i].memmap.text_paddr = trunc_page(text_paddr);
-	    image[NR_TASKS+i].memmap.text_bytes = text_membytes;
-	    image[NR_TASKS+i].memmap.data_vaddr = trunc_page(data_vaddr);
-	    image[NR_TASKS+i].memmap.data_paddr = trunc_page(data_paddr);
-	    image[NR_TASKS+i].memmap.data_bytes = data_membytes;
-	    image[NR_TASKS+i].memmap.stack_bytes = stack_bytes;
-	    image[NR_TASKS+i].memmap.entry = pc;
+	    image[NR_TASKS+i].memmap = memmap;
 
 #ifdef MULTIBOOT_VERBOSE
 	    mb_print("\n");
 	    mb_print_hex(i);
 	    mb_print(": ");
-	    mb_print_hex(trunc_page(text_paddr));
+	    mb_print_hex(trunc_page(memmap.text_.paddr));
 	    mb_print("-");
-	    mb_print_hex(trunc_page(data_paddr) + data_membytes + stack_bytes);
+	    mb_print_hex(trunc_page(memmap.data_.paddr)
+	+ memmap.data_.membytes + memmap.stack_bytes);
 	    mb_print(" Entry: ");
-	    mb_print_hex(pc);
+	    mb_print_hex(memmap.entry);
 	    mb_print(" Stack: ");
-	    mb_print_hex(stack_bytes);
+	    mb_print_hex(memmap.stack_bytes);
 	    mb_print(" ");
 	    mb_print((char *)module->cmdline);
 #endif
