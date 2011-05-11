@@ -89,6 +89,22 @@ static void bwrite(FILE *f, const char *name, const void *buf, size_t len)
 	if (len > 0 && fwrite(buf, len, 1, f) != 1) fatal(name);
 }
 
+static size_t part_read(FILE *f, char *name, void *buf, size_t len)
+/* Read at most len bytes; can be smaller. Actual read size is returned. */
+{
+	int n;
+
+	if (len <= 0 || f == NULL || buf == NULL) fatal(name);
+
+	n= fread(buf, sizeof(char), len, f);
+	if (n == 0) {
+		if (ferror(f)) fatal(name);
+		fprintf(stderr, "installboot: Unexpected EOF on %s\n", name);
+		exit(1);
+	}
+	return n;
+}
+
 long total_text= 0, total_data= 0, total_bss= 0;
 int making_image= 0;
 
@@ -106,19 +122,15 @@ void read_header(char *proc, FILE *procf, struct image_header *ihdr)
 		strlcpy(ihdr->name, basename(proc), IM_NAME_MAX+1);
 
 		/* Read the header. */
-		n= fread(phdr, sizeof(char), A_MINHDR, procf);
-		if (ferror(procf)) fatal(proc);
+	n= part_read(procf, proc, phdr, sizeof(struct exec));
 
 	if (n < A_MINHDR || BADMAG(*phdr)) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
 		exit(1);
 	}
 
-	/* Get the rest of the exec header. */
-	if (procf != NULL) {
-		bread(procf, proc, ((char *) phdr) + A_MINHDR,
-						phdr->a_hdrlen - A_MINHDR);
-	}
+	/* Rewind the file to the start of the text_ region. */
+	if (fseek(procf, phdr->a_hdrlen, SEEK_SET)) fatal(proc);
 }
 
 void check_header(int talk, char *proc, struct exec *phdr)
@@ -191,26 +203,20 @@ unsigned long sizefromexec(char *proc, FILE *procf)
 	if (procf == NULL) fatal(proc);
 
 	/* Read the smallest header. */
-	n= fread(&hdr, sizeof(char), A_MINHDR, procf);
-	if (ferror(procf)) fatal(proc);
+	n= part_read(procf, proc, &hdr, A_MINHDR);
 
 	if (n < A_MINHDR) {
 		fprintf(stderr, "installboot: %s is too small\n", proc);
 		exit(1);
 	}
 
-	if (!BADMAG(hdr)) {
-		/* Get the rest of the 'struct exec' header. */
-		bread(procf, proc, ((char *) &hdr) + A_MINHDR,
-					hdr.a_hdrlen - A_MINHDR);
-
-		/* Text section just follows the header, we are done. */
-		return hdr.a_text + hdr.a_data;
-
-	} else {
+	if (BADMAG(hdr)) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
 		exit(1);
 	}
+	if (fseek(procf, hdr.a_hdrlen, SEEK_SET)) fatal(proc);
+	/* Text section just follows the header, we are done. */
+	return hdr.a_text + hdr.a_data;
 }
 
 void padimage(const char *image, FILE *imagef, int n)
