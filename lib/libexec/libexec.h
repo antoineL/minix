@@ -39,18 +39,17 @@ struct image_memmap {
 #define	EXEC_TARGET_MACHINE	MACHINE_I80386
 #endif
 
-/* (PC/IX-inherited) MINIX a.out routines */
-int read_header_aout(
+/* recognize the exec format and fill the memory map. */
+int exec_memmap(
   const char exec_hdr[],	/* header read from file */
   size_t hdr_length,		/* size of exec_hdr as read */
   struct image_memmap * out	/* cooked infos if returning OK */
 );
 
+/* (PC/IX-inherited) MINIX a.out routines */
+int read_header_aout(const char [], size_t, struct image_memmap *);
+
 /* ELF routines */
-int read_header_elf(
-  const char exec_hdr[],	/* header read from file */
-  size_t hdr_length,		/* size of exec_hdr as read */
-  struct image_memmap * out	/* cooked infos if returning OK */
-);
+int read_header_elf(const char [], size_t, struct image_memmap *);
 
 #endif /* !_LIBEXEC_H_ */
