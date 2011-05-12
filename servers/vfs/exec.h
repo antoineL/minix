@@ -4,6 +4,7 @@
 struct exec_info {
     int  proc_e;			/* Process endpoint */
     char *hdr;				/* Exec file's header */
+    size_t hdr_mapped;			/* Size of read-in header */
     vir_bytes pc;			/* Entry point of exec file */
     vir_bytes stack_top;		/* Top of the stack */
     vir_bytes frame_len;		/* Stack size */

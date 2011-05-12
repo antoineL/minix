@@ -35,6 +35,10 @@
 #include <libexec.h>
 #include "exec.h"
 
+#ifndef	MAX_HEADER_SIZE
+#define	MAX_HEADER_SIZE	PAGE_SIZE /* Assume that header is not larger than a page */
+#endif
+
 static int exec_newmem(int proc_e, vir_bytes text_addr, vir_bytes text_bytes,
 		       vir_bytes data_addr, vir_bytes data_bytes,
 		       vir_bytes tot_bytes, vir_bytes frame_len, int sep_id,
@@ -53,7 +57,7 @@ static int read_seg(struct vnode *vp, off_t off, int proc_e, int seg,
 		    vir_bytes seg_addr, phys_bytes seg_bytes);
 static int load_aout(struct exec_info *execi);
 static int load_elf(struct exec_info *execi);
-static int map_header(char **exec_hdr, const struct vnode *vp);
+static int map_header(char **exec_hdr, size_t *len, const struct vnode *vp);
 
 #define PTRSIZE	sizeof(char *) /* Size of pointers in argv[] and envp[]. */
 
@@ -141,7 +145,8 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
             if (vp->v_mode & I_SET_GID_BIT) execi.new_gid = vp->v_gid;
         }
 
-	r = map_header(&execi.hdr, execi.vp);
+	execi.hdr_mapped = MAX_HEADER_SIZE;
+	r = map_header(&execi.hdr, &execi.hdr_mapped, execi.vp);
 	if (r != OK) {
 	    put_vnode(vp);
 	    return(r);
@@ -223,7 +228,7 @@ static int load_aout(struct exec_info *execi)
   vp = execi->vp;
 
   /* Read the file header and extract the segment sizes. */
-  r = read_header_aout(execi->hdr, PAGE_SIZE, &emap);
+  r = read_header_aout(execi->hdr, execi->hdr_mapped, &emap);
   if (r != OK) return(r);
   if (emap.machine != EXEC_TARGET_MACHINE) return ENOEXEC;
 
@@ -275,7 +280,7 @@ static int load_elf(struct exec_info *execi)
   vp = execi->vp;
 
   /* Read the file header and extract the segment sizes. */
-  r = read_header_elf(execi->hdr, PAGE_SIZE, &emap);
+  r = read_header_elf(execi->hdr, execi->hdr_mapped, &emap);
   if (r != OK) return(r);
 
   execi->pc = emap.entry;
@@ -635,18 +640,23 @@ static void clo_exec(struct fproc *rfp)
 /*===========================================================================*
  *				map_header				     *
  *===========================================================================*/
-static int map_header(char **exec_hdr, const struct vnode *vp)
+static int map_header(char **exec_hdr, size_t *hdr_len, const struct vnode *vp)
 {
   int r;
   u64_t new_pos;
   unsigned int cum_io;
   off_t pos;
-  static char hdr[PAGE_SIZE]; /* Assume that header is not larger than a page */
+  static char hdr[MAX_HEADER_SIZE];
+
+  if (*hdr_len == 0)
+	*hdr_len = sizeof(hdr);
+  else
+	assert(*hdr_len <= sizeof(hdr));
 
   pos = 0;	/* Read from the start of the file */
 
   r = req_readwrite(vp->v_fs_e, vp->v_inode_nr, cvul64(pos), READING,
-		    VFS_PROC_NR, hdr, MIN(vp->v_size, PAGE_SIZE),
+		    VFS_PROC_NR, hdr, MIN(vp->v_size, *hdr_len),
 		    &new_pos, &cum_io);
   if (r != OK) {
 	printf("VFS: exec: map_header: req_readwrite failed\n");
@@ -654,7 +664,7 @@ static int map_header(char **exec_hdr, const struct vnode *vp)
   }
 
   *exec_hdr = hdr;
-/* FIXME: cum_io could be less than PAGE_SIZE... */
+  *hdr_len = cum_io;
 
   return(OK);
 }
