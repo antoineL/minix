@@ -18,18 +18,12 @@
 #include <sys/stat.h>
 #include <minix/callnr.h>
 #include <minix/endpoint.h>
-#include <minix/com.h>
 #include <minix/u64.h>
-#include <a.out.h>
-#include <signal.h>
-#include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/param.h>
 #include "fproc.h"
-#include "param.h"
 #include "vnode.h"
-#include "vmnt.h"
 #include <minix/vfsif.h>
 #include <assert.h>
 #include <libexec.h>
@@ -59,20 +53,9 @@ static void patch_ptr(char stack[ARG_MAX], vir_bytes base);
 static void clo_exec(struct fproc *rfp);
 static int read_seg(struct vnode *vp, off_t off, int proc_e, int seg,
 		    vir_bytes seg_addr, phys_bytes seg_bytes);
-static int load_aout(struct exec_info *execi);
-static int load_elf(struct exec_info *execi);
 static int map_header(char **exec_hdr, size_t *len, const struct vnode *vp);
 
 #define PTRSIZE	sizeof(char *) /* Size of pointers in argv[] and envp[]. */
-
-/* Array of loaders for different object file formats */
-struct exec_loaders {
-	int (*load_object)(struct exec_info *);
-} static const exec_loaders[] = {
-	{ load_aout },
-	{ load_elf },
-	{ NULL }
-};
 
 /*===========================================================================*
  *				pm_exec					     *
@@ -90,7 +73,10 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   struct vnode *vp;
   char *cp;
   static char mbuf[ARG_MAX];	/* buffer for stack and zeroes */
+  struct image_memmap emap;	/* Memory map guessed from executable */
   struct exec_info execi;
+  phys_bytes tot_bytes;		/* Total space for program, including gap */
+  int sep_id, is_elf;
   int i;
 
   okendpt(proc_e, &proc_s);
@@ -164,6 +150,8 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 		printf("VFS pm_exec: 2nd fetch_name failed\n");
 	else if ((r = patch_stack(vp, mbuf, &frame_len)) != OK) 
 		printf("VFS pm_exec: patch_stack failed\n");
+
+	/* Release the script vnode got with eat_path(). */
 	put_vnode(vp);
 	if (r != OK) return(r);
   }
@@ -171,20 +159,65 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   execi.proc_e = proc_e;
   execi.frame_len = frame_len;
 
-  for(i = 0; exec_loaders[i].load_object != NULL; i++) {
-      r = (*exec_loaders[i].load_object)(&execi);
-      /* Loaded successfully, so no need to try other loaders */
-      if (r == OK) break;
-  }
-  put_vnode(vp);
+  /* Read the file header and extract the segment sizes. */
+  r = exec_memmap(execi.hdr, execi.hdr_mapped, &emap);
+  /* Recognized the format but for another architecture */
+  if (r == OK && emap.machine != EXEC_TARGET_MACHINE) r=ENOEXEC;
 
   /* No exec loader could load the object */
   if (r != OK) {
+	put_vnode(vp);
 	return(ENOEXEC);
   }
 
+  sep_id = emap.nr_regions > 1;
+#if TEMP_CODE
+  is_elf = emap.text_.vaddr > 0;
+#endif
+
+  if (emap.stack_bytes > 0)
+	tot_bytes = emap.top_alloc;
+  else
+	tot_bytes = 0; /* Use default stack size */
+
+  if (vp->v_mode & I_SET_STCKY_BIT) {
+	/* if/when we decide to implement sticky executables (segments
+	 * which are kept longer in memory to improve performance),
+	 * this is the place to do it!
+	 */
+	emap.text_.flags |= 0;	/* do nothing yet */
+  }
+
+  r = exec_newmem(proc_e,
+		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
+		  tot_bytes, frame_len, sep_id, is_elf,
+		  vp->v_dev, vp->v_inode_nr, execi.sb.st_ctime,
+		  execi.progname, execi.new_uid, execi.new_gid,
+		  &execi.stack_top, &execi.load_text, &execi.allow_setuid);
+
+   if (r != OK) {
+	printf("VFS: pm_exec: exec_newmem failed: %d\n", r);
+	put_vnode(vp);
+	return(ENOEXEC);
+   }
+
+  /* Read in text and data segments. */
+  if (execi.load_text && emap.text_.filebytes > 0)
+	r = read_seg(vp, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
+
+  if (r == OK && emap.data_.filebytes > 0)
+	r = read_seg(vp, emap.data_.fileoffset, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
+
+  put_vnode(vp);
+  if (r != OK) {
+	return(ENOEXEC);
+  }
+  /* Now fix the protection (usually r-x) for the text region. */
+  /* FIXME: to be done... */
+
   /* Save off PC */
-  *pc = execi.pc;
+  *pc = execi.pc = emap.entry;
 
   /* Patch up stack and copy it from VFS to new core image. */
   vsp = execi.stack_top;
@@ -208,110 +241,6 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   rfp->fp_execced = 1;
 
   return(OK);
-}
-
-/*===========================================================================*
- *				load_aout				     *
- *===========================================================================*/
-static int load_aout(struct exec_info *execi)
-{
-  int r;
-  struct vnode *vp;
-  int proc_e;
-  off_t off;
-  int hdrlen;
-  int sep_id;
-  struct image_memmap emap;	/* Map read from executable */
-  phys_bytes tot_bytes;		/* Total space for program, including gap */
-
-  assert(execi != NULL);
-  assert(execi->hdr != NULL);
-  assert(execi->vp != NULL);
-
-  proc_e = execi->proc_e;
-  vp = execi->vp;
-
-  /* Read the file header and extract the segment sizes. */
-  r = read_header_aout(execi->hdr, execi->hdr_mapped, &emap);
-  if (r != OK) return(r);
-  if (emap.machine != EXEC_TARGET_MACHINE) return ENOEXEC;
-
-  execi->pc = emap.entry;
-  sep_id = emap.nr_regions > 1;
-  tot_bytes = emap.data_.vaddr
-	    + emap.data_.membytes
-	    + emap.stack_bytes;
-
-  r= exec_newmem(proc_e, trunc_page(emap.text_.vaddr), emap.text_.membytes,
-		  trunc_page(emap.data_.vaddr), emap.data_.membytes, tot_bytes,
-		  execi->frame_len, sep_id, 0 /* is_elf */, vp->v_dev, vp->v_inode_nr,
-		  execi->sb.st_ctime,
-		  execi->progname, execi->new_uid, execi->new_gid,
-		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
-
-  if (r != OK) {
-        printf("VFS: load_aout: exec_newmem failed: %d\n", r);
-        return(r);
-  }
-
-  off = emap.text_.fileoffset;
-
-  /* Read in text and data segments. */
-  if (execi->load_text) r = read_seg(vp, off, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
-  off += emap.text_.filebytes;
-  if (r == OK) r = read_seg(vp, off, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
-
-  return (r);
-}
-
-/*===========================================================================*
- *				load_elf				     *
- *===========================================================================*/
-static int load_elf(struct exec_info *execi)
-{
-  int r;
-  struct vnode *vp;
-  int proc_e;
-  struct image_memmap emap;	/* Map read from executable */
-  phys_bytes tot_bytes;		/* Total space for program, including gap */
-  int sep_id, is_elf;
-
-  assert(execi != NULL);
-  assert(execi->hdr != NULL);
-  assert(execi->vp != NULL);
-
-  proc_e = execi->proc_e;
-  vp = execi->vp;
-
-  /* Read the file header and extract the segment sizes. */
-  r = read_header_elf(execi->hdr, execi->hdr_mapped, &emap);
-  if (r != OK) return(r);
-
-  execi->pc = emap.entry;
-  sep_id = 1;
-  is_elf = 1;
-  tot_bytes = 0; /* Use default stack size */
-  r = exec_newmem(proc_e,
-		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
-		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
-		  tot_bytes, execi->frame_len, sep_id, is_elf,
-		  vp->v_dev, vp->v_inode_nr, execi->sb.st_ctime,
-		  execi->progname, execi->new_uid, execi->new_gid,
-		  &execi->stack_top, &execi->load_text, &execi->allow_setuid);
-
-  if (r != OK) {
-        printf("VFS: load_elf: exec_newmem failed: %d\n", r);
-        return(r);
-  }
-
-  /* Read in text and data segments. */
-  if (execi->load_text)
-	r = read_seg(vp, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
-
-  if (r == OK)
-	r = read_seg(vp, emap.data_.fileoffset, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
-
-  return(r);
 }
 
 /*===========================================================================*
