@@ -27,7 +27,6 @@
 #include <minix/vfsif.h>
 #include <assert.h>
 #include <libexec.h>
-#include "exec.h"
 
 #ifndef	MAX_HEADER_SIZE
 #define	MAX_HEADER_SIZE	PAGE_SIZE /* Assume that header is not larger than a page */
@@ -69,13 +68,21 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
  */
   int r, r1, round, proc_s;
   vir_bytes vsp;
+  vir_bytes stack_top;		/* Top of the stack */
+  uid_t new_uid;		/* Process UID after exec */
+  gid_t new_gid;		/* Process GID after exec */
   struct fproc *rfp;
   struct vnode *vp;
   char *cp;
   static char mbuf[ARG_MAX];	/* buffer for stack and zeroes */
+  struct stat sb;		/* Exec file's stat structure */
+  char *hdr;			/* Exec file's header */
+  size_t hdr_mapped;		/* Size of read-in header */
   struct image_memmap emap;	/* Memory map guessed from executable */
-  struct exec_info execi;
-  phys_bytes tot_bytes;		/* Total space for program, including gap */
+  char progname[PROC_NAME_LEN];	/* Program name */
+  phys_bytes tot_bytes;		/* total space for program, including gap */
+  int load_text;		/* Load text section? */
+  int allow_setuid;		/* Allow setuid execution? */
   int sep_id, is_elf;
   int i;
 
@@ -101,8 +108,8 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   }
 
   /* The default is to keep the original user and group IDs */
-  execi.new_uid = rfp->fp_effuid;
-  execi.new_gid = rfp->fp_effgid;
+  new_uid = rfp->fp_effuid;
+  new_gid = rfp->fp_effgid;
 
   for (round= 0; round < 2; round++) {
 	/* round = 0 (first attempt), or 1 (interpreted script) */
@@ -110,12 +117,12 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 	/* Save the name of the program */
 	(cp= strrchr(user_fullpath, '/')) ? cp++ : (cp= user_fullpath);
 
-	strncpy(execi.progname, cp, PROC_NAME_LEN-1);
-	execi.progname[PROC_NAME_LEN-1] = '\0';
+	strncpy(progname, cp, PROC_NAME_LEN-1);
+	progname[PROC_NAME_LEN-1] = '\0';
 
 	/* Open executable */
 	if ((vp = eat_path(PATH_NOFLAGS, fp)) == NULL) return(err_code);
-	execi.vp = vp;
+	vp = vp;
 
 	if ((vp->v_mode & I_TYPE) != I_REGULAR) 
 		r = ENOEXEC;
@@ -123,7 +130,7 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 		r = r1;
 	else
 		r = req_stat(vp->v_fs_e, vp->v_inode_nr, VFS_PROC_NR,
-			     (char *) &(execi.sb), 0);
+			     (char *) &(sb), 0);
 	if (r != OK) {
 	    put_vnode(vp);
 	    return(r);
@@ -131,18 +138,18 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 
         if (round == 0) {
             /* Deal with setuid/setgid executables */
-            if (vp->v_mode & I_SET_UID_BIT) execi.new_uid = vp->v_uid;
-            if (vp->v_mode & I_SET_GID_BIT) execi.new_gid = vp->v_gid;
+            if (vp->v_mode & I_SET_UID_BIT) new_uid = vp->v_uid;
+            if (vp->v_mode & I_SET_GID_BIT) new_gid = vp->v_gid;
         }
 
-	execi.hdr_mapped = MAX_HEADER_SIZE;
-	r = map_header(&execi.hdr, &execi.hdr_mapped, execi.vp);
+	hdr_mapped = MAX_HEADER_SIZE;
+	r = map_header(&hdr, &hdr_mapped, vp);
 	if (r != OK) {
 	    put_vnode(vp);
 	    return(r);
 	}
 
-	if (!is_script(execi.hdr, execi.vp->v_size) || round != 0)
+	if (!is_script(hdr, vp->v_size) || round != 0)
 		break;
 
 	/* Get fresh copy of the file name. */
@@ -156,14 +163,10 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 	if (r != OK) return(r);
   }
 
-  execi.proc_e = proc_e;
-  execi.frame_len = frame_len;
-
   /* Read the file header and extract the segment sizes. */
-  r = exec_memmap(execi.hdr, execi.hdr_mapped, &emap);
+  r = exec_memmap(hdr, hdr_mapped, &emap);
   /* Recognized the format but for another architecture */
   if (r == OK && emap.machine != EXEC_TARGET_MACHINE) r=ENOEXEC;
-
   /* No exec loader could load the object */
   if (r != OK) {
 	put_vnode(vp);
@@ -192,18 +195,18 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
 		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
 		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
 		  tot_bytes, frame_len, sep_id, is_elf,
-		  vp->v_dev, vp->v_inode_nr, execi.sb.st_ctime,
-		  execi.progname, execi.new_uid, execi.new_gid,
-		  &execi.stack_top, &execi.load_text, &execi.allow_setuid);
+		  vp->v_dev, vp->v_inode_nr, sb.st_ctime,
+		  progname, new_uid, new_gid,
+		  &stack_top, &load_text, &allow_setuid);
 
-   if (r != OK) {
-	printf("VFS: pm_exec: exec_newmem failed: %d\n", r);
+  if (r != OK) {
+        printf("VFS: pm_exec: exec_newmem failed: %d\n", r);
 	put_vnode(vp);
 	return(ENOEXEC);
-   }
+  }
 
   /* Read in text and data segments. */
-  if (execi.load_text && emap.text_.filebytes > 0)
+  if (load_text && emap.text_.filebytes > 0)
 	r = read_seg(vp, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
 
   if (r == OK && emap.data_.filebytes > 0)
@@ -217,10 +220,10 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   /* FIXME: to be done... */
 
   /* Save off PC */
-  *pc = execi.pc = emap.entry;
+  *pc = emap.entry;
 
   /* Patch up stack and copy it from VFS to new core image. */
-  vsp = execi.stack_top;
+  vsp = stack_top;
   vsp -= frame_len;
   patch_ptr(mbuf, vsp);
   if ((r = sys_datacopy(SELF, (vir_bytes) mbuf, proc_e, (vir_bytes) vsp,
@@ -232,9 +235,9 @@ PUBLIC int pm_exec(int proc_e, char *path, vir_bytes path_len, char *frame,
   if (r != OK) return(r);
   clo_exec(rfp);
 
-  if (execi.allow_setuid) {
-	rfp->fp_effuid = execi.new_uid;
-	rfp->fp_effgid = execi.new_gid;
+  if (allow_setuid) {
+	rfp->fp_effuid = new_uid;
+	rfp->fp_effgid = new_gid;
   }
 
   /* This child has now exec()ced. */
