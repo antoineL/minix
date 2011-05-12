@@ -39,6 +39,10 @@
 #define	MAX_HEADER_SIZE	PAGE_SIZE /* Assume that header is not larger than a page */
 #endif
 
+#ifndef	READ_SEG_SIZE
+#define	READ_SEG_SIZE	PAGE_SIZE
+#endif
+
 static int exec_newmem(int proc_e, vir_bytes text_addr, vir_bytes text_bytes,
 		       vir_bytes data_addr, vir_bytes data_bytes,
 		       vir_bytes tot_bytes, vir_bytes frame_len, int sep_id,
@@ -566,7 +570,7 @@ phys_bytes seg_bytes		/* how much is to be transferred? */
   unsigned n, o;
   u64_t new_pos;
   unsigned int cum_io;
-  char buf[1024];
+  char buf[READ_SEG_SIZE];
 
   assert((seg == T)||(seg == D));
 
