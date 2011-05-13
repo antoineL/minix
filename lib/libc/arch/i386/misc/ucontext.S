@@ -1,6 +1,6 @@
 #include <machine/asm.h>
 
-#ifdef __ACK__
+#if 0 /* ifdef __ACK__ */
 .text
 begtext:
 #ifdef __ACK__
