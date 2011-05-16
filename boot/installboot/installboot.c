@@ -142,7 +142,7 @@ void build_header(char *proc, FILE *procf,
 }
 
 void check_header(int talk, char *proc, struct exec *phdr)
-/* Check the a.out header of a program or of part of an image. */
+/* Check the exec header of a program or of part of an image. */
 {
 	int big= 0;
 	static int banner= 0;
@@ -243,6 +243,22 @@ unsigned long sizefromexec(char *proc, FILE *procf)
 	return preg->filebytes;
 }
 
+void strip_header(void *hdr, FILE *procf, char *proc, long n)
+/* Read in the header of a program, and remove ("strip") the pointers to
+ * the symbol table.  If procf happens to be NULL then the header is already
+ * in *hdr and need only be stripped.
+ */
+{
+	struct exec *phdr = hdr;
+
+	if (procf) bread(procf, proc, hdr, n);
+
+	if (! BADMAG(*phdr)) {
+		phdr->a_syms= 0;
+		phdr->a_flags &= ~A_NSYM;
+	}
+}
+
 void padimage(const char *image, FILE *imagef, int n)
 /* Add n zeros to image to pad it to a sector boundary. */
 {
@@ -286,7 +302,6 @@ void make_image(char *image, char **procv)
 	vir_bytes text_bytes, data_bytes;
 	struct image_header ihdr;
 	struct image_memmap emap;
-	struct exec phdr;
 	struct stat st;
 
 	making_image= 1;
@@ -307,12 +322,10 @@ void make_image(char *image, char **procv)
 		build_header(proc, procf, &ihdr, &emap);
 
 		/* Check the header, echo the values. */
-		phdr= ihdr.process;
-		check_header(1, proc, &phdr);
+		check_header(1, proc, &ihdr.process);
 
 		/* The symbol table is always stripped off. */
-		ihdr.process.a_syms= 0;
-		ihdr.process.a_flags &= ~A_NSYM;
+		strip_header(&ihdr.process, NULL, proc, 0);
 
 		/* Write header padded to fill a sector */
 		bwrite(imagef, image, &ihdr, sizeof(ihdr));
@@ -323,20 +336,28 @@ void make_image(char *image, char **procv)
 		text_bytes= emap.text_.filebytes;
 		data_bytes= emap.data_.filebytes;
 
-		if (phdr.a_flags & A_PAL) {
+		if (ihdr.process.a_flags & A_PAL) {
+			char sect0[SECTOR_SIZE];
+
 			rewind(procf);
 			text_bytes+= emap.text_.fileoffset;
-			/* FIXME: the header stored in text still has the
+			/* The header stored in text still has the
 			 * original value for a_syms, i.e. is not stripped.
-			if (text_bytes <= SECTOR_SIZE)
-				text_bytes= 0;
-			else
-				text_bytes -= SECTOR_SIZE;
 			 */
+			if (text_bytes <= SECTOR_SIZE) {
+				memset(sect0, 0, sizeof(sect0));
+				strip_header(sect0, procf, proc, text_bytes);
+				text_bytes= 0;
+			}
+			else {
+				strip_header(sect0, procf, proc, SECTOR_SIZE);
+				text_bytes -= SECTOR_SIZE;
+			}
+			bwrite(imagef, image, sect0, sizeof(sect0));
 		}
 
 		/* Copy text and data of proc to image. */
-		if (phdr.a_flags & A_SEP) {
+		if (ihdr.process.a_flags & A_SEP) {
 			/* Separate I&D: pad text & data separately. */
 
 			copyexec(proc, procf, image, imagef, text_bytes);
@@ -349,7 +370,6 @@ void make_image(char *image, char **procv)
 			copyexec(proc, procf, image, imagef,
 						text_bytes + data_bytes);
 		}
-
 		/* Done with proc. */
 		(void) fclose(procf);
 	}
