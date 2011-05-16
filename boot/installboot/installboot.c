@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <a.out.h>
+#include <libexec.h>
 #include <minix/const.h>
 #include <minix/partition.h>
 #include <minix/u64.h>
@@ -33,6 +34,7 @@
 #define PARTPOS		446	/* Offset to the partition table in a master
 				 * boot block.
 				 */
+#define	MAX_HEADER_SIZE	4096	/* Assume that header is smaller than a page */
 
 #define between(a, c, z)	((unsigned) ((c) - (a)) <= ((z) - (a)))
 #define control(c)		between('\0', (c), '\37')
@@ -194,29 +196,45 @@ void check_header(int talk, char *proc, struct exec *phdr)
 
 unsigned long sizefromexec(char *proc, FILE *procf)
 /* Read the a.out header of a program to learn its size.
- * The file pointer is left at the start of the text segment.
+ * The file pointer is left at the start of the (unique) segment.
  */
 {
-	int n;
-	struct exec hdr;
+	int n, r;
+	char hdr[MAX_HEADER_SIZE];
+	struct image_memmap emap;	/* Memory map guessed from executable */
+	struct region_infos *preg;	/* Where the actual bytes are */
 
-	if (procf == NULL) fatal(proc);
-
-	/* Read the smallest header. */
-	n= part_read(procf, proc, &hdr, A_MINHDR);
-
-	if (n < A_MINHDR) {
-		fprintf(stderr, "installboot: %s is too small\n", proc);
-		exit(1);
-	}
-
-	if (BADMAG(hdr)) {
+	/* Read the header. */
+	n= part_read(procf, proc, &hdr, sizeof hdr);
+	r= exec_memmap(hdr, n, &emap);
+	if (r) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
 		exit(1);
 	}
-	if (fseek(procf, hdr.a_hdrlen, SEEK_SET)) fatal(proc);
-	/* Text section just follows the header, we are done. */
-	return hdr.a_text + hdr.a_data;
+
+	if (emap.nr_regions > 1) {
+		fprintf(stderr,
+	"installboot: %s has 2 or more segments, cannot convert.\n",
+			proc);
+		fprintf(stderr,
+	"You can try to recompile using `cc -com` or `clang -N` to compact it.\n");
+		exit(1);
+	}
+
+	preg = (emap.text_.membytes != 0) ? &emap.text_ : &emap.data_;
+
+	if (preg->fileoffset == 0
+	  && emap.entry > preg->vaddr
+	  && emap.entry < preg->vaddr + preg->filebytes) {
+		/* Probably linked 'as usual', with header-in-text;
+		 * hope that the entry point marks the real start.
+		 */
+		preg->fileoffset+= emap.entry - preg->vaddr;
+		preg->filebytes -= emap.entry - preg->vaddr;
+	}
+
+	if (fseek(procf, preg->fileoffset, SEEK_SET)) fatal(proc);
+	return preg->filebytes;
 }
 
 void padimage(const char *image, FILE *imagef, int n)
@@ -280,7 +298,7 @@ void make_image(char *image, char **procv)
 		/* Read process header. */
 		read_header(proc, procf, &ihdr);
 
-		/* Check the a.out header. */
+		/* Check the header, echo the values. */
 		phdr= ihdr.process;
 		check_header(1, proc, &phdr);
 
