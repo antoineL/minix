@@ -1,4 +1,4 @@
-/*	installboot 3.1 - Make a device bootable	Author: Kees J. Bot
+/*	installboot 3.2 - Make a device bootable	Author: Kees J. Bot
  *								21 Dec 1991
  *
  * Either make a device bootable or make an image from kernel, mm, fs, etc.
@@ -110,11 +110,13 @@ static size_t part_read(FILE *f, char *name, void *buf, size_t len)
 long total_text= 0, total_data= 0, total_bss= 0;
 int making_image= 0;
 
-void read_header(char *proc, FILE *procf, struct image_header *ihdr)
-/* Read the a.out header of a program.
+void build_header(char *proc, FILE *procf,
+	struct image_header *ihdr, struct image_memmap *imap)
+/* Read in the header of a program.
  */
 {
 	int n;
+	char hdr[MAX_HEADER_SIZE];
 	struct exec *phdr= &ihdr->process;
 
 	if (procf == NULL) fatal(proc);
@@ -124,15 +126,19 @@ void read_header(char *proc, FILE *procf, struct image_header *ihdr)
 		strlcpy(ihdr->name, basename(proc), IM_NAME_MAX+1);
 
 		/* Read the header. */
-	n= part_read(procf, proc, phdr, sizeof(struct exec));
+	n= part_read(procf, proc, hdr, sizeof(hdr));
 
-	if (n < A_MINHDR || BADMAG(*phdr)) {
+	/* Check if valid, and extract the memory map. */
+	if (exec_memmap(hdr, n, imap) != 0) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
 		exit(1);
 	}
 
 	/* Rewind the file to the start of the text_ region. */
-	if (fseek(procf, phdr->a_hdrlen, SEEK_SET)) fatal(proc);
+	if (fseek(procf, imap->text_.fileoffset, SEEK_SET)) fatal(proc);
+
+		/* Extract the process header (should be of a.out style). */
+		memcpy(phdr, hdr, (unsigned char)hdr[4]);
 }
 
 void check_header(int talk, char *proc, struct exec *phdr)
@@ -277,7 +283,9 @@ void make_image(char *image, char **procv)
 	FILE *imagef, *procf;
 	char *proc, *file;
 	int procn;
+	vir_bytes text_bytes, data_bytes;
 	struct image_header ihdr;
+	struct image_memmap emap;
 	struct exec phdr;
 	struct stat st;
 
@@ -295,8 +303,8 @@ void make_image(char *image, char **procv)
 			|| (procf= fopen(file, "r")) == NULL
 		) fatal(proc);
 
-		/* Read process header. */
-		read_header(proc, procf, &ihdr);
+		/* Read process header and build image header. */
+		build_header(proc, procf, &ihdr, &emap);
 
 		/* Check the header, echo the values. */
 		phdr= ihdr.process;
@@ -312,22 +320,34 @@ void make_image(char *image, char **procv)
 		padimage(image, imagef, SECTOR_SIZE - sizeof(ihdr));
 
 		/* A page aligned executable needs the header in text. */
+		text_bytes= emap.text_.filebytes;
+		data_bytes= emap.data_.filebytes;
+
 		if (phdr.a_flags & A_PAL) {
 			rewind(procf);
-			phdr.a_text+= phdr.a_hdrlen;
+			text_bytes+= emap.text_.fileoffset;
+			/* FIXME: the header stored in text still has the
+			 * original value for a_syms, i.e. is not stripped.
+			if (text_bytes <= SECTOR_SIZE)
+				text_bytes= 0;
+			else
+				text_bytes -= SECTOR_SIZE;
+			 */
 		}
 
 		/* Copy text and data of proc to image. */
 		if (phdr.a_flags & A_SEP) {
 			/* Separate I&D: pad text & data separately. */
 
-			copyexec(proc, procf, image, imagef, phdr.a_text);
-			copyexec(proc, procf, image, imagef, phdr.a_data);
+			copyexec(proc, procf, image, imagef, text_bytes);
+			if (fseek(procf, emap.data_.fileoffset, SEEK_SET))
+				fatal(proc);
+			copyexec(proc, procf, image, imagef, data_bytes);
 		} else {
 			/* Common I&D: keep text and data together. */
 
 			copyexec(proc, procf, image, imagef,
-						phdr.a_text + phdr.a_data);
+						text_bytes + data_bytes);
 		}
 
 		/* Done with proc. */
