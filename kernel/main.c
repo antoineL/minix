@@ -221,21 +221,22 @@ PUBLIC int main(void)
             RTS_SET(rp, RTS_NO_PRIV | RTS_NO_QUANTUM);
 	}
 #if defined(__ELF__)
+#define	LEN2CLICK(len)	ABS2CLICK(CLICK_CEIL(len))
 	rp->p_memmap[T].mem_vir  = ABS2CLICK(ip->memmap.text_.vaddr);
 	rp->p_memmap[T].mem_phys = ABS2CLICK(ip->memmap.text_.paddr);
-	rp->p_memmap[T].mem_len  = ABS2CLICK(ip->memmap.text_.membytes);
+	rp->p_memmap[T].mem_len  = LEN2CLICK(ip->memmap.text_.membytes);
 	rp->p_memmap[D].mem_vir  = ABS2CLICK(ip->memmap.data_.vaddr);
 	rp->p_memmap[D].mem_phys = ABS2CLICK(ip->memmap.data_.paddr);
-	rp->p_memmap[D].mem_len  = ABS2CLICK(ip->memmap.data_.membytes);
-	rp->p_memmap[S].mem_phys = ABS2CLICK(ip->memmap.data_.paddr +
+	rp->p_memmap[D].mem_len  = LEN2CLICK(ip->memmap.data_.membytes);
+	rp->p_memmap[S].mem_phys = LEN2CLICK(ip->memmap.data_.paddr +
 					     ip->memmap.data_.membytes +
 					     ip->memmap.stack_bytes);
-	rp->p_memmap[S].mem_vir  = ABS2CLICK(ip->memmap.data_.vaddr +
+	rp->p_memmap[S].mem_vir  = LEN2CLICK(ip->memmap.data_.vaddr +
 					     ip->memmap.data_.membytes +
 					     ip->memmap.stack_bytes);
 	rp->p_memmap[S].mem_len  = 0;
 #else
-	if (iskerneln(proc_nr)) {		/* part of the kernel? */
+	if (iskerneln(proc_nr)) {		/* part of the kernel? */ 
 		hdrindex = 0;		/* all use the first a.out header */
 	} else {
 		hdrindex = 1 + i-NR_TASKS;	/* system/user processes */
