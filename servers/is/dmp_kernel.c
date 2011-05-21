@@ -35,7 +35,7 @@ static int pagelines;
 	  if (++pagelines > LINES) { oldrp = rp; printf("--more--\n"); break; }\
 	  if (proc_nr(rp) == IDLE) 	printf("(%2d) ", proc_nr(rp));  \
 	  else if (proc_nr(rp) < 0) 	printf("[%2d] ", proc_nr(rp)); 	\
-	  else 				printf(" %2d  ", proc_nr(rp));
+	  else 				printf( "%3d  ", proc_nr(rp));
 
 #define click_to_round_k(n) \
 	((unsigned) ((((unsigned long) (n) << CLICK_SHIFT) + 512) / 1024))
@@ -144,11 +144,10 @@ PUBLIC void irqtab_dmp()
   printf("-h.id- -proc.nr- -irq nr- -policy- -notify id- -masked-\n");
   for (i=0; i<NR_IRQ_HOOKS; i++) {
   	e = &irq_hooks[i];
-  	printf("%3d", i);
   	if (e->proc_nr_e==NONE) {
-  	    printf("    <unused>\n");
   	    continue;
   	}
+  	printf("%3d", i);
   	printf("%10d  ", e->proc_nr_e); 
   	printf("    (%02d) ", e->irq); 
   	printf("  %s", (e->policy & IRQ_REENABLE) ? "reenable" : "    -   ");
@@ -185,16 +184,19 @@ PUBLIC void image_dmp()
       return;
   }
   printf("Image table dump showing all processes included in system image.\n");
-  printf("---name- -nr- flags -stack-\n");
+  printf("---name- -nr- flags page-:-vir-+text- page-:-vir-+data- stack\n");
   for (m=0; m<NR_BOOT_PROCS; m++) { 
       ip = &image[m];
-      printf("%8s %4d %5s\n",
-          ip->proc_name, ip->proc_nr,
-          boot_flags_str(ip->flags));
+	printf("%8s %4d %-5s %05lx:%5lx+%-5lx %05lx:%5lx+%-5lx %4dK\n",
+		ip->proc_name, ip->proc_nr,
+		boot_flags_str(ip->flags),
+		ip->memmap.text_paddr>>12, ip->memmap.text_vaddr>>12,
+		ip->memmap.text_bytes>>12,
+		ip->memmap.data_paddr>>12, ip->memmap.data_vaddr>>12,
+		ip->memmap.data_bytes>>12, ip->stack_kbytes);
   }
   printf("\n");
 }
-
 
 /*===========================================================================*
  *				kenv_dmp				     *
@@ -215,11 +217,11 @@ PUBLIC void kenv_dmp()
 
     printf("Dump of kinfo structure.\n\n");
     printf("Kernel info structure:\n");
-    printf("- code_base:  %5lu\n", kinfo.code_base); 
-    printf("- code_size:  %5lu\n", kinfo.code_size); 
-    printf("- data_base:  %5lu\n", kinfo.data_base); 
-    printf("- data_size:  %5lu\n", kinfo.data_size); 
-    printf("- proc_addr:  %5lu\n", kinfo.proc_addr); 
+    printf("- code_base: %9lu 0x%8.8lx\n", kinfo.code_base, kinfo.code_base); 
+    printf("- code_size: %9lu 0x%8.8lx\n", kinfo.code_size, kinfo.code_size); 
+    printf("- data_base: %9lu 0x%8.8lx\n", kinfo.data_base, kinfo.data_base); 
+    printf("- data_size: %9lu 0x%8.8lx\n", kinfo.data_size, kinfo.data_size); 
+    printf("- proc_addr: %9lu 0x%8.8lx\n", kinfo.proc_addr, kinfo.proc_addr); 
     printf("- bootdev_base:  %5lu\n", kinfo.bootdev_base); 
     printf("- bootdev_size:  %5lu\n", kinfo.bootdev_size); 
     printf("- ramdev_base:   %5lu\n", kinfo.ramdev_base); 
@@ -409,12 +411,12 @@ PUBLIC void memmap_dmp()
       return;
   }
 
-  printf("\n-nr/name--- --pc--   --sp-- -text---- -data---- -stack--- -cr3-\n");
+  printf("\n-nr-/name--- --pc--- ---sp--- -text+---- -data+---- -stack----- --cr3---\n");
   PROCLOOP(rp, oldrp)
 	size = rp->p_memmap[T].mem_len
 		+ ((rp->p_memmap[S].mem_phys + rp->p_memmap[S].mem_len)
 						- rp->p_memmap[D].mem_phys);
-	printf("%-7.7s%7lx %8lx %4x %4x %4x %4x %5x %5x %8u\n",
+	printf("%-7.7s%8lx %8lx %5x+%-4x %5x+%-4x %5x/%-5x %8x\n",
 	       rp->p_name,
 	       (unsigned long) rp->p_reg.pc,
 	       (unsigned long) rp->p_reg.sp,
