@@ -36,7 +36,7 @@ static int pagelines;
 	  if (++pagelines > LINES) { oldrp = rp; printf("--more--\n"); break; }\
 	  if (proc_nr(rp) == IDLE) 	printf("(%2d) ", proc_nr(rp));  \
 	  else if (proc_nr(rp) < 0) 	printf("[%2d] ", proc_nr(rp)); 	\
-	  else 				printf(" %2d  ", proc_nr(rp));
+	  else 				printf( "%3d  ", proc_nr(rp));
 
 #define click_to_round_k(n) \
 	((unsigned) ((((unsigned long) (n) << CLICK_SHIFT) + 512) / 1024))
@@ -174,10 +174,21 @@ PRIVATE char *boot_flags_str(int flags)
 }
 
 /*===========================================================================*
+ *				image_region_dmp			     *
+ *===========================================================================*/
+PRIVATE void image_region_dmp(const char *n, struct region_infos *rip)
+{
+  printf("%s: phys=%X vir=%X off=%X filsz=%d/0x%X memsz=%d/0x%X\n",
+	n, rip->paddr, rip->vaddr, rip->fileoffset,
+	rip->filebytes, rip->filebytes, rip->membytes, rip->membytes);
+}
+
+/*===========================================================================*
  *				image_dmp				     *
  *===========================================================================*/
 PUBLIC void image_dmp()
 {
+  static int oldm = NR_TASKS-1;
   int m, r;
   struct boot_image *ip;
 	
@@ -185,17 +196,29 @@ PUBLIC void image_dmp()
       printf("IS: warning: couldn't get copy of image table: %d\n", r);
       return;
   }
+  pagelines = 0;
   printf("Image table dump showing all processes included in system image.\n");
-  printf("---name- -nr- flags -stack-\n");
-  for (m=0; m<NR_BOOT_PROCS; m++) { 
-      ip = &image[m];
-      printf("%8s %4d %5s\n",
-          ip->proc_name, ip->proc_nr,
-          boot_flags_str(ip->flags));
+  printf("---name- -nr- flags stack  rg\n");
+  for (m=oldm; m<NR_BOOT_PROCS; m++) {
+	oldm=0; 
+	if (++pagelines > LINES-2) { oldm = m; printf("--more--\n"); break; }
+	ip = &image[m];
+	printf("%8s %4d %-5s %4dK  %2d top=%X\n",
+		ip->proc_name, ip->proc_nr,
+		boot_flags_str(ip->flags), ip->stack_kbytes,
+		ip->memmap.nr_regions, ip->memmap.top_alloc);
+	if (ip->memmap.text_.membytes) {
+		++pagelines;
+		image_region_dmp("text", &ip->memmap.text_);
+		++pagelines;
+		image_region_dmp("data", &ip->memmap.data_);
+	} else if (ip->memmap.data_.membytes) { /* common I+D */
+		++pagelines;
+		image_region_dmp("text+data", &ip->memmap.data_);
+	}
   }
   printf("\n");
 }
-
 
 /*===========================================================================*
  *				kenv_dmp				     *
@@ -416,12 +439,12 @@ PUBLIC void memmap_dmp()
       return;
   }
 
-  printf("\n-nr/name--- --pc--   --sp-- -text---- -data---- -stack--- -cr3-\n");
+  printf("\n-nr-/name--- --pc--- ---sp--- -text+---- -data+---- -stack----- --cr3---\n");
   PROCLOOP(rp, oldrp)
 	size = rp->p_memmap[T].mem_len
 		+ ((rp->p_memmap[S].mem_phys + rp->p_memmap[S].mem_len)
 						- rp->p_memmap[D].mem_phys);
-	printf("%-7.7s%7lx %8lx %4x %4x %4x %4x %5x %5x %8lu\n",
+	printf("%-7.7s%8lx %8lx %5x+%-4x %5x+%-4x %5x+%-5x %8lx\n",
 	       rp->p_name,
 	       (unsigned long) rp->p_reg.pc,
 	       (unsigned long) rp->p_reg.sp,
