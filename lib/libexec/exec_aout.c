@@ -5,6 +5,7 @@
 #include <a.out.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <libexec.h>
 #include <sys/mman.h>
 
@@ -45,21 +46,31 @@ int read_header_aout(
    */
 
   assert(exec_hdr != NULL);
+  assert(p != NULL);
+  memset(p, 0, sizeof(struct image_memmap));
 
   hdr = (struct exec *)exec_hdr;
   if (exec_len < A_MINHDR) return(ENOEXEC);
 
   /* Check magic number, cpu type, and flags. */
   if (BADMAG(*hdr)) return(ENOEXEC);
-#if (CHIP == INTEL && _WORD_SIZE == 2)
-  if (hdr->a_cpu != A_I8086) return(ENOEXEC);
-	else p->machine = MACHINE_I8086;
+  switch(hdr->a_cpu) {
+#if _MINIX_CHIP == _CHIP_INTEL
+  case A_I8086:	p->machine = MACHINE_I8086;	break;
+  case A_I80386:p->machine = MACHINE_I80386;	break;
 #endif
-#if (CHIP == INTEL && _WORD_SIZE == 4)
-  if (hdr->a_cpu != A_I80386) return(ENOEXEC);
-	else p->machine = MACHINE_I80386;
-#endif
+  default: return(ENOEXEC);	/* unrecognized */
+  }
+
   if ((hdr->a_flags & ~(A_NSYM | A_EXEC | A_SEP)) != 0) return(ENOEXEC);
+#if 0
+  if ((hdr->a_flags & (A_EXEC | A_SEP)) == 0)  /* either bit should be set */
+	return(ENOEXEC);
+#else
+  /* Some tools (like GNU binutils) do not set up correctly the A_EXEC
+   * bit; so we skip this check. We ought to set the flag right too...
+   */
+#endif
 
   /* Get text and data sizes. */
   p->text_.filebytes = p->text_.membytes =
