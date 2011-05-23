@@ -1,7 +1,9 @@
 /* Function prototypes. */
 
 /* FIXME this is a hack how to avoid inclusion conflicts */
-#ifdef __kernel__
+#ifndef __kernel__
+#error	This is a hack to detect inclusion conflicts
+#else	/*#ifdef __kernel__*/
 
 #ifndef PROTO_H
 #define PROTO_H
@@ -44,7 +46,6 @@ _PROTOTYPE( __dead void minix_shutdown, (struct timer *tp)		);
 _PROTOTYPE( void bsp_finish_booting, (void)				);
 
 /* proc.c */
-
 _PROTOTYPE( int do_ipc, (reg_t r1, reg_t r2, reg_t r3)			);
 _PROTOTYPE( void proc_init, (void)					);
 _PROTOTYPE( int has_pending, (sys_map_t *map, int src_p)		);
@@ -192,9 +193,7 @@ _PROTOTYPE( int is_fpu, (void)						);
 _PROTOTYPE( void ser_putc, (char)						);
 _PROTOTYPE( __dead void arch_shutdown, (int)				);
 _PROTOTYPE( __dead void arch_monitor, (void)				);
-#if !defined(__ELF__)
 _PROTOTYPE( void arch_get_aout_headers, (int i, struct exec *h)		);
-#endif
 _PROTOTYPE( void restore_user_context, (struct proc * p)                );
 _PROTOTYPE( void read_tsc, (unsigned long *high, unsigned long *low)    );
 _PROTOTYPE( int arch_init_profile_clock, (u32_t freq)			);
