@@ -38,6 +38,7 @@
 
 #define between(a, c, z)	((unsigned) ((c) - (a)) <= ((z) - (a)))
 #define control(c)		between('\0', (c), '\37')
+#define aligned(a, sz)		( (a) % (sz) == 0)
 
 #define BOOT_BLOCK_SIZE 1024	/* Fixed size for MFS boot block. */
 
@@ -112,10 +113,11 @@ int making_image= 0;
 
 void build_header(char *proc, FILE *procf,
 	struct image_header *ihdr, struct image_memmap *imap)
-/* Read in the header of a program.
+/* Read in the header of a program.  If the program is in ELF format,
+ * build the equivalent a.out-format header to allow loading.
  */
 {
-	int n;
+	int n, separate;
 	char hdr[MAX_HEADER_SIZE];
 	struct exec *phdr= &ihdr->process;
 
@@ -137,8 +139,85 @@ void build_header(char *proc, FILE *procf,
 	/* Rewind the file to the start of the text_ region. */
 	if (fseek(procf, imap->text_.fileoffset, SEEK_SET)) fatal(proc);
 
+	if (! BADMAG(*(struct exec*)hdr)) {
 		/* Extract the process header (should be of a.out style). */
 		memcpy(phdr, hdr, (unsigned char)hdr[4]);
+	}
+	else { /* ELF-style executable */
+		if (imap->nr_regions == 1) {
+			separate= 0;
+			if (imap->text_.membytes == 0) {
+				imap->text_.fileoffset = imap->data_.fileoffset;
+				imap->text_.vaddr = imap->data_.vaddr;
+				if (imap->data_.fileoffset == 0
+				 && imap->entry >= imap->data_.vaddr
+				 && imap->entry < imap->data_.vaddr+256) {
+					/* reserve space for header-in-text */
+					vir_bytes rsrv = imap->entry-imap->data_.vaddr;
+
+					imap->text_.filebytes =
+					imap->text_.membytes = rsrv;
+					imap->data_.vaddr += rsrv;
+					imap->data_.filebytes -= rsrv;
+					imap->data_.membytes -= rsrv;
+				}
+			}
+		}
+		else if ( !aligned(imap->data_.vaddr, CLICK_SIZE) )
+			/* data not page-aligned, cannot be loaded as A_SEP */
+			separate= 0;
+		else
+			separate= 1;
+
+		/* Do we know how to handle it? */
+#ifdef DEBUG
+		if (imap->text_.fileoffset > 255)
+			fprintf(stderr, "installboot: cannot deal with header of %d b.\n", imap->text_.fileoffset);
+		if ( ( imap->text_.membytes != 0
+		   && !aligned(imap->text_.vaddr-imap->text_.fileoffset, CLICK_SIZE) ) )
+			fprintf(stderr, "installboot: text not aligned.\n");
+		if ( ( imap->text_.membytes == 0
+		   && !aligned(imap->data_.vaddr-imap->data_.fileoffset, CLICK_SIZE) ) )
+			fprintf(stderr, "installboot: common segment not aligned.\n");
+		if ( ( imap->nr_regions == 2 && !separate
+		   && imap->data_.fileoffset
+		     != imap->text_.fileoffset+(off_t)imap->text_.filebytes) )
+			fprintf(stderr, "installboot: segments not aligned should be contiguous.\n");
+#endif
+		if (imap->text_.fileoffset > 255
+		 || ( imap->text_.membytes != 0
+		   && !aligned(imap->text_.vaddr-imap->text_.fileoffset, CLICK_SIZE) )
+		 || ( imap->text_.membytes == 0
+		   && !aligned(imap->data_.vaddr-imap->data_.fileoffset, CLICK_SIZE) )
+		 || ( imap->nr_regions == 2 && !separate
+		   && imap->data_.fileoffset
+		     != imap->text_.fileoffset+(off_t)imap->text_.filebytes) ) {
+			fprintf(stderr, "installboot: cannot deal with ELF-style %s\n", proc);
+			exit(1);
+		}
+
+		/* Build the (faked) struct exec to be put in the header. */
+		phdr->a_magic[0]= A_MAGIC0;
+		phdr->a_magic[1]= A_MAGIC1;
+		phdr->a_flags= A_PAL | A_IMG  /* A_IMG prevents execution */
+			| (separate ? A_SEP : 0);
+		phdr->a_cpu= A_I80386;
+		if (imap->text_.fileoffset != 0)
+			phdr->a_hdrlen= imap->text_.fileoffset;
+		else if (imap->entry-imap->text_.vaddr < 256)
+			phdr->a_hdrlen= imap->entry - imap->text_.vaddr;
+		else
+			phdr->a_hdrlen= A_MINHDR;
+		phdr->a_unused= phdr->a_version= 0;
+		phdr->a_text= imap->text_.filebytes
+		             - (phdr->a_hdrlen - imap->text_.fileoffset);
+		phdr->a_data= imap->data_.filebytes;
+		phdr->a_bss= imap->data_.membytes - imap->data_.filebytes;
+		phdr->a_entry= imap->entry - imap->text_.vaddr;
+		phdr->a_total= phdr->a_data + phdr->a_bss + imap->stack_bytes
+			+ (separate ? 0 : phdr->a_text);
+		phdr->a_syms= 0;
+	}
 }
 
 void check_header(int talk, char *proc, struct exec *phdr)
@@ -201,7 +280,7 @@ void check_header(int talk, char *proc, struct exec *phdr)
 }
 
 unsigned long sizefromexec(char *proc, FILE *procf)
-/* Read the a.out header of a program to learn its size.
+/* Read the a.out or ELF header of a program to learn its size.
  * The file pointer is left at the start of the (unique) segment.
  */
 {
@@ -250,12 +329,17 @@ void strip_header(void *hdr, FILE *procf, char *proc, long n)
  */
 {
 	struct exec *phdr = hdr;
+	int32_t *elf_hdr = hdr;
 
 	if (procf) bread(procf, proc, hdr, n);
 
 	if (! BADMAG(*phdr)) {
 		phdr->a_syms= 0;
 		phdr->a_flags &= ~A_NSYM;
+	}
+	else { /* ELF-style executable */
+		elf_hdr[8]=	/* e_shoff */
+		elf_hdr[12]= 0;	/* e_shnum|e_shstrndx */
 	}
 }
 
