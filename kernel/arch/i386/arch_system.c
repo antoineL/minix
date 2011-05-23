@@ -9,9 +9,7 @@
 #include <machine/bios.h>
 #include <minix/portio.h>
 #include <minix/cpufeature.h>
-#if !defined(__ELF__)
 #include <a.out.h>
-#endif
 #include <assert.h>
 #include <signal.h>
 #include <machine/vm.h>
@@ -200,18 +198,20 @@ PUBLIC __dead void arch_shutdown(int how)
 	NOT_REACHABLE;
 }
 
-#if !defined(__ELF__)
 /* address of a.out headers, set in mpx386.s */
 phys_bytes aout;
 
 PUBLIC void arch_get_aout_headers(const int i, struct exec *h)
 {
+#if !defined(__ELF__)
 	/* The bootstrap loader created an array of the a.out headers at
 	 * absolute address 'aout'. Get one element to h.
 	 */
 	phys_copy(aout + i * A_MINHDR, vir2phys(h), (phys_bytes) A_MINHDR);
-}
+#else
+	panic("arch_get_aout_headers() with ELF format, not implemented");
 #endif
+}
 
 PUBLIC void fpu_init(void)
 {
