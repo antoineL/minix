@@ -10,10 +10,14 @@ LDADD+=	-ldriver -lsys
 MAN=
 
 BINDIR?= /usr/sbin
+.if ${COMPILER_TYPE} == "gnu" && ${OBJECT_FMT} == "ELF"
+LDFLAGS+= -L ${MINIXSRCDIR}/tools -T minix-serv.lds -T stack_8K.lds
+.else
 INSTALLFLAGS+=	-S 8k
+.endif
 
 CPPFLAGS.memory.c+=	-I${MINIXSRCDIR}
-CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -T /usr/tmp
+CPPFLAGS.imgrd.c+=	-I${.CURDIR}/../ramdisk -O0
 
 imgrd.d: touch-genfiles
 

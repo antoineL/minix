@@ -11,7 +11,11 @@ LDADD+=	-ldriver -lsys -ltimers
 MAN=
 
 BINDIR?= /usr/sbin
+.if ${COMPILER_TYPE} == "gnu" && ${OBJECT_FMT} == "ELF"
+LDFLAGS+= -L ${MINIXSRCDIR}/tools -T minix-serv.lds -T stack_16K.lds
+.else
 INSTALLFLAGS+=	-S 16k
+.endif
 
 SUBDIR= keymaps
 

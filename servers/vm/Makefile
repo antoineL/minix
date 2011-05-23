@@ -12,7 +12,11 @@ LDADD+=	-lsys
 MAN=
 
 BINDIR?= /usr/sbin
+.if ${COMPILER_TYPE} == "gnu" && ${OBJECT_FMT} == "ELF"
+LDFLAGS+= -L ${MINIXSRCDIR}/tools -T minix-serv.lds -T stack_128K.lds
+.else
 INSTALLFLAGS+=	-S 128k
+.endif
 
 CPPFLAGS+= -I${.CURDIR} -I${.CURDIR}/arch/${ARCH}
 CPPFLAGS+=	-I${MINIXSRCDIR}
