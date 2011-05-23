@@ -1,4 +1,4 @@
-/*	installboot 3.0 - Make a device bootable	Author: Kees J. Bot
+/*	installboot 3.2 - Make a device bootable	Author: Kees J. Bot
  *								21 Dec 1991
  *
  * Either make a device bootable or make an image from kernel, mm, fs, etc.
@@ -7,6 +7,7 @@
 #define _MINIX		1
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -17,7 +18,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <a.out.h>
-#include <minix/config.h>
+#include <libexec.h>
 #include <minix/const.h>
 #include <minix/partition.h>
 #include <minix/u64.h>
@@ -33,11 +34,13 @@
 #define PARTPOS		446	/* Offset to the partition table in a master
 				 * boot block.
 				 */
+#define	MAX_HEADER_SIZE	4096	/* Assume that header is smaller than a page */
 
 #define between(a, c, z)	((unsigned) ((c) - (a)) <= ((z) - (a)))
 #define control(c)		between('\0', (c), '\37')
+#define aligned(a, sz)		( (a) % (sz) == 0)
 
-#define BOOT_BLOCK_SIZE 1024
+#define BOOT_BLOCK_SIZE 1024	/* Fixed size for MFS boot block. */
 
 static void report(const char *label)
 /* installboot: label: No such file or directory */
@@ -45,7 +48,7 @@ static void report(const char *label)
 	fprintf(stderr, "installboot: %s: %s\n", label, strerror(errno));
 }
 
-static void fatal(const char *label)
+__dead static void fatal(const char *label)
 {
 	report(label);
 	exit(1);
@@ -89,52 +92,169 @@ static void bwrite(FILE *f, const char *name, const void *buf, size_t len)
 	if (len > 0 && fwrite(buf, len, 1, f) != 1) fatal(name);
 }
 
+static size_t part_read(FILE *f, char *name, void *buf, size_t len)
+/* Read at most len bytes; can be smaller. Actual read size is returned. */
+{
+	int n;
+
+	if (len <= 0 || f == NULL || buf == NULL) fatal(name);
+
+	n= fread(buf, sizeof(char), len, f);
+	if (n == 0) {
+		if (ferror(f)) fatal(name);
+		fprintf(stderr, "installboot: Unexpected EOF on %s\n", name);
+		exit(1);
+	}
+	return n;
+}
+
 long total_text= 0, total_data= 0, total_bss= 0;
 int making_image= 0;
 
-void read_header(int talk, char *proc, FILE *procf, struct image_header *ihdr)
-/* Read the a.out header of a program and check it.  If procf happens to be
- * NULL then the header is already in *image_hdr and need only be checked.
+void build_header(char *proc, FILE *procf,
+	struct image_header *ihdr, struct image_memmap *imap)
+/* Read in the header of a program.  If the program is in ELF format,
+ * build the equivalent a.out-format header to allow loading.
  */
 {
-	int n, big= 0;
-	static int banner= 0;
+	int n, separate;
+	char hdr[MAX_HEADER_SIZE];
 	struct exec *phdr= &ihdr->process;
 
-	if (procf == NULL) {
-		/* Header already present. */
-		n= phdr->a_hdrlen;
-	} else {
+	if (procf == NULL) fatal(proc);
 		memset(ihdr, 0, sizeof(*ihdr));
 
 		/* Put the basename of proc in the header. */
-		strncpy(ihdr->name, basename(proc), IM_NAME_MAX);
+		strlcpy(ihdr->name, basename(proc), IM_NAME_MAX+1);
 
 		/* Read the header. */
-		n= fread(phdr, sizeof(char), A_MINHDR, procf);
-		if (ferror(procf)) fatal(proc);
-	}
+	n= part_read(procf, proc, hdr, sizeof(hdr));
 
-	if (n < A_MINHDR || BADMAG(*phdr)) {
+	/* Check if valid, and extract the memory map. */
+	if (exec_memmap(hdr, n, imap) != 0) {
 		fprintf(stderr, "installboot: %s is not an executable\n", proc);
 		exit(1);
 	}
 
-	/* Get the rest of the exec header. */
-	if (procf != NULL) {
-		bread(procf, proc, ((char *) phdr) + A_MINHDR,
-						phdr->a_hdrlen - A_MINHDR);
+	/* Rewind the file to the start of the text_ region. */
+	if (fseek(procf, imap->text_.fileoffset, SEEK_SET)) fatal(proc);
+
+	if (! BADMAG(*(struct exec*)hdr)) {
+		/* Extract the process header (should be of a.out style). */
+		memcpy(phdr, hdr, (unsigned char)hdr[4]);
+	}
+	else { /* ELF-style executable */
+		if (imap->nr_regions == 1) {
+			separate= 0;
+			if (imap->text_.membytes == 0) {
+				imap->text_.fileoffset = imap->data_.fileoffset;
+				imap->text_.vaddr = imap->data_.vaddr;
+				if (imap->data_.fileoffset == 0
+				 && imap->entry >= imap->data_.vaddr
+				 && imap->entry < imap->data_.vaddr+256) {
+					/* reserve space for header-in-text */
+					vir_bytes rsrv = imap->entry-imap->data_.vaddr;
+
+					imap->text_.filebytes =
+					imap->text_.membytes = rsrv;
+					imap->data_.vaddr += rsrv;
+					imap->data_.filebytes -= rsrv;
+					imap->data_.membytes -= rsrv;
+				}
+			}
+		}
+		else if ( !aligned(imap->data_.vaddr, CLICK_SIZE) )
+			/* data not page-aligned, cannot be loaded as A_SEP */
+			separate= 0;
+		else
+			separate= 1;
+
+		/* Do we know how to handle it? */
+#ifdef DEBUG
+		if (imap->text_.fileoffset > 255)
+			fprintf(stderr, "installboot: cannot deal with header of %d b.\n", imap->text_.fileoffset);
+		if ( ( imap->text_.membytes != 0
+		   && !aligned(imap->text_.vaddr-imap->text_.fileoffset, CLICK_SIZE) ) )
+			fprintf(stderr, "installboot: text not aligned.\n");
+		if ( ( imap->text_.membytes == 0
+		   && !aligned(imap->data_.vaddr-imap->data_.fileoffset, CLICK_SIZE) ) )
+			fprintf(stderr, "installboot: common segment not aligned.\n");
+		if ( ( imap->nr_regions == 2 && !separate
+		   && imap->data_.fileoffset
+		     != imap->text_.fileoffset+(off_t)imap->text_.filebytes) )
+			fprintf(stderr, "installboot: segments not aligned should be contiguous.\n");
+#endif
+		if (imap->text_.fileoffset > 255
+		 || ( imap->text_.membytes != 0
+		   && !aligned(imap->text_.vaddr-imap->text_.fileoffset, CLICK_SIZE) )
+		 || ( imap->text_.membytes == 0
+		   && !aligned(imap->data_.vaddr-imap->data_.fileoffset, CLICK_SIZE) )
+		 || ( imap->nr_regions == 2 && !separate
+		   && imap->data_.fileoffset
+		     != imap->text_.fileoffset+(off_t)imap->text_.filebytes) ) {
+			fprintf(stderr, "installboot: cannot deal with ELF-style %s\n", proc);
+			exit(1);
+		}
+
+		/* Build the (faked) struct exec to be put in the header. */
+		phdr->a_magic[0]= A_MAGIC0;
+		phdr->a_magic[1]= A_MAGIC1;
+		phdr->a_flags= A_PAL | A_IMG  /* A_IMG prevents execution */
+			| (separate ? A_SEP : 0);
+		phdr->a_cpu= A_I80386;
+		if (imap->text_.fileoffset != 0)
+			phdr->a_hdrlen= imap->text_.fileoffset;
+		else if (imap->entry-imap->text_.vaddr < 256)
+			phdr->a_hdrlen= imap->entry - imap->text_.vaddr;
+		else
+			phdr->a_hdrlen= A_MINHDR;
+		phdr->a_unused= phdr->a_version= 0;
+		phdr->a_text= imap->text_.filebytes
+		             - (phdr->a_hdrlen - imap->text_.fileoffset);
+		phdr->a_data= imap->data_.filebytes;
+		phdr->a_bss= imap->data_.membytes - imap->data_.filebytes;
+		phdr->a_entry= imap->entry - imap->text_.vaddr;
+		phdr->a_total= phdr->a_data + phdr->a_bss + imap->stack_bytes
+			+ (separate ? 0 : phdr->a_text);
+		phdr->a_syms= 0;
+	}
+}
+
+void check_header(int talk, char *proc, struct exec *phdr)
+/* Check the exec header of a program or of part of an image. */
+{
+	int big= 0;
+	static int banner= 0;
+
+	if (phdr->a_hdrlen < A_MINHDR || BADMAG(*phdr)) {
+		fprintf(stderr, "installboot: %s is not an executable\n", proc);
+		exit(1);
 	}
 
 	if (talk && !banner) {
+#ifdef DEBUG
+		printf("     text     data      bss      size fl stack initSP\n");
+#else
 		printf("     text     data      bss      size\n");
+#endif
 		banner= 1;
 	}
 
 	if (talk) {
+#ifdef DEBUG
+		long stack_bytes = phdr->a_total - phdr->a_data - phdr->a_bss
+			- (phdr->a_flags & A_SEP ? 0 : phdr->a_text);
+
+
+		printf(" %8ld %8ld %8ld %9ld %0.2X %4ldK %0.6lX  %s\n",
+			phdr->a_text, phdr->a_data, phdr->a_bss,
+			phdr->a_text + phdr->a_data + phdr->a_bss,
+			phdr->a_flags, stack_bytes/1024, phdr->a_total, proc);
+#else
 		printf(" %8ld %8ld %8ld %9ld  %s\n",
 			phdr->a_text, phdr->a_data, phdr->a_bss,
 			phdr->a_text + phdr->a_data + phdr->a_bss, proc);
+#endif
 	}
 	total_text+= phdr->a_text;
 	total_data+= phdr->a_data;
@@ -156,6 +276,70 @@ void read_header(int talk, char *proc, FILE *procf, struct image_header *ihdr)
 			big == 3 ? " and " : "",
 			big & 2 ? "data" : "",
 			big == 3 ? "s are" : " is");
+	}
+}
+
+unsigned long sizefromexec(char *proc, FILE *procf)
+/* Read the a.out or ELF header of a program to learn its size.
+ * The file pointer is left at the start of the (unique) segment.
+ */
+{
+	int n, r;
+	char hdr[MAX_HEADER_SIZE];
+	struct image_memmap emap;	/* Memory map guessed from executable */
+	struct region_infos *preg;	/* Where the actual bytes are */
+
+	/* Read the header. */
+	n= part_read(procf, proc, &hdr, sizeof hdr);
+	r= exec_memmap(hdr, n, &emap);
+	if (r) {
+		fprintf(stderr, "installboot: %s is not an executable\n", proc);
+		exit(1);
+	}
+
+	if (emap.nr_regions > 1) {
+		fprintf(stderr,
+	"installboot: %s has 2 or more segments, cannot convert.\n",
+			proc);
+		fprintf(stderr,
+	"You can try to recompile using `cc -com` or `clang -N` to compact it.\n");
+		exit(1);
+	}
+
+	preg = (emap.text_.membytes != 0) ? &emap.text_ : &emap.data_;
+
+	if (preg->fileoffset == 0
+	  && emap.entry > preg->vaddr
+	  && emap.entry < preg->vaddr + preg->filebytes) {
+		/* Probably linked 'as usual', with header-in-text;
+		 * hope that the entry point marks the real start.
+		 */
+		preg->fileoffset+= emap.entry - preg->vaddr;
+		preg->filebytes -= emap.entry - preg->vaddr;
+	}
+
+	if (fseek(procf, preg->fileoffset, SEEK_SET)) fatal(proc);
+	return preg->filebytes;
+}
+
+void strip_header(void *hdr, FILE *procf, char *proc, long n)
+/* Read in the header of a program, and remove ("strip") the pointers to
+ * the symbol table.  If procf happens to be NULL then the header is already
+ * in *hdr and need only be stripped.
+ */
+{
+	struct exec *phdr = hdr;
+	int32_t *elf_hdr = hdr;
+
+	if (procf) bread(procf, proc, hdr, n);
+
+	if (! BADMAG(*phdr)) {
+		phdr->a_syms= 0;
+		phdr->a_flags &= ~A_NSYM;
+	}
+	else { /* ELF-style executable */
+		elf_hdr[8]=	/* e_shoff */
+		elf_hdr[12]= 0;	/* e_shnum|e_shstrndx */
 	}
 }
 
@@ -199,8 +383,9 @@ void make_image(char *image, char **procv)
 	FILE *imagef, *procf;
 	char *proc, *file;
 	int procn;
+	vir_bytes text_bytes, data_bytes;
 	struct image_header ihdr;
-	struct exec phdr;
+	struct image_memmap emap;
 	struct stat st;
 
 	making_image= 1;
@@ -217,15 +402,14 @@ void make_image(char *image, char **procv)
 			|| (procf= fopen(file, "r")) == NULL
 		) fatal(proc);
 
-		/* Read a.out header. */
-		read_header(1, proc, procf, &ihdr);
+		/* Read process header and build image header. */
+		build_header(proc, procf, &ihdr, &emap);
 
-		/* Scratch. */
-		phdr= ihdr.process;
+		/* Check the header, echo the values. */
+		check_header(1, proc, &ihdr.process);
 
 		/* The symbol table is always stripped off. */
-		ihdr.process.a_syms= 0;
-		ihdr.process.a_flags &= ~A_NSYM;
+		strip_header(&ihdr.process, NULL, proc, 0);
 
 		/* Write header padded to fill a sector */
 		bwrite(imagef, image, &ihdr, sizeof(ihdr));
@@ -233,24 +417,43 @@ void make_image(char *image, char **procv)
 		padimage(image, imagef, SECTOR_SIZE - sizeof(ihdr));
 
 		/* A page aligned executable needs the header in text. */
-		if (phdr.a_flags & A_PAL) {
+		text_bytes= emap.text_.filebytes;
+		data_bytes= emap.data_.filebytes;
+
+		if (ihdr.process.a_flags & A_PAL) {
+			char sect0[SECTOR_SIZE];
+
 			rewind(procf);
-			phdr.a_text+= phdr.a_hdrlen;
+			text_bytes+= emap.text_.fileoffset;
+			/* The header stored in text still has the
+			 * original value for a_syms, i.e. is not stripped.
+			 */
+			if (text_bytes <= SECTOR_SIZE) {
+				memset(sect0, 0, sizeof(sect0));
+				strip_header(sect0, procf, proc, text_bytes);
+				text_bytes= 0;
+			}
+			else {
+				strip_header(sect0, procf, proc, SECTOR_SIZE);
+				text_bytes -= SECTOR_SIZE;
+			}
+			bwrite(imagef, image, sect0, sizeof(sect0));
 		}
 
 		/* Copy text and data of proc to image. */
-		if (phdr.a_flags & A_SEP) {
+		if (ihdr.process.a_flags & A_SEP) {
 			/* Separate I&D: pad text & data separately. */
 
-			copyexec(proc, procf, image, imagef, phdr.a_text);
-			copyexec(proc, procf, image, imagef, phdr.a_data);
+			copyexec(proc, procf, image, imagef, text_bytes);
+			if (fseek(procf, emap.data_.fileoffset, SEEK_SET))
+				fatal(proc);
+			copyexec(proc, procf, image, imagef, data_bytes);
 		} else {
 			/* Common I&D: keep text and data together. */
 
 			copyexec(proc, procf, image, imagef,
-						phdr.a_text + phdr.a_data);
+						text_bytes + data_bytes);
 		}
-
 		/* Done with proc. */
 		(void) fclose(procf);
 	}
@@ -272,11 +475,11 @@ void extractexec(FILE *imagef, char *image, FILE *procf, char *proc,
 
 	while (count > 0) {
 		bread(imagef, image, buf, sizeof(buf));
-		*alen-= sizeof(buf);
+		*alen-= (int)sizeof(buf);
 
 		bwrite(procf, proc, buf,
-			count < sizeof(buf) ? (size_t) count : sizeof(buf));
-		count-= sizeof(buf);
+			count<(int)sizeof(buf) ? (size_t)count : sizeof(buf));
+		count-= (long)sizeof(buf);
 	}
 }
 
@@ -305,8 +508,8 @@ void extract_image(char *image)
 		memcpy(&ihdr, buf, sizeof(ihdr));
 		phdr= ihdr.process;
 
-		/* Check header. */
-		read_header(1, ihdr.name, NULL, &ihdr);
+		/* Check the header, echo the values. */
+		check_header(1, ihdr.name, &phdr);
 
 		if ((procf= fopen(ihdr.name, "w")) == NULL) fatal(ihdr.name);
 
@@ -358,7 +561,7 @@ void writeblock(off_t blk, const char *buf, int block_size)
 	) fatal(rawdev);
 }
 
-int raw_install(char *file, off_t *start, off_t *len, int block_size)
+int raw_install(const char *file, off_t *start, off_t *len, int block_size)
 /* Copy bootcode or an image to the boot device at the given absolute disk
  * block number.  This "raw" installation is used to place bootcode and
  * image on a disk without a filesystem to make a simple boot disk.  Useful
@@ -374,7 +577,7 @@ int raw_install(char *file, off_t *start, off_t *len, int block_size)
 	struct partition entry;
 
 	/* See if the device has a maximum size. */
-	devsize= -1;
+	devsize= -1ul;
 	if (ioctl(rawfd, DIOCGETP, &entry) == 0) devsize= cv64ul(entry.size);
 
 	if ((f= fopen(file, "r")) == NULL) fatal(file);
@@ -382,26 +585,28 @@ int raw_install(char *file, off_t *start, off_t *len, int block_size)
 	/* Copy sectors from file onto the boot device. */
 	sec= *start;
 	do {
-		int off= sec % RATIO(BOOT_BLOCK_SIZE);
+		int off= sec % RATIO(block_size);
 
 		if (fread(buf + off * SECTOR_SIZE, 1, SECTOR_SIZE, f) == 0)
 			break;
 
-		if (sec >= devsize) {
+		if (sec < 0 || (uintmax_t)sec >= devsize) {
 			fprintf(stderr,
 			"installboot: %s can't be attached to %s\n",
 				file, rawdev);
 			return 0;
 		}
 
-		if (off == RATIO(BOOT_BLOCK_SIZE) - 1) writeblock(sec / RATIO(BOOT_BLOCK_SIZE), buf, BOOT_BLOCK_SIZE);
+		if (off == RATIO(block_size) - 1)
+			writeblock(sec / RATIO(block_size), buf, block_size);
 	} while (++sec != *start + *len);
 
 	if (ferror(f)) fatal(file);
 	(void) fclose(f);
 
 	/* Write a partial block, this may be the last image. */
-	if (sec % RATIO(BOOT_BLOCK_SIZE) != 0) writeblock(sec / RATIO(BOOT_BLOCK_SIZE), buf, BOOT_BLOCK_SIZE);
+	if (sec % RATIO(block_size) != 0)
+		writeblock(sec / RATIO(block_size), buf, block_size);
 
 	if (!banner) {
 		printf("  sector  length\n");
@@ -429,7 +634,6 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 		int	count;
 	} bootaddr[BOOT_MAX + 1], *bap= bootaddr;
 	struct exec boothdr;
-	struct image_header dummy;
 	struct stat st;
 	ino_t ino;
 	off_t sector, max_sector;
@@ -438,6 +642,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	char *labels, *label, *image;
 	int nolabel;
 	int block_size = 0;
+	unsigned long bootblocksize;
 
 	/* Open device and set variables for readblock. */
 	if ((rawfd= open(rawdev= device, O_RDWR)) < 0) fatal(device);
@@ -467,6 +672,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			fputc('\n', stdout);
 		}
 		fssize= 1;	/* Just a boot block. */
+		block_size= BOOT_BLOCK_SIZE;
 	}
 
 	if (how == FS) {
@@ -486,6 +692,8 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 		if (stat(bootcode, &st) < 0) fatal(bootcode);
 
 		if ((bootf= fopen(bootcode, "r")) == NULL) fatal(bootcode);
+		bread(bootf, bootcode, &boothdr, sizeof boothdr);
+		fclose(bootf);
 	} else {
 		/* Boot code is present in the file system. */
 		r_stat(ino, &st);
@@ -497,14 +705,9 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			readblock(addr, buf, block_size);
 			memcpy(&boothdr, buf, sizeof(struct exec));
 		}
-		bootf= NULL;
-		dummy.process= boothdr;
 	}
-	/* See if it is an executable (read_header does the check). */
-	read_header(0, bootcode, bootf, &dummy);
-	boothdr= dummy.process;
-
-	if (bootf != NULL) fclose(bootf);
+	/* See if it is an executable, and check sizes of segments. */
+	check_header(0, bootcode, &boothdr);
 
 	/* Get all the sector addresses of the secondary boot code. */
 	max_sector= (boothdr.a_hdrlen + boothdr.a_text
@@ -550,12 +753,8 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	readblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
 
 	if ((bootf= fopen(bootblock, "r")) == NULL) fatal(bootblock);
-
-	read_header(0, bootblock, bootf, &dummy);
-	boothdr= dummy.process;
-
-	if (boothdr.a_text + boothdr.a_data +
-					 4 * (bap - bootaddr) + 1 > PARTPOS) {
+	bootblocksize= sizefromexec(bootblock, bootf);
+	if (bootblocksize + 4 * (bap - bootaddr) + 1 > PARTPOS) {
 		fprintf(stderr,
 	"installboot: %s + addresses to %s don't fit in the boot sector\n",
 			bootblock, bootcode);
@@ -566,11 +765,11 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	}
 
 	/* All checks out right.  Read bootblock into the boot block! */
-	bread(bootf, bootblock, buf, boothdr.a_text + boothdr.a_data);
+	bread(bootf, bootblock, buf, bootblocksize);
 	(void) fclose(bootf);
 
 	/* Patch the addresses in. */
-	adrp= buf + (int) (boothdr.a_text + boothdr.a_data);
+	adrp= buf + (int)bootblocksize;
 	for (bap= bootaddr; bap->count != 0; bap++) {
 		*adrp++= bap->count;
 		*adrp++= (bap->address >>  0) & 0xFF;
@@ -593,7 +792,7 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 	 * filled with null commands (newlines).  Initialize it only if
 	 * necessary.
 	 */
-	for (parmp= buf + SECTOR_SIZE; parmp < buf + 2*SECTOR_SIZE; parmp++) {
+	for (parmp= buf + SECTOR_SIZE; parmp < buf + BOOT_BLOCK_SIZE; parmp++) {
 		if (*imagev != NULL || (control(*parmp) && *parmp != '\n')) {
 			/* Param sector must be initialized. */
 			memset(buf + SECTOR_SIZE, '\n', SECTOR_SIZE);
@@ -667,19 +866,19 @@ void make_bootable(enum howto how, char *device, char *bootblock,
 			parmp+= strlen(parmp);
 		}
 
-		if (parmp > buf + block_size) {
+		if (parmp > buf + BOOT_BLOCK_SIZE) {
 			fprintf(stderr,
 		"installboot: Out of parameter space, too many images\n");
 			exit(1);
 		}
 	}
 	/* Install boot block. */
-	writeblock((off_t) BOOTBLOCK, buf, 1024);
+	writeblock((off_t) BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
 
 	if (pos > fssize * RATIO(block_size)) {
 		/* Tell the total size of the data on the device. */
 		printf("%16ld  (%ld kb) total\n", pos,
-						(pos + RATIO(block_size) - 1) / RATIO(block_size));
+			   (pos + RATIO(block_size) - 1) / RATIO(block_size));
 	}
 }
 
@@ -694,7 +893,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	FILE *masf;
 	unsigned long size;
 	struct stat st;
-	static char buf[_MAX_BLOCK_SIZE];
+	static char buf[SECTOR_SIZE];
 
 	/* Open device. */
 	if ((rawfd= open(rawdev= device, O_RDWR)) < 0) fatal(device);
@@ -707,10 +906,8 @@ static void install_master(const char *device, char *masterboot, char **guide)
 		size= PARTPOS;
 	else {
 		/* Read and check header otherwise. */
-		struct image_header ihdr;
-
-		read_header(1, masterboot, masf, &ihdr);
-		size= ihdr.process.a_text + ihdr.process.a_data;
+		size= sizefromexec(masterboot, masf);
+		printf("Reading %lu (%#lX) bytes from %s\n", size, size, masterboot);
 	}
 	if (size > PARTPOS) {
 		fprintf(stderr, "installboot: %s is too big\n", masterboot);
@@ -718,7 +915,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	}
 
 	/* Read the master boot block, patch it, write. */
-	readblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
+	readblock(BOOTBLOCK, buf, SECTOR_SIZE);
 
 	memset(buf, 0, PARTPOS);
 	(void) bread(masf, masterboot, buf, size);
@@ -777,7 +974,7 @@ static void install_master(const char *device, char *masterboot, char **guide)
 	buf[SIGPOS+0]= (SIGNATURE >> 0) & 0xFF;
 	buf[SIGPOS+1]= (SIGNATURE >> 8) & 0xFF;
 
-	writeblock(BOOTBLOCK, buf, BOOT_BLOCK_SIZE);
+	writeblock(BOOTBLOCK, buf, SECTOR_SIZE);
 }
 
 static void usage(void)
@@ -826,7 +1023,3 @@ int main(int argc, char **argv)
 	}
 	exit(0);
 }
-
-/*
- * $PchId: installboot.c,v 1.10 2000/08/13 22:07:50 philip Exp $
- */
