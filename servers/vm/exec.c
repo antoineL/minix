@@ -116,6 +116,9 @@ SANITYCHECK(SCL_DETAIL);
 	vmp->vm_ctime = args.enst_ctime;
 
 	/* set/clear separate I&D flag */
+/* FIXME: ELF executables are marked sep_id=1, but their I and D address
+ * spaces are common... This flag appears unused currently.
+ */
 	if (args.sep_id)
 		vmp->vm_flags |= VMF_SEPARATE;	
 	else
@@ -302,6 +305,7 @@ PUBLIC int proc_new(struct vmproc *vmp,
 	assert(!(text_addr % VM_PAGE_SIZE));
 	assert(!(text_bytes % VM_PAGE_SIZE));
 	assert(!(data_addr % VM_PAGE_SIZE));
+assert(data_addr>=(text_addr+text_bytes) || (text_addr==0&&data_addr==0));
 	assert(!(data_bytes % VM_PAGE_SIZE));
 	assert(!(stack_bytes % VM_PAGE_SIZE));
 	assert(!(gap_bytes % VM_PAGE_SIZE));
@@ -340,11 +344,20 @@ PUBLIC int proc_new(struct vmproc *vmp,
 	 * or stack), make sure it's cleared, and map it in after text
 	 * (if any).
 	 */
+#if 0
 	if (is_elf) {
 	    map_data_addr = vstart + data_addr;
 	} else {
 	    map_data_addr = vstart + text_bytes;
 	}
+#else
+	/* For a.out A_SEP, the address spaces for T and D+S are disjoint. */
+	if (text_addr==0 && data_addr==0 && text_bytes>0)
+		map_data_addr = vstart + /*text_addr+*/ text_bytes;
+	else
+		map_data_addr = vstart + data_addr;
+	assert(map_data_addr >= (map_text_addr+text_bytes));
+#endif
 
 	if(!(vmp->vm_heap = map_page_region(vmp, map_data_addr, 0,
 	  data_bytes, data_start ? data_start : MAP_NONE, VR_ANON | VR_WRITABLE,
