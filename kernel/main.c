@@ -139,7 +139,7 @@ PUBLIC int main(void)
    /* Global value to test segment sanity. */
    magictest = MAGICTEST;
  
-   DEBUGEXTRA(("main()\n"));
+   DEBUGMAX(("main()\n"));
 
    proc_init();
 

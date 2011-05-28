@@ -45,7 +45,7 @@ PUBLIC void cstart(
   if ((value = env_get(VERBOSEBOOTVARNAME)))
 	  verboseboot = atoi(value);
 
-  DEBUGEXTRA(("cstart\n"));
+  DEBUGMAX(("cstart\n"));
 
   /* Record miscellaneous information for user-space servers. */
   kinfo.nr_procs = NR_PROCS;
@@ -126,7 +126,7 @@ PUBLIC void cstart(
    * reload selectors and call main().
    */
 
-  DEBUGEXTRA(("intr_init(%d, 0)\n", INTS_MINIX));
+  DEBUGMAX(("intr_init(%d, 0)\n", INTS_MINIX));
   intr_init(INTS_MINIX, 0);
 }
 
