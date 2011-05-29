@@ -82,12 +82,7 @@ IMPORT(multiboot_init)
 .global MINIX
 MINIX:
 /* this is the entry point for the MINIX kernel */
-
-#if defined(__ELF__)
-	/* Check if Multibooting */
-	cmpl $MULTIBOOT_BOOTLOADER_MAGIC, %eax
-	je _C_LABEL(multiboot_init)
-#endif
+/* the next 3 words have informations used by the boot monitor */
 
 	jmp	over_flags	/* skip over the next few bytes */
 .short	CLICK_SHIFT	/* for the monitor: memory granularity */
@@ -103,20 +98,38 @@ flags:
 	nop	/* extra byte to sync up disassembler */
 	
 /* Multiboot header here*/
-
 .balign 8
-
 multiboot_magic:
 	.long MULTIBOOT_HEADER_MAGIC
 multiboot_flags:
 	.long MULTIBOOT_FLAGS
 multiboot_checksum:
 	.long -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_FLAGS)
+
+/* Loading address and entry point for a.out-style multiboot */
+#if TEMP_CODE /* or defined(__ELF__) ? CHECKME! */
+/* Do not fill the values for the aout hack, in case a boot loader
+ * fails to comply with the specifications and prioritize aout-style
+ * over ELF-style loading.
+ */
 	.long 0
 	.long 0
 	.long 0
 	.long 0
 	.long 0
+#else
+multiboot_header_addr:
+	.long (MULTIBOOT_LOAD_ADDRESS + MULTIBOOT_ENTRY_OFFSET + multiboot_magic)
+multiboot_load_addr:
+	.long MULTIBOOT_LOAD_ADDRESS
+multiboot_load_end_addr:
+	.long 0
+multiboot_bss_end_addr:
+	.long 0
+multiboot_entry_addr:
+	.long (MULTIBOOT_LOAD_ADDRESS + MULTIBOOT_ENTRY_OFFSET + multiboot_init)
+#endif
+
 /* Video mode */
 multiboot_mode_type:
 	.long MULTIBOOT_VIDEO_MODE_EGA
@@ -128,6 +141,10 @@ multiboot_depth:
 	.long 0
 
 over_flags:
+	/* Check if Multibooting */
+	cmpl $MULTIBOOT_BOOTLOADER_MAGIC, %eax
+	je _C_LABEL(multiboot_init)
+
 /* Set up a C stack frame on the monitor stack.  (The monitor sets cs and ds */
 /* right.  The ss descriptor still references the monitor data segment.) */
 	movzwl	%sp, %esp	/* monitor stack is a 16 bit stack */
@@ -167,7 +184,7 @@ copygdt:
 	mov	8(%ebp), %ebx	/* boot parameters offset */
 	mov	12(%ebp), %edx	/* boot parameters length */
 	mov	16(%ebp), %eax	/* address of a.out headers */
-#if !defined(__ELF__)
+#if 1/*!defined(__ELF__)*/	/* FIXME: check if OK with multiboot! */
 	movl	%eax, _C_LABEL(aout)
 #endif
 	mov	%ds, %ax	/* kernel data */
