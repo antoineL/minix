@@ -1,0 +1,114 @@
+.TH EXEC_MEMMAP 3  "May 13, 2011"
+.UC 4
+.SH NAME
+exec_memmap, read_header_aout, read_header_elf \-  Extract memory map from executable image
+.SH SYNOPSIS
+.nf
+.ft B
+#include <libexec.h>
+
+int exec_memmap(const char \fIhdr\fP[], size_t \fIlen\fP, struct image_memmap * \fImap\fP)
+
+int read_header_aout(const char \fIhdr\fP[], size_t \fIlen\fP,
+		struct image_memmap * \fImap\fP)
+int read_header_elf(const char \fIhdr\fP[], size_t \fIlen\fP,
+		struct image_memmap * \fImap\fP)
+.fi
+.SH DESCRIPTION
+.B Exec_memmap
+checks if a file is executable by inspecting
+the beginning of it, as passed in the
+.I hdr
+array of size
+.IR len .
+.PP
+The functions
+.B read_header_aout
+and
+.B read_header_elf
+do the same as
+.BR exec_memmap ,
+but they expect an image of a determinated kind. They are
+provided with the same interface as a debugging aid.
+.PP
+The functions return
+.B 0 (OK)
+on success, or the error code
+.B ENOEXEC
+(negated since this is supposed to be used in system code)
+if the file content does not match the format
+expected for an executable image.
+.PP
+On success, the functions also fill up the
+.I map
+structure with the informations about the
+memory map which has been established by the
+linker.
+The structure declarations from the include file are:
+.PP
+.RS
+.nf
+.nr .0 8i+\w'struct region_infos text_;'u
+.ta .5i \n(.0u \n(.0u+\w'/* 0-000'u+1n
+struct \fBregion_infos\fP {
+	off_t \fIfileoffset\fP;	offset into file
+	phys_bytes \fIpaddr\fP;	physical address space, loading addr.
+	vir_bytes \fIvaddr\fP;	virtual address space
+	vir_bytes \fIfilebytes\fP;	bytes as part of the file
+	vir_bytes \fImembytes\fP;	bytes as reserved space; .data+.bss
+	unsigned \fIflags\fP;	flags (as passed with mmap(2); unused
+	int \fIprot\fP;	protection required; unused
+};
+
+struct \fBimage_memmap\fP {
+	vir_bytes \fItop_alloc\fP;	maximum virtual address used, if known
+	vir_bytes \fIstack_bytes\fP;
+	vir_bytes \fIentry\fP;	starting PC
+	short \fImachine\fP;	required architecture
+	short \fIabi\fP;	required OS ABI; unused so far
+	int \fInr_regions\fP;	number of regions to allocate
+	struct \fIregion_infos text_\fP;	characteristics about .text
+	struct \fIregion_infos data_\fP;	characteristics about .data and .bss
+};
+.fi
+.RE
+.PP
+A region (text or data) which is not expected to
+exist in the memory map would have its member
+.I membytes
+to be null; also the member
+.I nr_regions
+will be adjusted down accordingly.
+.PP
+\fBAbi\fP holds a constant in accordance to the
+expected architecture.
+.BR MACHINE_I8086 , MACHINE_I80386 , MACHINE_M68K ,
+or
+.B MACHINE_SPARC
+are examples of some architectures
+MINIX
+has been ported to;
+.B EXEC_TARGET_MACHINE
+is the expected value for current machine.
+.PP
+.SH NOTES
+The
+.I entry
+address could point into the
+.I data_
+region; in particular, this is the case for
+the a.out-format image with combined I+D address
+spaces, where all in conflated into the
+.I data_
+region.
+.SH BUGS
+With the ELF format, the two regions may overlap.
+.SH "SEE ALSO"
+.BR ld (1),
+.BR execve (2),
+.BR mmap (2),
+.BR nlist (3),
+.BR a.out (5),
+.BR elf (5).
+.\" .SH AUTHOR
+.\" This manual page by A. Leca

@@ -7,6 +7,8 @@
 struct region_infos {
   off_t 	fileoffset;	/* offset into file */
   phys_bytes	paddr;		/* physical address space, loading addr. */
+  unsigned	flags;		/* flags (as passed with mmap(2); unused */
+  int   	prot;		/* protection required; unused */
   vir_bytes	vaddr;		/* virtual address space */
   vir_bytes	filebytes;	/* bytes as part of the file */
   vir_bytes	membytes;	/* bytes as reserved space; .data+.bss */
@@ -37,18 +39,17 @@ struct image_memmap {
 #define	EXEC_TARGET_MACHINE	MACHINE_I80386
 #endif
 
-/* (PC/IX-inherited) MINIX a.out routines */
-int read_header_aout(
+/* recognize the exec format and fill the memory map. */
+int exec_memmap(
   const char exec_hdr[],	/* header read from file */
   size_t hdr_length,		/* size of exec_hdr as read */
   struct image_memmap * out	/* cooked infos if returning OK */
 );
 
+/* (PC/IX-inherited) MINIX a.out routines */
+int read_header_aout(const char [], size_t, struct image_memmap *);
+
 /* ELF routines */
-int read_header_elf(
-  const char exec_hdr[],	/* header read from file */
-  size_t hdr_length,		/* size of exec_hdr as read */
-  struct image_memmap * out	/* cooked infos if returning OK */
-);
+int read_header_elf(const char [], size_t, struct image_memmap *);
 
 #endif /* !_LIBEXEC_H_ */
