@@ -84,7 +84,7 @@ PRIVATE void kernel_call_finish(struct proc * caller, message *msg, int result)
 #endif
 		  if (copy_msg_to_user(caller, msg,
 				  (message *)caller->p_delivermsg_vir)) {
-			  printf("WARNING wrong user pointer 0x%08x from "
+			  printf("WARNING wrong message pointer 0x%08x in "
 					  "process %s / %d\n",
 					  caller->p_delivermsg_vir,
 					  caller->p_name,
