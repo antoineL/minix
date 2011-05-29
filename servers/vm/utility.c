@@ -103,9 +103,8 @@ struct mem_map *map_ptr;                        /* memory to remove */
 		if(memp->base <= map_ptr[T].mem_phys 
 			&& memp->base+memp->size >= map_ptr[T].mem_phys)
 		{
-			phys_bytes progsz = map_ptr[S].mem_phys
-			    - map_ptr[T].mem_phys;
-			phys_bytes progend = map_ptr[S].mem_phys;
+			phys_clicks progend = map_ptr[S].mem_phys + map_ptr[S].mem_len;
+			phys_clicks progsz = progend - map_ptr[T].mem_phys;
 
 			if (memp->base == map_ptr[T].mem_phys) {
 				memp->base += progsz;

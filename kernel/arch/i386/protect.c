@@ -301,8 +301,13 @@ PUBLIC void alloc_segments(register struct proc *rp)
   phys_bytes text_segbase, data_segbase;
   int privilege;
 
+#if 0
       data_bytes = (phys_bytes) (rp->p_memmap[S].mem_vir + 
           rp->p_memmap[S].mem_len) << CLICK_SHIFT;
+#else
+      data_bytes = (phys_bytes) (rp->p_memmap[S].mem_vir +
+          rp->p_memmap[S].mem_len - rp->p_memmap[D].mem_vir) << CLICK_SHIFT;
+#endif
       if (rp->p_memmap[T].mem_len == 0)
           code_bytes = data_bytes;	/* common I&D, poor protect */
       else
