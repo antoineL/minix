@@ -127,18 +127,13 @@ PUBLIC int main(void)
   struct boot_image *ip;	/* boot image pointer */
   register struct proc *rp;	/* process pointer */
   register int i, j;
-  phys_clicks text_base;
-  vir_clicks text_clicks, data_clicks, st_clicks;
   size_t argsz;			/* size of arguments passed to crtso on stack */
-#if !defined(__ELF__)
-  int hdrindex;			/* index to array of a.out headers */
-  struct exec e_hdr;		/* for a copy of an a.out header */
-#endif
+  int hdrindex;			/* index to array of process headers */
 
   BKL_LOCK();
    /* Global value to test segment sanity. */
    magictest = MAGICTEST;
- 
+
    DEBUGMAX(("main()\n"));
 
    proc_init();
@@ -220,8 +215,32 @@ PUBLIC int main(void)
 	    /* Don't let the process run for now. */
             RTS_SET(rp, RTS_NO_PRIV | RTS_NO_QUANTUM);
 	}
-#if defined(__ELF__)
+
+	/* Architecture-specific way to find out memory map of this
+	 * boot process.
+	 */
+	if (iskerneln(proc_nr)) {		/* part of the kernel? */ 
+		hdrindex = 0;		/* all use the first header */
+	} else {
+		hdrindex = 1 + i-NR_TASKS;	/* system/user processes */
+	}
+	arch_get_memmap(hdrindex, &ip->memmap);
+	DEBUGMAX(("\nText: offset=%lx,", ip->memmap.text_.fileoffset));
+	DEBUGMAX((" paddr=%lx,", ip->memmap.text_.paddr));
+	DEBUGMAX((" vaddr=%lx,", ip->memmap.text_.vaddr));
+	DEBUGMAX((" filesz=%lx,", ip->memmap.text_.filebytes));
+	DEBUGMAX((" memsz=%lx\n", ip->memmap.text_.membytes));
+	DEBUGMAX(("Data: offset=%lx,", ip->memmap.data_.fileoffset));
+	DEBUGMAX((" paddr=%lx,", ip->memmap.data_.paddr));
+	DEBUGMAX((" vaddr=%lx,", ip->memmap.data_.vaddr));
+	DEBUGMAX((" filesz=%lx,", ip->memmap.data_.filebytes));
+	DEBUGMAX((" memsz=%lx\n", ip->memmap.data_.membytes));
+	DEBUGMAX(("Total bytes=%lx\t", ip->memmap.top_alloc ));
+	DEBUGMAX(("Entry point=%lx\n", ip->memmap.entry));
+
+	/* Convert addresses to clicks and build process memory map */
 #define	LEN2CLICK(len)	ABS2CLICK(CLICK_CEIL(len))
+
 	rp->p_memmap[T].mem_vir  = ABS2CLICK(ip->memmap.text_.vaddr);
 	rp->p_memmap[T].mem_phys = ABS2CLICK(ip->memmap.text_.paddr);
 	rp->p_memmap[T].mem_len  = LEN2CLICK(ip->memmap.text_.membytes);
@@ -235,38 +254,6 @@ PUBLIC int main(void)
 					     ip->memmap.data_.membytes +
 					     ip->memmap.stack_bytes);
 	rp->p_memmap[S].mem_len  = 0;
-#else
-	if (iskerneln(proc_nr)) {		/* part of the kernel? */ 
-		hdrindex = 0;		/* all use the first a.out header */
-	} else {
-		hdrindex = 1 + i-NR_TASKS;	/* system/user processes */
-	}
-
-	/* Architecture-specific way to find out aout header of this
-	 * boot process.
-	 */
-	arch_get_aout_headers(hdrindex, &e_hdr);
-
-	/* Convert addresses to clicks and build process memory map */
-	text_base = e_hdr.a_syms >> CLICK_SHIFT;
-	text_clicks = (vir_clicks) (CLICK_CEIL(e_hdr.a_text) >> CLICK_SHIFT);
-	data_clicks = (vir_clicks) (CLICK_CEIL(e_hdr.a_data
-		+ e_hdr.a_bss) >> CLICK_SHIFT);
-	st_clicks = (vir_clicks) (CLICK_CEIL(e_hdr.a_total) >> CLICK_SHIFT);
-	if (!(e_hdr.a_flags & A_SEP))
-	{
-		data_clicks = (vir_clicks) (CLICK_CEIL(e_hdr.a_text +
-			e_hdr.a_data + e_hdr.a_bss) >> CLICK_SHIFT);
-		text_clicks = 0;	   /* common I&D */
-	}
-	rp->p_memmap[T].mem_phys = text_base;
-	rp->p_memmap[T].mem_len  = text_clicks;
-	rp->p_memmap[D].mem_phys = text_base + text_clicks;
-	rp->p_memmap[D].mem_len  = data_clicks;
-	rp->p_memmap[S].mem_phys = text_base + text_clicks + st_clicks;
-	rp->p_memmap[S].mem_vir  = st_clicks;
-	rp->p_memmap[S].mem_len  = 0;
-#endif
 
 	/* Set initial register values.  The processor status word for tasks 
 	 * is different from that of other processes because tasks can
@@ -367,7 +354,7 @@ PRIVATE void announce(void)
 #ifdef _VCS_REVISION
 	"(" _VCS_REVISION ")\n"
 #endif
-      "Copyright 2010, Vrije Universiteit, Amsterdam, The Netherlands\n",
+      "Copyright 1987-2011, Vrije Universiteit, Amsterdam, The Netherlands\n",
       OS_RELEASE, OS_VERSION);
   printf("MINIX is open source software, see http://www.minix3.org\n");
 }

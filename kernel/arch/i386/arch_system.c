@@ -10,6 +10,7 @@
 #include <minix/portio.h>
 #include <minix/cpufeature.h>
 #include <a.out.h>
+#include <libexec.h>
 #include <assert.h>
 #include <signal.h>
 #include <machine/vm.h>
@@ -23,6 +24,7 @@
 #include "oxpcie.h"
 #include "kernel/proc.h"
 #include "kernel/debug.h"
+#include "kernel/bootimage.h"
 #include "multiboot.h"
 
 #include "glo.h"
@@ -203,14 +205,62 @@ phys_bytes aout;
 
 PUBLIC void arch_get_aout_headers(const int i, struct exec *h)
 {
-#if !defined(__ELF__)
+#if DEAD_CODE /*!defined(__ELF__)*/
 	/* The bootstrap loader created an array of the a.out headers at
 	 * absolute address 'aout'. Get one element to h.
 	 */
 	phys_copy(aout + i * A_MINHDR, vir2phys(h), (phys_bytes) A_MINHDR);
 #else
-	panic("arch_get_aout_headers() with ELF format, not implemented");
+	panic("arch_get_aout_headers() not (anymore) implemented");
 #endif
+}
+
+PUBLIC void arch_get_memmap(int i, struct image_memmap *m)
+{
+	int n, r;
+	struct exec aout_hdr;
+	char hdr[I386_PAGE_SIZE];
+
+	if (m->nr_regions)
+		return;		/* Work is already done. */
+
+	/* The bootstrap loader created an array of the a.out headers at
+	 * absolute address 'aout'. Get one element to aout_hdr.
+	 */
+	n = A_MINHDR;
+	memset(&aout_hdr, 0, sizeof(aout_hdr));
+	phys_copy(aout + i*A_MINHDR, vir2phys(&aout_hdr), (phys_bytes)n);
+
+	if (aout_hdr.a_flags & A_PAL) {
+	/* A page aligned process (including ELF) has its header in text. */
+		phys_copy((phys_bytes)aout_hdr.a_syms, vir2phys(&hdr), (phys_bytes)sizeof(hdr));
+		r= exec_memmap(hdr, sizeof(hdr), m);
+
+		if (r==OK && m->nr_regions>1 && m->data_.vaddr%CLICK_SIZE) {
+		/* if data is not aligned, segments were loaded together. */
+			m->data_.fileoffset = m->text_.fileoffset;
+			m->data_.vaddr = m->text_.vaddr;
+			m->data_.paddr = m->text_.paddr;
+			m->data_.filebytes += m->text_.filebytes;
+			m->data_.membytes += m->text_.filebytes;
+			m->data_.prot |= m->text_.prot;
+			m->text_.filebytes = m->text_.membytes = 0;
+			--m->nr_regions;
+		}
+	}
+	else
+		r= exec_memmap((char*)&aout_hdr, (size_t)n, m);
+	if (r) {
+		panic("arch_get_memmap(%d) is not an executable", i);
+		/* *m is dirty, clean it up if execution does not stop above. */
+		m->nr_regions = 0;
+	}
+
+	/* Store the load addresses. */
+	m->text_.paddr = aout_hdr.a_syms;
+	m->data_.paddr = aout_hdr.a_syms + CLICK_CEIL(m->text_.membytes);
+
+	/* FIXME: for ELF files, could it be adequate to update the p_paddr members? */
 }
 
 PUBLIC void fpu_init(void)

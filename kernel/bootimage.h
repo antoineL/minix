@@ -17,6 +17,9 @@ struct boot_image {
 #ifdef __kernel__
 /* Variables that are initialized elsewhere are just extern here. */
 extern struct boot_image image[]; 	/* system image processes */
+
+/* Architecture-specific way to get the memory map info at runtime. */
+_PROTOTYPE( void arch_get_memmap, (int i, struct image_memmap *m)	);
 #endif
 
 #endif /* BOOTIMAGE_H */

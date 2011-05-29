@@ -11,7 +11,6 @@
 #include <minix/safecopies.h>
 #include <machine/archtypes.h>
 #include <sys/sigcontext.h>
-#include <a.out.h>
 
 /* Struct declarations. */
 struct proc;
@@ -188,12 +187,11 @@ _PROTOTYPE( void arch_init, (void)                                     );
 _PROTOTYPE( void cpu_identify, (void)					);
 /* arch dependent FPU initialization per CPU */
 _PROTOTYPE( void fpu_init, (void)					);
-/* returns true if pfu is present and initialized */
+/* returns true if FPU is present and initialized */
 _PROTOTYPE( int is_fpu, (void)						);
 _PROTOTYPE( void ser_putc, (char)						);
 _PROTOTYPE( __dead void arch_shutdown, (int)				);
 _PROTOTYPE( __dead void arch_monitor, (void)				);
-_PROTOTYPE( void arch_get_aout_headers, (int i, struct exec *h)		);
 _PROTOTYPE( void restore_user_context, (struct proc * p)                );
 _PROTOTYPE( void read_tsc, (unsigned long *high, unsigned long *low)    );
 _PROTOTYPE( int arch_init_profile_clock, (u32_t freq)			);
