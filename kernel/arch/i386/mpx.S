@@ -679,6 +679,8 @@ ENTRY(startup_ap_32)
 
 #ifdef __ACK__
 .rom	/* Before the string table please */
+#elif defined(__ELF__)
+.section .rodata	/* At the very start of "data section" please */
 #else
 .data
 #endif
