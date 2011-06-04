@@ -6,6 +6,7 @@
 #include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <machine/elf.h>
 #include <sys/mman.h>
 
@@ -20,14 +21,13 @@
 static int __elfN(check_header)(const Elf_Ehdr *hdr);
 
 int read_header_elf(
-  const char *exec_hdr,		/* executable header */
+  const char exec_hdr[],	/* executable header */
   size_t hdr_length,		/* size of header already read */
   struct image_memmap *p	/* place to return values */
 )
 {
   const Elf_Ehdr *hdr = NULL;
   const Elf_Phdr *phdr = NULL;
-  vir_bytes seg_filebytes, seg_membytes;
   int i = 0;
   struct region_infos * segp;
 
@@ -75,24 +75,31 @@ int read_header_elf(
 	case PT_LOAD:
 		if (phdr[i].p_memsz == 0)
 			break;
-		seg_filebytes = phdr[i].p_filesz;
-		seg_membytes = round_page(phdr[i].p_memsz + phdr[i].p_vaddr -
-				    trunc_page(phdr[i].p_vaddr));
-		if (phdr[i].p_vaddr + seg_membytes > p->top_alloc)
-			p->top_alloc = phdr[i].p_vaddr + seg_membytes;
+		if (phdr[i].p_vaddr + phdr[i].p_memsz > p->top_alloc)
+			p->top_alloc = phdr[i].p_vaddr + phdr[i].p_memsz;
 
-		if (hdr->e_entry >= phdr[i].p_vaddr &&
-		    hdr->e_entry < (phdr[i].p_vaddr + phdr[i].p_memsz)) {
+		if (phdr[i].p_flags & PF_X)
 			segp = &p->text_;
-			p->entry = (vir_bytes)hdr->e_entry;
+		else if (phdr[i].p_filesz==0 && p->data_.membytes>0) {
+		/* Supplementary NOBITS segment: should be stack! */
+			p->stack_bytes = phdr[i].p_memsz;
+			break;
 		}
 		else
 			segp = &p->data_;
 
+		if (segp->membytes != 0) {
+#if ELF_DEBUG
+			printf("Segment is allocated twice. "
+				"Do not know how to handle.\n");
+#endif
+			return ENOEXEC;
+		}
+
 		segp->vaddr = phdr[i].p_vaddr;
 		segp->paddr = phdr[i].p_paddr;
-		segp->filebytes = seg_filebytes;
-		segp->membytes = seg_membytes;
+		segp->filebytes = phdr[i].p_filesz;
+		segp->membytes = phdr[i].p_memsz;
 		segp->fileoffset = phdr[i].p_offset;
 		segp->prot = (phdr[i].p_flags & PF_X ? PROT_EXEC : 0)
 		           | (phdr[i].p_flags & PF_W ? PROT_WRITE : 0)
@@ -102,6 +109,34 @@ int read_header_elf(
 		break;
 	}
   }
+
+  if (p->text_.membytes == 0) {
+#if ELF_DEBUG
+			printf("No text!\n");
+#endif
+	return ENOEXEC;
+  }
+  if (hdr->e_entry >= p->text_.vaddr &&
+      hdr->e_entry < (p->text_.vaddr + p->text_.filebytes))
+	p->entry = (vir_bytes)hdr->e_entry;
+  else {
+#if ELF_DEBUG
+			printf("Entry point not within text!\n");
+#endif
+	return ENOEXEC;
+  }
+
+  /* If the executable has only one segment (ld -N), let it be data to match
+   * the behaviour for aout-format combined I+D spaces.
+   */
+  if (p->data_.membytes == 0 && (p->text_.prot & PROT_WRITE)) {
+	p->data_ = p->text_;
+	p->text_.filebytes = p->text_.membytes = 0;
+	p->nr_regions = 1;
+  } else
+	/* Having no .data/.bss region is otherwise possible. */
+
+	p->nr_regions = 1 + (p->data_.membytes != 0);
 
 #if ELF_DEBUG
   printf("Text offset:    0x%x\n", p->text_.fileoffset);
@@ -117,12 +152,6 @@ int read_header_elf(
   printf("Tot bytes:      0x%x\n", p->top_alloc );
   printf("PC:             0x%x\n", p->entry);
 #endif
-
-  if (p->text_.membytes == 0) {
-	return ENOEXEC;		/* no .text! */
-  }
-  /* Having no .data/.bss region is possible (ld -N). */
-  p->nr_regions = 1 + (p->data_.membytes != 0);
 
   return OK;
 }

@@ -5,11 +5,12 @@
 #include <sys/param.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <minix/a.out.h>
 #include <sys/mman.h>
 
 int read_header_aout(
-  const char *exec_hdr,		/* executable header */
+  const char exec_hdr[],	/* executable header */
   size_t exec_len,		/* executable file size */
   struct image_memmap *p	/* place to return values */
 )
@@ -85,8 +86,8 @@ int read_header_aout(
 	+ (vir_bytes) hdr->a_text;		/* text size in bytes */
   p->text_.flags = 0;
   p->text_.prot = PROT_READ | PROT_EXEC;
-  if (hdr->a_entry < p->text_.vaddr
-   || hdr->a_entry >= (p->text_.vaddr + p->text_.membytes) )
+  if ( (vir_bytes)hdr->a_entry < p->text_.vaddr
+   || (vir_bytes)hdr->a_entry >= (p->text_.vaddr + p->text_.membytes) )
 	return(ENOEXEC);	/* entry point should be within .text */
 
   /* Get data position and sizes. */

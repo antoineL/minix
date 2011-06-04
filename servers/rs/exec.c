@@ -1,12 +1,12 @@
 #include "inc.h"
-#include <a.out.h>
 #include <assert.h>
 #include <libexec.h>
-#include "exec.h"
 
+#if DEAD_CODE
 #define BLOCK_SIZE	1024
+#endif
 
-static int do_exec(int proc_e, char *exec, size_t exec_len, char *progname,
+static int do_exec(int proc_e, const char *exec, size_t exec_len, char *progname,
 	char *frame, int frame_len);
 static int exec_newmem(int proc_e, vir_bytes text_addr,
 	vir_bytes text_bytes, vir_bytes data_addr,
@@ -17,19 +17,8 @@ static int exec_newmem(int proc_e, vir_bytes text_addr,
 	int *load_textp, int *allow_setuidp);
 static void patch_ptr(char stack[ARG_MAX], vir_bytes base);
 static int exec_restart(int proc_e, int result, vir_bytes pc);
-static int read_seg(struct exec_info *execi, off_t off,
+static int read_seg(const char *image, size_t image_len, off_t off,
         int proc_e, int seg, vir_bytes seg_addr, phys_bytes seg_bytes);
-static int load_aout(struct exec_info *execi);
-static int load_elf(struct exec_info *execi);
-
-/* Array of loaders for different object formats */
-struct exec_loaders {
-	int (*load_object)(struct exec_info *);
-} static const exec_loaders[] = {
-	{ load_aout },
-	{ load_elf },
-	{ NULL }
-};
 
 /*===========================================================================*
  *				srv_execve				     *
@@ -127,214 +116,98 @@ int srv_execve(int proc_e, char *exec, size_t exec_len, char **argv,
 /*===========================================================================*
  *				do_exec					     *
  *===========================================================================*/
-static int do_exec(int proc_e, char *exec, size_t exec_len, char *progname,
+static int do_exec(int proc_e, const char *exec, size_t exec_len, char *progname,
 	char *frame, int frame_len)
 {
 	int r;
-	vir_bytes vsp;
-	struct exec_info execi;
-	int i;
+	vir_bytes vsp, tot_bytes;
+	struct image_memmap emap;	/* Map read from executable */ 
+	vir_bytes pc;			/* Entry point of exec file */
+	vir_bytes stack_top;		/* Top of the stack */
+	int sep_id, is_elf, load_text, allow_setuid;
+	uid_t new_uid;
+	gid_t new_gid;
 
-	execi.proc_e = proc_e;
-	execi.image = exec;
-	execi.image_len = exec_len;
-	strncpy(execi.progname, progname, PROC_NAME_LEN-1);
-	execi.progname[PROC_NAME_LEN-1] = '\0';
-	execi.frame_len = frame_len;
-
-	for(i = 0; exec_loaders[i].load_object != NULL; i++) {
-	    r = (*exec_loaders[i].load_object)(&execi);
-	    /* Loaded successfully, so no need to try other loaders */
-	    if (r == OK) break;
-	}
+	/* Read the file header and extract the segment sizes. */
+	r = exec_memmap(exec, exec_len, &emap);
+	/* Recognized the format but for another architecture */
+	if (r == OK && emap.machine != EXEC_TARGET_MACHINE) r=ENOEXEC;
 
 	/* No exec loader could load the object */
 	if (r != OK) {
-	    printf("RS: do_exec: loading error %d\n", r);
-	    return r;
+		printf("RS: do_exec: error reading header%d\n", r);
+		return r;
+	}
+
+	pc = emap.entry;
+	if (emap.stack_bytes > 0)
+		tot_bytes = emap.top_alloc;
+	else
+		tot_bytes = 0; /* Use default stack size */
+	sep_id = emap.nr_regions > 1;
+#if TEMP_CODE
+	is_elf = emap.text_.vaddr > 0;
+#endif
+	new_uid= getuid();
+	new_gid= getgid();
+
+	/* XXX what should we use to identify the executable? */
+
+#if TEMP_CODE
+	r = exec_newmem(proc_e,
+		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
+		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
+		  tot_bytes, frame_len, sep_id, is_elf,
+		  0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
+		  progname, new_uid, new_gid,
+		  &stack_top, &load_text, &allow_setuid);
+#else
+	r = exec_newmem(proc_e, progname, &emap, frame_len, new_uid, new_gid,
+		        0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
+		        &stack_top, &load_text, &allow_setuid);
+#endif
+	if (r != OK) {
+		printf("RS: do_exec: exec_newmem failed: %d\n", r);
+		exec_restart(proc_e, r, pc);
+		return r;
+	}
+
+	/* Read in text and data segments. */
+	if (load_text) {
+		r = read_seg(exec, exec_len, emap.text_.fileoffset, proc_e,
+		             T, emap.text_.vaddr, emap.text_.filebytes);
+		if (r != OK) {
+			printf("RS: do_exec: read_seg(T) failed: %d\n", r);
+			exec_restart(proc_e, r, pc);
+			return r;
+		}
+	}
+	else
+		printf("RS: do_exec: not loading text segment\n");
+	
+	r = read_seg(exec, exec_len, emap.data_.fileoffset, proc_e,
+	             D, emap.data_.vaddr, emap.data_.filebytes);
+	if (r != OK) {
+	      printf("RS: do_exec: read_seg(D) failed: %d\n", r);
+	      exec_restart(proc_e, r, pc);
+	      return r;
 	}
 
 	/* Patch up stack and copy it from RS to new core image. */
-	vsp = execi.stack_top;
+	vsp = stack_top;
 	vsp -= frame_len;
 	patch_ptr(frame, vsp);
 	r = sys_datacopy(SELF, (vir_bytes) frame,
 		proc_e, (vir_bytes) vsp, (phys_bytes)frame_len);
 	if (r != OK) {
 		printf("RS: stack_top is 0x%lx; tried to copy to 0x%lx in %d\n",
-			execi.stack_top, vsp, proc_e);
+			stack_top, vsp, proc_e);
 		printf("do_exec: copying out new stack failed: %d\n", r);
-		exec_restart(proc_e, r, execi.pc);
+		exec_restart(proc_e, r, pc);
 		return r;
 	}
 
-	return exec_restart(proc_e, OK, execi.pc);
-}
-
-/*===========================================================================*
- *				load_aout				     *
- *===========================================================================*/
-static int load_aout(struct exec_info *execi)
-{
-	int r;
-	int hdrlen, sep_id, load_text, allow_setuid;
-	struct image_memmap emap;	/* map read from executable */ 
-	phys_bytes tot_bytes;
-	off_t off;
-	uid_t new_uid;
-	gid_t new_gid;
-	int proc_e;
-
-	assert(execi != NULL);
-	assert(execi->image != NULL);
-
-	proc_e = execi->proc_e;
-
-	/* Read the file header and extract the segment sizes. */
-	r = read_header_aout(execi->image, execi->image_len, /*&sep_id,*/
-		&emap);
-	if (r != OK) return r;
-	if (emap.machine != EXEC_TARGET_MACHINE) return ENOEXEC;
-
-	execi->pc = emap.entry;
-	tot_bytes = emap.data_.vaddr
-		+ emap.data_.membytes
-		+ emap.stack_bytes;
-
-	sep_id = emap.nr_regions > 1;
-
-	new_uid= getuid();
-	new_gid= getgid();
-
-	/* XXX what should we use to identify the executable? */
-#if 1
-	r= exec_newmem(proc_e, trunc_page(emap.text_.vaddr), emap.text_.membytes,
-		trunc_page(emap.data_.vaddr), emap.data_.membytes, tot_bytes,
-		execi->frame_len, sep_id, 0 /*is_elf*/, 0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
-		execi->progname, new_uid, new_gid, &execi->stack_top, &load_text,
-		&allow_setuid);
-#else
-	r= exec_newmem(proc_e, &emap, tot_bytes,
-		execi->frame_len, sep_id, 0 /*is_elf*/, 0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
-		execi->progname, new_uid, new_gid, &execi->stack_top, &load_text,
-		&allow_setuid);
-#endif
-	if (r != OK)
-	{
-		printf("RS: load_aout: exec_newmem failed: %d\n", r);
-		exec_restart(proc_e, r, execi->pc);
-		return r;
-	}
-
-	off = emap.text_.fileoffset;
-
-	/* Read in text and data segments. */
-	if (load_text) {
-		r= read_seg(execi, off, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
-
-		if (r != OK)
-		{
-			printf("RS: load_aout: read_seg failed: %d\n", r);
-			exec_restart(proc_e, r, execi->pc);
-			return r;
-		}
-	}
-	else
-		printf("RS: load_aout: not loading text segment\n");
-
-	off += emap.text_.filebytes;
-	r= read_seg(execi, off, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
-	if (r != OK)
-	{
-		printf("RS: load_aout: read_seg failed: %d\n", r);
-		exec_restart(proc_e, r, execi->pc);
-		return r;
-	}
-
-	return OK;
-}
-
-/*===========================================================================*
- *				load_elf				     *
- *===========================================================================*/
-static int load_elf(struct exec_info *execi)
-{
-  int r;
-  int proc_e;
-  phys_bytes tot_bytes;		/* total space for program, including gap */
-  struct image_memmap emap;	/* map read from executable */ 
-/*
-  vir_bytes text_vaddr, text_paddr, text_filebytes, text_membytes;
-  vir_bytes data_vaddr, data_paddr, data_filebytes, data_membytes;
-  off_t text_offset, data_offset;
- */
-  int sep_id, is_elf, load_text, allow_setuid;
-  uid_t new_uid;
-  gid_t new_gid;
-
-  assert(execi != NULL);
-  assert(execi->image != NULL);
-
-  proc_e = execi->proc_e;
-
-  /* Read the file header and extract the segment sizes. */
-  r = read_header_elf(execi->image, execi->image_len, &emap);
-  execi->pc = emap.entry;
-  if (r != OK) {
-      return(r);
-  }
-
-  new_uid= getuid();
-  new_gid= getgid();
-
-  sep_id = 1;
-  is_elf = 1;
-  tot_bytes = 0; /* Use default stack size */
-
-#if 1
-  r = exec_newmem(proc_e,
-		  trunc_page(emap.text_.vaddr), emap.text_.membytes,
-		  trunc_page(emap.data_.vaddr), emap.data_.membytes,
-		  tot_bytes, execi->frame_len, sep_id, is_elf,
-		  0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
-		  execi->progname, new_uid, new_gid,
-		  &execi->stack_top, &load_text, &allow_setuid);
-#else
-  r = exec_newmem(proc_e, &emap,
-		  tot_bytes, execi->frame_len, sep_id, is_elf,
-		  0 /*dev*/, proc_e /*inum*/, 0 /*ctime*/,
-		  execi->progname, new_uid, new_gid,
-		  &execi->stack_top, &load_text, &allow_setuid);
-#endif
-  if (r != OK)
-  {
-      printf("RS: load_elf: exec_newmem failed: %d\n", r);
-      exec_restart(proc_e, r, execi->pc);
-      return r;
-  }
-
-  /* Read in text and data segments. */
-  if (load_text) {
-      r = read_seg(execi, emap.text_.fileoffset, proc_e, T, emap.text_.vaddr, emap.text_.filebytes);
-      if (r != OK)
-      {
-	  printf("RS: load_elf: read_seg failed: %d\n", r);
-	  exec_restart(proc_e, r, execi->pc);
-	  return r;
-      }
-  }
-  else
-      printf("RS: load_elf: not loading text segment\n");
-
-  r = read_seg(execi, emap.data_.fileoffset, proc_e, D, emap.data_.vaddr, emap.data_.filebytes);
-  if (r != OK)
-  {
-      printf("RS: load_elf: read_seg failed: %d\n", r);
-      exec_restart(proc_e, r, execi->pc);
-      return r;
-  }
-
-  return(OK);
+	return exec_restart(proc_e, OK, pc);
 }
 
 /*===========================================================================*
@@ -387,13 +260,13 @@ static int exec_newmem(
 	r= sendrec(PM_PROC_NR, &m);
 	if (r != OK)
 		return r;
-#if 0
+#if DEBUG_CODE
 	printf("exec_newmem: r = %d, m_type = %d\n", r, m.m_type);
 #endif
 	*stack_topp= m.m1_i1;
 	*load_textp= !!(m.m1_i2 & EXC_NM_RF_LOAD_TEXT);
 	*allow_setuidp= !!(m.m1_i2 & EXC_NM_RF_ALLOW_SETUID);
-#if 0
+#if DEBUG_CODE
 	printf("RS: exec_newmem: stack_top = 0x%x\n", *stack_topp);
 	printf("RS: exec_newmem: load_text = %d\n", *load_textp);
 #endif
@@ -456,25 +329,28 @@ vir_bytes base			/* virtual address of stack base inside user */
  *				read_seg				     *
  *===========================================================================*/
 static int read_seg(
-struct exec_info *execi,	/* various data needed for exec */
-off_t off,			/* offset in file */
-int proc_e,			/* process number (endpoint) */
-int seg,			/* T, D, or S */
-vir_bytes seg_addr,		/* address to load segment */
-phys_bytes seg_bytes		/* how much is to be transferred? */
+  const char *image,		/* executable image */
+  size_t image_len,		/* size of executable image */
+  off_t off,			/* offset in image (file) */
+  int proc_e,			/* process number (endpoint) */
+  int seg,			/* T, D, or S */
+  vir_bytes seg_addr,		/* address to load segment */
+  phys_bytes seg_bytes		/* how much is to be transferred? */
 )
 {
 /*
  * The byte count on read is usually smaller than the segment count, because
  * a segment is padded out to a click multiple, and the data segment is only
  * partially initialized.
- */
 
+ * CHECKME: does it still apply?
+ */
   int r;
 
   assert((seg == T)||(seg == D));
 
-  if (off+seg_bytes > execi->image_len) return ENOEXEC;
-  r= sys_vircopy(SELF, D, ((vir_bytes)execi->image)+off, proc_e, seg, seg_addr, seg_bytes);
+  if (off+seg_bytes > image_len) return ENOEXEC;
+  r= sys_vircopy(SELF, D, ((vir_bytes)image)+off,
+                 proc_e, seg, seg_addr, seg_bytes);
   return r;
 }
