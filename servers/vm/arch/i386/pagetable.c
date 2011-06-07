@@ -941,19 +941,23 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 	free_pde = id_map_high_pde+1;
 
         /* Initial (current) range of our virtual address space. */
+	v = CLICK2ABS(vmprocess->vm_arch.vm_seg[T].mem_vir);
         lo = CLICK2ABS(vmprocess->vm_arch.vm_seg[T].mem_phys);
         hi = CLICK2ABS(vmprocess->vm_arch.vm_seg[S].mem_phys +
                 vmprocess->vm_arch.vm_seg[S].mem_len);
                   
+	assert(!(v % I386_PAGE_SIZE)); 
         assert(!(lo % I386_PAGE_SIZE)); 
         assert(!(hi % I386_PAGE_SIZE));
  
-        if(lo < VM_PROCSTART) {
-                moveup = VM_PROCSTART - lo;
+	if (v < VM_PROCSTART) {
+		moveup = VM_PROCSTART - (lo-v);
                 assert(!(VM_PROCSTART % I386_PAGE_SIZE));
                 assert(!(lo % I386_PAGE_SIZE));
                 assert(!(moveup % I386_PAGE_SIZE));
         }
+	else
+		moveup = 0;
         
         /* Make new page table for ourselves, partly copied
          * from the current one.
@@ -962,11 +966,11 @@ PUBLIC void pt_init(phys_bytes usedlimit)
                 panic("pt_init: pt_new failed"); 
 
         /* Set up mappings for VM process. */
-        for(v = lo; v < hi; v += I386_PAGE_SIZE)  {
+	if (moveup != 0) {
                 /* We have to write the new position in the PT,
                  * so we can move our segments.
                  */ 
-                if(pt_writemap(vmprocess, newpt, v+moveup, v, I386_PAGE_SIZE,
+		if(pt_writemap(vmprocess, newpt, lo+moveup, lo, hi-lo,
                         I386_VM_PRESENT|I386_VM_WRITE|I386_VM_USER, 0) != OK)
                         panic("pt_init: pt_writemap failed");
         }
