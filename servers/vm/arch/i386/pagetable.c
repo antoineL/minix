@@ -867,13 +867,12 @@ PUBLIC void pt_init(phys_bytes usedlimit)
  */
         pt_t *newpt;
         int s, r;
-        vir_bytes v;
-        phys_bytes lo, hi; 
+        vir_bytes base, v;
+        phys_bytes lo, hi, p;
         vir_bytes extra_clicks;
         u32_t moveup = 0;
 	int global_bit_ok = 0;
 	int free_pde;
-	int p;
 	struct vm_ep_data ep_data;
 	vir_bytes sparepages_mem;
 	phys_bytes sparepages_ph;
@@ -920,20 +919,25 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 	/* We have to make mappings up till here. */
 	free_pde = id_map_high_pde+1;
 
-        /* Initial (current) range of our virtual address space. */
+        /* Initial (current) range of our address spaces. */
+	base = CLICK2ABS(vmprocess->vm_arch.vm_seg[T].mem_phys -
+	                 vmprocess->vm_arch.vm_seg[T].mem_vir);
         lo = CLICK2ABS(vmprocess->vm_arch.vm_seg[T].mem_phys);
         hi = CLICK2ABS(vmprocess->vm_arch.vm_seg[S].mem_phys +
                 vmprocess->vm_arch.vm_seg[S].mem_len);
                   
+	assert(base <= CLICK2ABS(vmprocess->vm_arch.vm_seg[D].mem_phys -
+	                         vmprocess->vm_arch.vm_seg[D].mem_vir));
+	assert(!(base % I386_PAGE_SIZE)); 
         assert(!(lo % I386_PAGE_SIZE)); 
         assert(!(hi % I386_PAGE_SIZE));
  
-        if(lo < VM_PROCSTART) {
-                moveup = VM_PROCSTART - lo;
-                assert(!(VM_PROCSTART % I386_PAGE_SIZE));
-                assert(!(lo % I386_PAGE_SIZE));
-                assert(!(moveup % I386_PAGE_SIZE));
-        }
+	if( (lo - base) < VM_PROCSTART)
+		moveup = VM_PROCSTART - base;
+	else
+		moveup = 0;
+	assert(!(VM_PROCSTART % I386_PAGE_SIZE));
+	assert(!(moveup % I386_PAGE_SIZE));
         
         /* Make new page table for ourselves, partly copied
          * from the current one.
@@ -942,17 +946,20 @@ PUBLIC void pt_init(phys_bytes usedlimit)
                 panic("pt_init: pt_new failed"); 
 
         /* Set up mappings for VM process. */
-        for(v = lo; v < hi; v += I386_PAGE_SIZE)  {
-                phys_bytes addr;
-                u32_t flags; 
+	for(v = lo + moveup, p = lo;
+	    p < hi;
+	    v += I386_PAGE_SIZE, p += I386_PAGE_SIZE)  {
         
                 /* We have to write the new position in the PT,
                  * so we can move our segments.
                  */ 
-                if(pt_writemap(vmprocess, newpt, v+moveup, v, I386_PAGE_SIZE,
+                if(pt_writemap(vmprocess, newpt, v, p, I386_PAGE_SIZE,
                         I386_VM_PRESENT|I386_VM_WRITE|I386_VM_USER, 0) != OK)
                         panic("pt_init: pt_writemap failed");
         }
+	/* Note that 'v' is now the (new) virtual address which
+	 * physical address is 'hi'; we will use this fact later.
+	 */
        
         /* Move segments up too. */
         vmprocess->vm_arch.vm_seg[T].mem_phys += ABS2CLICK(moveup);
@@ -972,7 +979,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
          * space above our stack. We want to increase it to VM_DATATOP,
          * like regular processes have.
          */
-        extra_clicks = ABS2CLICK(VM_DATATOP - hi);
+        extra_clicks = ABS2CLICK(VM_DATATOP - v);
         vmprocess->vm_arch.vm_seg[S].mem_len += extra_clicks;
        
         /* We pretend to the kernel we have a huge stack segment to
@@ -1257,4 +1264,5 @@ PUBLIC void pt_cycle(void)
 {
 	vm_checkspares();
 }
+
 
