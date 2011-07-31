@@ -26,9 +26,9 @@ LDFLAGS+= -T ${.CURDIR}/arch/${ARCH}/kernel.lds
 LDFLAGS+= -nostdlib -L${LIBDIR}
 LDADD+= -lminlib
 DPADD+= ${LIBMINLIB}
-.if ${CC} == "gcc"
+.if !empty(CC:T:M*gcc)
 LDADD+=	-lgcc -lsys -lgcc -lminc
-.elif ${CC} == "clang"
+.elif !empty(CC:T:M*clang)
 LDADD+= -L/usr/pkg/lib -lCompilerRT-Generic -lsys -lCompilerRT-Generic -lminc
 DPADD+=	${LIBC}
 .endif
