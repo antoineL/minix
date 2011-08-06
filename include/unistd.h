@@ -126,6 +126,7 @@ _PROTOTYPE( ssize_t pread, (int, void *, size_t, off_t)			);
 _PROTOTYPE( int rmdir, (const char *_path)				);
 _PROTOTYPE( int setgid, (gid_t _gid)				);
 _PROTOTYPE( int setegid, (gid_t _gid)				);
+_PROTOTYPE( int setpgid, (pid_t _pid, pid_t _pgid)			);
 _PROTOTYPE( pid_t setsid, (void)					);
 _PROTOTYPE( int setuid, (uid_t _uid)				);
 _PROTOTYPE( int seteuid, (uid_t _uid)				);
@@ -165,6 +166,8 @@ _PROTOTYPE( int fsync, (int fd)						);
 _PROTOTYPE( int reboot, (int _how, ...)					);
 _PROTOTYPE( int gethostname, (char *_hostname, size_t _len)		);
 _PROTOTYPE( int getdomainname, (char *_domain, size_t _len)		);
+_PROTOTYPE( pid_t getpgid, (pid_t _pid)					);
+_PROTOTYPE( pid_t getsid, (pid_t _pid)					);
 
 
 /* For compatibility with other Unix systems */
