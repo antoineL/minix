@@ -133,9 +133,7 @@ ssize_t	 read(int, void *, size_t);
 #endif
 int	 rmdir(const char *);
 int	 setgid(gid_t);
-#ifndef __minix
 int	 setpgid(pid_t, pid_t);
-#endif /* !__minix */
 pid_t	 setsid(void);
 int	 setuid(uid_t);
 unsigned int	 sleep(unsigned int);
@@ -257,8 +255,8 @@ long	 gethostid(void);
 int	 gethostname(char *, size_t);
 __pure int
 	 getpagesize(void);		/* legacy */
-#ifndef __minix
 pid_t	 getpgid(pid_t);
+#ifndef __minix
 #if defined(_XOPEN_SOURCE)
 int	 lchown(const char *, uid_t, gid_t) __RENAME(__posix_lchown);
 #else
