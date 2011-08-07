@@ -108,6 +108,16 @@ struct termios {
 #define TCIOFF             3	/* transmit a STOP character on the line */
 #define TCION              4	/* transmit a START character on the line */
 
+#if defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE)
+#include <sys/ansi.h>
+#include <sys/featuretest.h>
+#ifndef	pid_t
+typedef	__pid_t		pid_t;		/* process id */
+#define	pid_t		__pid_t
+#endif
+#include <sys/cdefs.h>
+#endif /* _XOPEN_SOURCE || _NETBSD_SOURCE */
+
 int tcsendbreak(int _fildes, int _duration);
 int tcdrain(int _filedes);
 int tcflush(int _filedes, int _queue_selector);
@@ -187,6 +197,11 @@ int tcsetattr(int _filedes, int _opt_actions, const struct termios
 #define	TREPRINT_DEF	'\22'	/* ^R */
 #define	TLNEXT_DEF	'\26'	/* ^V */
 #define	TDISCARD_DEF	'\17'	/* ^O */
+
+/* X/Open extension */
+#if defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE)
+pid_t tcgetsid(int _filedes);
+#endif /* defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE) */
 
 /* Window size. This information is stored in the TTY driver but not used.
  * This can be used for screen based applications in a window environment. 
