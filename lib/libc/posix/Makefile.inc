@@ -92,6 +92,7 @@ SRCS+= 	 \
 	_tcflush.c \
 	_tcgetattr.c \
 	_tcgetpgrp.c \
+	_tcgetsid.c \
 	_tcsendbreak.c \
 	_tcsetattr.c \
 	_tcsetpgrp.c \
