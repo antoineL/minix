@@ -201,6 +201,24 @@ _PROTOTYPE( int tcsetattr, \
 #define	TLNEXT_DEF	'\26'	/* ^V */
 #define	TDISCARD_DEF	'\17'	/* ^O */
 
+/* X/Open extension */
+#ifdef __NBSD_LIBC
+#include <sys/ansi.h>
+#ifndef	pid_t
+typedef	__pid_t		pid_t;		/* process id */
+#define	pid_t		__pid_t
+#include <sys/cdefs.h>
+#endif
+_PROTOTYPE( pid_t tcgetsid, (int _filedes)				);
+#else /* !__NBSD_LIBC */
+/* The return type should be pid_t, but we cannot know if <sys/types.h>
+ * or <minix/types.h> has been included; however we know pid_t is
+ * typedef'd as int; let's cheat a bit; NB: breaks in C++
+ */
+_PROTOTYPE( int tcgetsid, (int _filedes)				);
+#endif
+
+
 /* Window size. This information is stored in the TTY driver but not used.
  * This can be used for screen based applications in a window environment. 
  * The ioctls TIOCGWINSZ and TIOCSWINSZ can be used to get and set this 
