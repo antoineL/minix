@@ -198,7 +198,7 @@ static char *keydescresc[] = {
 	NULL,		/* 0xe0 0x34 */
 	"Keypad-/",	/* 0xe0 0x35 */
 	"fake RShift",	/* 0xe0 0x36 */
-	"Ctrl-PrtScn",	/* 0xe0 0x37 */
+	"Grey C-PrtScn",/* 0xe0 0x37 */
 	"RAlt",		/* 0xe0 0x38 */
 	NULL,		/* 0xe0 0x39 */
 	NULL,		/* 0xe0 0x3a */
@@ -213,7 +213,7 @@ static char *keydescresc[] = {
 	NULL,		/* 0xe0 0x43 */
 	NULL,		/* 0xe0 0x44 */
 	NULL,		/* 0xe0 0x45 */
-	"Ctrl-Break",	/* 0xe0 0x46 */
+	"Grey Pause",	/* 0xe0 0x46 */
 	"Grey Home",	/* 0xe0 0x47 */
 	"Grey Up",	/* 0xe0 0x48 */
 	"Grey PgUp",	/* 0xe0 0x49 */
@@ -234,8 +234,8 @@ static char *keydescresc[] = {
 	NULL,		/* 0xe0 0x58 */
 	NULL,		/* 0xe0 0x59 */
 	NULL,		/* 0xe0 0x5a */
-	"LeftWindow",	/* 0xe0 0x5b */
-	"RightWindow",	/* 0xe0 0x5c */
+	"LeftGUI",	/* 0xe0 0x5b */
+	"RightGUI",	/* 0xe0 0x5c */
 	"Menu",		/* 0xe0 0x5d */ 
 	"Power",	/* 0xe0 0x5e */
 	"Sleep",	/* 0xe0 0x5f */
@@ -313,6 +313,11 @@ static int testscancode(int fd)
 	}
 
 	/* describe scancode */
+     if (scode == 0xFA)
+		printf("ACK (leds are set!)\n");
+     else if (scode == 0xE1)
+		printf("not-repeat-escape (pause)\n");
+     else {
 	scodedescr = (escape ? keydescresc : keydescr)[scode & ~SCODE_BREAK];
 	if (scodedescr)
 		printf("[%s] ", scodedescr);
@@ -321,7 +326,7 @@ static int testscancode(int fd)
 		printf("up\n");
 	else
 		printf("down\n");
-
+     }
 	fflush(stdout);
 
 	/* exit on ctrl-C */
