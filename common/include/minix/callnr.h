@@ -1,4 +1,4 @@
-#define NCALLS		 114	/* number of system calls allowed */
+#define NCALLS		 115	/* number of system calls allowed */
 
 #define EXIT		   1 
 #define FORK		   2 
@@ -120,7 +120,8 @@
 #define FSTAT		66
 #define LSTAT		67
 
-#define PM_GETSID	113	/* PM getsid() */
+#define GETPGID_SID	113	/* to PM: getpgid() and getsid() */
+#define SETPGID		114	/* to PM: setpgid() */
 
 #define TASK_REPLY	121	/* to VFS: reply code from drivers, not 
 				 * really a standalone call.
