@@ -5,12 +5,12 @@
 #include <unistd.h>
 #include <string.h>
 
-pid_t getsid(pid_t p)
+pid_t setpgid(pid_t pid, pid_t pgid)
 {
   message m;
 
   memset(&m, 0, sizeof(m));
-  m.m1_i1 = (int)p;
-  if (_syscall(PM_PROC_NR, GETPGID_SID, &m) < 0) return ( (pid_t) -1);
-  return( (pid_t) m.m2_i1);
+  m.m1_i1 = (int)pid;
+  m.m1_i2 = (int)pgid;
+  return(_syscall(PM_PROC_NR, SETPGID, &m));
 }

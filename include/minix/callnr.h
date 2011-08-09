@@ -8,6 +8,7 @@
 #define OPEN		   5 
 #define CLOSE		   6 
 #define WAIT		   7
+/* 8 was CREAT in ACK libc, until 2012-02; removed 2013-02 */
 #define LINK		   9 
 #define UNLINK		  10 
 #define WAITPID		  11
@@ -17,6 +18,7 @@
 #define CHMOD		  15 
 #define CHOWN		  16 
 #define BRK		  17
+/* 18 was STAT until 2011-07; removed 2013-02 */
 #define LSEEK		  19
 #define MINIX_GETPID	  20
 #define MOUNT		  21 
@@ -26,29 +28,35 @@
 #define STIME		  25
 #define PTRACE		  26
 #define ALARM		  27
+/* 18 was FSTAT until 2011-07; removed 2013-02 */
 #define PAUSE		  29
 #define UTIME		  30 
 #define GETEPINFO	  31
 #define SETGROUPS	  32
 #define ACCESS		  33 
 #define GETGROUPS	  34
+/* 35; (ftime) in V7; never used */
 #define SYNC		  36 
 #define KILL		  37
 #define RENAME		  38
 #define MKDIR		  39
 #define RMDIR		  40
+/* 41 was DUP before 1992; removed 2013-02 */
 #define PIPE		  42 
 #define TIMES		  43
+/* 44; (prof) in V7; never used */
 #define SYMLINK		  45
 #define SETGID		  46
 #define GETGID		  47
 #define SIGNAL		  48
 #define RDLNK		  49
+/* 50 was LSTAT until 2011-07; removed 2013-02 */
 #define STAT		  51
 #define FSTAT		  52
 #define LSTAT		  53
 #define IOCTL		  54
 #define FCNTL		  55
+/* 56; (mpx) in V7; never used */
 #define FS_READY	  57
 #define PIPE2		  58
 #define EXEC		  59
@@ -57,8 +65,12 @@
 #define SETSID		  62
 #define GETPGRP		  63
 #define ITIMER		  64
+/* 65 was GETGROUPS from 2009 to 2011-09; removed 2013-02 */
+/* 66 was SETGROUPS from 2009 to 2011-09; removed 2013-02 */
 #define GETMCONTEXT       67
 #define SETMCONTEXT       68
+/* 69; never used */
+/* 70; never used */
 
 /* Posix signal handling. */
 #define SIGACTION	  71
@@ -66,10 +78,10 @@
 #define SIGPENDING	  73
 #define SIGPROCMASK	  74
 #define SIGRETURN	  75
-
 #define REBOOT		  76
 #define SVRCTL		  77
 #define SYSUNAME	  78
+/* 79 was GETSYSINFO until 2010-09 */
 #define GETDENTS	  80	/* to VFS */
 #define LLSEEK		  81	/* to VFS */
 #define FSTATFS	 	  82	/* to VFS */
@@ -87,6 +99,7 @@
 #define FTRUNCATE	  94	/* to VFS */
 #define FCHMOD		  95	/* to VFS */
 #define FCHOWN		  96	/* to VFS */
+/* 97 was GETSYSINFO_UP until 2010-09 */
 #define SPROF             98    /* to PM */
 #define CPROF             99    /* to PM */
 
@@ -94,17 +107,25 @@
 #define PM_NEWEXEC	100	/* from VFS or RS to PM: new exec */
 #define SRV_FORK  	101	/* to PM: special fork call for RS */
 #define EXEC_RESTART	102	/* to PM: final part of exec for RS */
+/* 103 was PROCSTAT until 2012-01 */
 #define GETPROCNR	104	/* to PM */
+/* 105 was ALLOCMEM until 2006-05 */
 #define ISSETUGID	106	/* to PM: ask if process is tainted */
 #define GETEPINFO_O	107	/* to PM: get pid/uid/gid of an endpoint */
+/* 108 was ADDDMA until 2012-01 */
+/* 109 was DELDMA until 2012-01 */
+/* 110 was GETDMA until 2012-01 */
 #define SRV_KILL  	111	/* to PM: special kill call for RS */
 
 #define GCOV_FLUSH	112	/* flush gcov data from server to gcov files */
 
-#define PM_GETSID	113	/* PM getsid() */
+#define GETPGID_SID	113	/* to PM: getpgid() and getsid() */
 #define CLOCK_GETRES	114	/* clock_getres() */
 #define CLOCK_GETTIME	115	/* clock_gettime() */
 #define CLOCK_SETTIME	116	/* clock_settime() */
+
+/* Provisional number reusing old value to avoid conflicts */
+#define SETPGID		108	/* to PM: setpgid() */
 
 #define TASK_REPLY	121	/* to VFS: reply code from drivers, not 
 				 * really a standalone call.

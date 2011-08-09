@@ -1,7 +1,7 @@
 /* This file handles the 6 system calls that get and set uids and gids.
- * It also handles getpid(), setsid(), and getpgrp().  The code for each
- * one is so tiny that it hardly seemed worthwhile to make each a separate
- * function.
+ * It also handles getpid(), getsid(), getpgrp(), and setsid(), and setpgid().
+ * The code for each one is so tiny that it hardly seemed worthwhile to make
+ * each a separate function.
  */
 
 #include "pm.h"
@@ -18,7 +18,7 @@
  *===========================================================================*/
 int do_get()
 {
-/* Handle GETUID, GETGID, GETGROUPS, MINIX_GETPID, GETPGRP, GETSID,
+/* Handle GETUID, GETGID, GETGROUPS, MINIX_GETPID, GETPGRP, GETPGID_SID,
    ISSETUGID.
  */
 
@@ -68,14 +68,16 @@ int do_get()
 		r = rmp->mp_procgrp;
 		break;
 
-	case PM_GETSID:
+	case GETPGID_SID:
 	{
 		struct mproc *target;
-		pid_t p = m_in.PM_GETSID_PID;
+		pid_t p = m_in.pid;
 		target = p ? find_proc(p) : &mproc[who_p];
 		r = ESRCH;
-		if(target)
+		if(target) {
 			r = target->mp_procgrp;
+			rmp->mp_reply.reply_res2 = target->mp_procgrp;
+		}
 		break;
 	}
 	case ISSETUGID:

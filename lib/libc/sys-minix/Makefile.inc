@@ -1,6 +1,6 @@
 .PATH:	${.CURDIR}/sys-minix
 
-SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
+SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c \
 	chdir.c chmod.c fchmod.c chown.c fchown.c chroot.c close.c \
 	clock_getres.c clock_gettime.c clock_settime.c \
 	connect.c dup.c dup2.c execve.c fcntl.c flock.c fpathconf.c fork.c \
@@ -17,7 +17,8 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 	vectorio.c shutdown.c sigaction.c sigpending.c sigreturn.c sigsuspend.c\
 	sigprocmask.c socket.c socketpair.c stat.c statvfs.c symlink.c \
 	sync.c syscall.c sysuname.c truncate.c umask.c unlink.c write.c \
-	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c
+	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c \
+	setpgid.c getsid.c getpgid.c \
 
 # Minix specific syscalls.
 SRCS+= cprofile.c lseek64.c sprofile.c _mcontext.c
