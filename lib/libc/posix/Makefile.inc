@@ -40,8 +40,10 @@ SRCS+= 	 \
 	_getgroups.c \
 	_getitimer.c \
 	_getpgrp.c \
+	_getpgid.c \
 	_getpid.c \
 	_getppid.c \
+	_getsid.c \
 	_getuid.c \
 	_ioctl.c \
 	_isatty.c \
@@ -70,6 +72,7 @@ SRCS+= 	 \
 	_select.c \
 	_setgid.c \
 	_setitimer.c \
+	_setpgid.c \
 	_setsid.c \
 	_setuid.c \
 	_sigaction.c \

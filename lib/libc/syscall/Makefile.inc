@@ -52,9 +52,11 @@ SRCS+=  \
 	getnprocnr.S \
 	getpgrp.S \
 	getpid.S \
+	getpgid.S \
 	getppid.S \
 	getpprocnr.S \
 	getprocnr.S \
+	getsid.S \
 	getsigset.S \
 	getuid.S \
 	ioctl.S \
@@ -100,6 +102,7 @@ SRCS+=  \
 	setgid.S \
 	setgroups.S \
 	setitimer.S \
+	setpgid.S \
 	setsid.S \
 	setuid.S \
 	sigaction.S \
