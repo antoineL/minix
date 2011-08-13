@@ -2,16 +2,16 @@
 
 .PATH:	${.CURDIR}/termios
 
-.if defined(__MINIX)
+#.if defined(__MINIX)
 # Not supported by Minix: tcgetsid.c
-SRCS+=	cfgetispeed.c cfgetospeed.c cfmakeraw.c cfsetispeed.c cfsetospeed.c \
-	cfsetspeed.c tcdrain.c tcflow.c tcflush.c tcgetattr.c tcgetpgrp.c \
-	tcsendbreak.c tcsetattr.c tcsetpgrp.c
-.else
+#SRCS+=	cfgetispeed.c cfgetospeed.c cfmakeraw.c cfsetispeed.c cfsetospeed.c \
+#	cfsetspeed.c tcdrain.c tcflow.c tcflush.c tcgetattr.c tcgetpgrp.c \
+#	tcsendbreak.c tcsetattr.c tcsetpgrp.c
+#.else
 SRCS+=	cfgetispeed.c cfgetospeed.c cfmakeraw.c cfsetispeed.c cfsetospeed.c \
 	cfsetspeed.c tcdrain.c tcflow.c tcflush.c tcgetattr.c tcgetpgrp.c \
 	tcgetsid.c tcsendbreak.c tcsetattr.c tcsetpgrp.c
-.endif
+#.endif
 
 
 
