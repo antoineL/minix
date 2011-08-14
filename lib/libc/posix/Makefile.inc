@@ -91,8 +91,10 @@ SRCS+= 	 \
 	_tcflow.c \
 	_tcflush.c \
 	_tcgetattr.c \
+	_tcgetpgrp.c \
 	_tcsendbreak.c \
 	_tcsetattr.c \
+	_tcsetpgrp.c \
 	_time.c \
 	_times.c \
 	_truncate.c \
