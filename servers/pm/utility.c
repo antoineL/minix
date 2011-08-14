@@ -5,6 +5,7 @@
  *   no_sys:		called for invalid system call numbers
  *   find_param:	look up a boot monitor parameter
  *   find_proc:		return process pointer from pid number
+ *   find_procgrp:	return (one of) process pointer from pgid number
  *   nice_to_priority	convert nice level to priority queue
  *   pm_isokendpt:	check the validity of an endpoint
  *   tell_vfs:		send a request to VFS on behalf of a process
@@ -99,6 +100,20 @@ pid_t lpid;
 
   for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++)
 	if ((rmp->mp_flags & IN_USE) && rmp->mp_pid == lpid)
+		return(rmp);
+
+  return(NULL);
+}
+
+/*===========================================================================*
+ *				find_procgrp				     *
+ *===========================================================================*/
+PUBLIC struct mproc *find_procgrp(pid_t pgid)
+{
+  register struct mproc *rmp;
+
+  for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++)
+	if ((rmp->mp_flags & IN_USE) && rmp->mp_procgrp == pgid)
 		return(rmp);
 
   return(NULL);

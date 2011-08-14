@@ -1,7 +1,7 @@
 /* This file handles the 6 system calls that get and set uids and gids.
- * It also handles getpid(), getsid(), getpgrp(), and setsid(), and setpgid().
- * The code for each one is so tiny that it hardly seemed worthwhile to make
- * each a separate function.
+ * It also handles getpid(), getpgrp(), get/setsid(), get/setpgid(), and
+ * get/setgroups(). The code for each one is so tiny that it hardly seemed
+ * worthwhile to make each a separate function.
  */
 
 #include "pm.h"
@@ -93,13 +93,15 @@ PUBLIC int do_get()
  *===========================================================================*/
 PUBLIC int do_set()
 {
-/* Handle SETUID, SETEUID, SETGID, SETEGID, SETSID. These calls have in common
- * that, if successful, they will be forwarded to VFS as well.
+/* Handle SETUID, SETEUID, SETGID, SETEGID, SETSID, SETPGID. These calls have
+ * in common that, if successful, they will be forwarded to VFS as well.
  */
   register struct mproc *rmp = mp;
+  struct mproc *emp;
   message m;
   int r, i;
   int ngroups;
+  pid_t pgid;
 
   switch(call_nr) {
 	case SETUID:
@@ -166,6 +168,60 @@ PUBLIC int do_set()
 		m.m_type = PM_SETSID;
 		m.PM_PROC = rmp->mp_endpoint;
 
+		break;
+
+	case SETPGID:
+		if (m_in.pid)
+			rmp = find_proc(m_in.pid);
+		/* else initialization has  rmp = mp; */
+		if (!rmp)
+			return(ESRCH);		/* pid should exist */
+		if (rmp != mp) {
+			if (mp != &mproc[who_p])
+				panic("PM`setpgid: mp != &mproc[who_e]\n");
+			if (rmp->mp_parent != who_p)
+				return(ESRCH);	/* should be parent */
+			if (rmp->mp_session != mp->mp_session)
+				return(EPERM);	/* should be same session */
+		}
+
+		pgid = m_in.pgrp_id;
+		if (pgid < 0 || pgid > NR_PIDS)
+			return(EINVAL);
+		if (pgid == 0)
+			pgid = rmp->mp_pid;
+		if (pgid == rmp->mp_procgrp)
+			emp = rmp;	/* trivial operation! */
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL>0
+		else if (pgid != rmp->mp_pid) {/* moving to (existing?) group*/
+			emp = find_procgrp(pgid);
+			if (!emp) return(EPERM);
+			if (rmp->mp_session != emp->mp_session)
+				return(EPERM);	/*cannot quit session*/
+		}
+		else {	/* will create a new process group; record the fact */
+			emp = NULL;
+			pgid = 0;
+		}
+#else
+		/* Without OS support for job control, there can only
+		 * be one process group for each session.
+		 * Non-trivial operations are not allowed.
+		 */
+		else
+			return(EPERM);	/*cannot change process group*/
+#endif
+
+		/* Some implementations check about orphans now. We do not.
+		 * Posix does not mandate it (notes under exit(2)),
+		 * because it is not supposed to happen by accident.
+		 */
+
+		/* defer to VFS for the rest of the checks */
+		m.m_type = PM_SETPGID;
+		m.PM_PROC = rmp->mp_endpoint;
+		m.PM_PGID = pgid;
+		m.PM_CALLER_IS_PARENT = rmp==mp ? NULL : mp;
 		break;
 
 	default:

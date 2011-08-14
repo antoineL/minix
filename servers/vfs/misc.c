@@ -9,7 +9,7 @@
  *   do_fsync:	  perform the FSYNC system call
  *   do_reboot:	  sync disks and prepare for shutdown
  *   pm_fork:	  adjust the tables after PM has performed a FORK system call
- *   do_exec:	  handle files with FD_CLOEXEC on after PM has done an EXEC
+ *   do_setpgid:  perform the SETPGID system call (FS side)
  *   do_exit:	  a process has exited; note that in the tables
  *   do_set:	  set uid or gid for some process
  *   do_revive:	  revive a process that was waiting for something (e.g. TTY)
@@ -21,7 +21,7 @@
 #include "fs.h"
 #include <fcntl.h>
 #include <assert.h>
-#include <unistd.h>	/* cc runs out of memory with unistd.h :-( */
+#include <unistd.h>
 #include <minix/callnr.h>
 #include <minix/safecopies.h>
 #include <minix/endpoint.h>
@@ -404,6 +404,41 @@ int cpid;	/* Child process id */
   /* Record the fact that both root and working dir have another user. */
   if(cp->fp_rd) dup_vnode(cp->fp_rd);
   if(cp->fp_wd) dup_vnode(cp->fp_wd);
+}
+
+/*===========================================================================*
+ *				pm_setpgid				     *
+ *===========================================================================*/
+PUBLIC int pm_setpgid(int proc_e, int pgid, int caller_is_parent)
+{
+/* Perform the FS side of the SETPGID call.
+ * Move the process to the indicated process group.
+ * With respect to the POSIX API, PM has already sanitized the parameters;
+ * so pgid==0 means exclusively creation of a new group; others values
+ * mean move of the process to an (existing) group.
+ */
+  register struct fproc *rfp;
+  int slot;
+
+  okendpt(proc_e, &slot);
+  rfp = &fproc[slot];
+  if (rfp->fp_pid == PID_FREE) return(ESRCH);
+#if !defined(_POSIX_JOB_CONTROL) || _POSIX_JOB_CONTROL<=0
+  /* non-trivial calls are not permitted unless job control is enabled */
+  if (rfp->fp_pid != pgid) return(EINVAL);
+#endif
+
+  /* the caller might be the parent of the process */
+  if (caller_is_parent) {
+	/* a child should not have exec'ed */
+	if (rfp->fp_execced) return(EACCES);
+  }
+  /* cannot move a session leader */
+  if (rfp->fp_sesldr && rfp->fp_pid != pgid) return(EPERM);
+
+  /* all is good, assign the new value */
+  rfp->fp_pgid = pgid ? pgid : rfp->fp_pid;
+  return(OK);
 }
 
 /*===========================================================================*

@@ -112,6 +112,7 @@ PUBLIC int main()
 	case PM_SETUID_REPLY:
 	case PM_SETGID_REPLY:
 	case PM_SETSID_REPLY:
+	case PM_SETPGID_REPLY:
 	case PM_EXEC_REPLY:
 	case PM_EXIT_REPLY:
 	case PM_CORE_REPLY:
@@ -457,6 +458,18 @@ PRIVATE void handle_vfs_reply()
   case PM_SETSID_REPLY:
 	/* Wake up the original caller */
 	setreply(rmp-mproc, rmp->mp_procgrp);
+
+	break;
+
+  case PM_SETPGID_REPLY:
+	/* Do the actual change if VFS agrees */
+	if (m_in.PM_STATUS == OK)
+		rmp->mp_procgrp = m_in.PM_PGID ? m_in.PM_PGID : rmp->mp_pid;
+
+	/* Wake up the original caller */
+	if (m_in.PM_CALLER_IS_PARENT)
+		rmp = (struct mproc *) m_in.PM_CALLER_IS_PARENT;
+	setreply(rmp-mproc, m_in.PM_STATUS);
 
 	break;
 
