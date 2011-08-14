@@ -261,8 +261,6 @@
 #define STATVFS_NAME m1_p1
 #define STATVFS_BUF m1_p2
 
-#define PM_GETSID_PID	m1_i1
-
 /*===========================================================================*
  *                  	   Messages for networking layer		     *
  *===========================================================================*/
@@ -778,6 +776,7 @@
 #define PM_UNPAUSE	(PM_RQ_BASE + 9)	/* Interrupt process call */
 #define PM_REBOOT	(PM_RQ_BASE + 10)	/* System reboot */
 #define PM_SETGROUPS	(PM_RQ_BASE + 11)	/* Tell VFS about setgroups */
+#define PM_SETPGID	(PM_RQ_BASE + 12)	/* Set program group */
 
 /* Replies from VFS to PM */
 #define PM_SETUID_REPLY	(PM_RS_BASE + 1)
@@ -791,6 +790,7 @@
 #define PM_UNPAUSE_REPLY	(PM_RS_BASE + 9)
 #define PM_REBOOT_REPLY	(PM_RS_BASE + 10)
 #define PM_SETGROUPS_REPLY	(PM_RS_BASE + 11)
+#define PM_SETPGID_REPLY	(PM_RS_BASE + 12)
 
 /* Standard parameters for all requests and replies, except PM_REBOOT */
 #  define PM_PROC		m1_i1	/* process endpoint */
@@ -806,6 +806,10 @@
 /* Additional parameter for PM_SETGROUPS */
 #  define PM_GROUP_NO		m1_i2	/* number of groups */
 #  define PM_GROUP_ADDR		m1_p1	/* struct holding group data */
+
+/* Additional parameter for PM_SETPGID */
+#  define PM_PGID		m1_i2	/* process group id */
+#  define PM_CALLER_EP		m1_i3	/* endpoint of caller */
 
 /* Additional parameters for PM_EXEC */
 #  define PM_PATH		m1_p1	/* executable */

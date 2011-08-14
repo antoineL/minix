@@ -105,6 +105,7 @@ _PROTOTYPE( pid_t get_free_pid, (void)					);
 _PROTOTYPE( int no_sys, (void)						);
 _PROTOTYPE( char *find_param, (const char *key)				);
 _PROTOTYPE( struct mproc *find_proc, (pid_t lpid)			);
+_PROTOTYPE( struct mproc *find_procgrp, (pid_t pgid)			);
 _PROTOTYPE( int nice_to_priority, (int nice, unsigned *new_q)		);
 _PROTOTYPE( int pm_isokendpt, (int ep, int *proc)			);
 _PROTOTYPE( void tell_vfs, (struct mproc *rmp, message *m_ptr)		);

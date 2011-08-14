@@ -96,6 +96,7 @@ _PROTOTYPE( int do_dup, (void)						);
 _PROTOTYPE( void pm_exit, (int proc)					);
 _PROTOTYPE( int do_fcntl, (void)					);
 _PROTOTYPE( void pm_fork, (int pproc, int cproc, int cpid)		);
+_PROTOTYPE( int pm_setpgid, (int proc_e, int pgid, int caller_e)	);
 _PROTOTYPE( void pm_setgid, (int proc_e, int egid, int rgid)		);
 _PROTOTYPE( void pm_setuid, (int proc_e, int euid, int ruid)		);
 _PROTOTYPE( void pm_setgroups, (int proc_e, int ngroups, gid_t *addr)	);

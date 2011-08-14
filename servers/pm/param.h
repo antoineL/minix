@@ -7,6 +7,7 @@
 #define groupsp		m1_p1
 #define namelen		m1_i2
 #define pid		m1_i1
+#define pgrp_id		m1_i2
 #define seconds		m1_i1
 #define which_timer	m1_i1
 #define new_val		m1_p1

@@ -531,6 +531,16 @@ PRIVATE void service_pm()
 
 	break;
 
+  case PM_SETPGID:
+	r = pm_setpgid(m_in.PM_PROC, m_in.PM_PGID, m_in.PM_CALLER_EP);
+
+	m_out.m_type = PM_SETPGID_REPLY;
+	m_out.PM_PROC = m_in.PM_PROC;
+	m_out.PM_PGID = m_in.PM_PGID;
+	m_out.PM_STATUS = r;
+
+	break;
+
   case PM_EXEC:
 	r = pm_exec(m_in.PM_PROC, m_in.PM_PATH, m_in.PM_PATH_LEN,
 		    m_in.PM_FRAME, m_in.PM_FRAME_LEN, &pc);

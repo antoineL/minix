@@ -14,10 +14,8 @@ fhstatvfs
 fsync_range
 getfh
 __setlogin
-getpgid
 setrlimit
 getrusage
-getsid
 getvfsstat
 issetugid /* WARNING: Always returns 0 in this impl. */
 kevent
@@ -52,8 +50,7 @@ rasctl
 sa_*
 _sched_*
 semconfig
-setpgid
-setpgrp
+setpgrp /* dropped for MINIX: prototype unstable between X/Open (0 args) and *BSD (2 args, = setpgid) */
 setregid
 setreuid
 sigaltstack
