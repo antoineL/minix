@@ -30,19 +30,19 @@
  *   DEV_STATUS:     FS wants to know status for SELECT or REVIVE
  *   CANCEL:         terminate a previous incomplete system call immediately
  *
- *    m_type      TTY_LINE  USER_ENDPT  COUNT   TTY_SPEKS IO_GRANT
+ *    m_type      TTY_LINE  USER_ENDPT  COUNT   TTY_PGRP  IO_GRANT
  * -----------------------------------------------------------------
  * | HARD_INT    |         |         |         |         |         |
  * |-------------+---------+---------+---------+---------+---------|
  * | SYS_SIG     | sig set |         |         |         |         |
  * |-------------+---------+---------+---------+---------+---------|
- * | DEV_READ    |minor dev| proc nr |  count  |         |  grant  |
+ * | DEV_READ    |minor dev| proc nr |  count  |  pgid   |  grant  |
  * |-------------+---------+---------+---------+---------+---------|
- * | DEV_WRITE   |minor dev| proc nr |  count  |         |  grant  |
+ * | DEV_WRITE   |minor dev| proc nr |  count  |  pgid   |  grant  |
  * |-------------+---------+---------+---------+---------+---------|
- * | DEV_IOCTL   |minor dev| proc nr |func code|erase etc|         |
+ * | DEV_IOCTL   |minor dev| proc nr |func code|  pgid   |  grant  |
  * |-------------+---------+---------+---------+---------+---------|
- * | DEV_OPEN    |minor dev| proc nr | O_NOCTTY|         |         |
+ * | DEV_OPEN    |minor dev| proc nr | O_NOCTTY|   sid   |         |
  * |-------------+---------+---------+---------+---------+---------|
  * | DEV_CLOSE   |minor dev| proc nr |         |         |         |
  * |-------------+---------+---------+---------+---------+---------|
@@ -555,6 +555,7 @@ message *m_ptr;			/* pointer to message sent to task */
   int r;
   union {
 	int i;
+	pid_t pgid;
   } param;
   size_t size;
 
@@ -571,9 +572,13 @@ message *m_ptr;			/* pointer to message sent to task */
     case TCSBRK:        /* Posix tcsendbreak function */
     case TCFLOW:        /* Posix tcflow function */
     case TCFLSH:        /* Posix tcflush function */
-    case TIOCGPGRP:     /* Posix tcgetpgrp function */
-    case TIOCSPGRP:	/* Posix tcsetpgrp function */
         size = sizeof(int);
+        break;
+
+    case TIOCGPGRP:	/* Posix tcgetpgrp function */
+    case TIOCSPGRP:	/* Posix tcsetpgrp function */
+    case TIOCGSID:	/* X/Open tcgetsid function */
+        size = sizeof(pid_t);
         break;
 
     case TIOCGWINSZ:    /* get window size (not Posix) */
@@ -694,13 +699,43 @@ message *m_ptr;			/* pointer to message sent to task */
 	break;
 #endif
 
-/* These Posix functions are allowed to fail if _POSIX_JOB_CONTROL is 
- * not defined.
- */
-    case TIOCGPGRP:     
-    case TIOCSPGRP:	
+    case TIOCSPGRP:
+	if (tp->tty_proc == 0)
+		/* not a controlling TTY, or session leader just died */
+		r = ENOTTY;
+	else
+		r = sys_safecopyfrom(m_ptr->m_source,
+			(cp_grant_id_t) m_ptr->IO_GRANT, 0,
+			(vir_bytes) &param.pgid, (vir_bytes) size, D);
+	if (r != OK) break;
+	if (param.pgid <= 0)
+		r = EINVAL;
+#if !defined(_POSIX_JOB_CONTROL) || _POSIX_JOB_CONTROL<=0
+	else if (tp->tty_fg_pgid != param.pgid)
+	/* If job control is not supported, disallow change of the group */
+		r = EINVAL;
+#endif
+	else
+		tp->tty_fg_pgid = param.pgid;
+	break;
+
+    case TIOCGPGRP:
+	if (tp->tty_proc == 0 || tp->tty_fg_pgid == 0)
+		r = ENOTTY;
+	else
+		r = sys_safecopyto(m_ptr->m_source,
+			(cp_grant_id_t) m_ptr->IO_GRANT, 0,
+			(vir_bytes) &tp->tty_fg_pgid, (vir_bytes) size, D);
+	break;
+
+    case TIOCGSID:
+	/* This ioctl should have been intercepted by VFS... */
+	r = ENOTTY;
+	break;
+
     default:
 	r = ENOTTY;
+	break;
   }
 
   /* Send the reply. */
@@ -725,7 +760,8 @@ message *m_ptr;			/* pointer to message sent to task */
 	if (m_ptr->COUNT & R_BIT) r = EACCES;
   } else {
 	if (!(m_ptr->COUNT & O_NOCTTY)) {
-		tp->tty_pgrp = m_ptr->USER_ENDPT;
+		tp->tty_proc = m_ptr->USER_ENDPT;
+		tp->tty_fg_pgid = m_ptr->TTY_PGRP;
 		r = 1;
 	}
 	tp->tty_openct++;
@@ -743,10 +779,10 @@ message *m_ptr;			/* pointer to message sent to task */
 /* A tty line has been closed.  Clean up the line if it is the last close. */
 
   if (m_ptr->TTY_LINE != LOG_MINOR && --tp->tty_openct == 0) {
-	tp->tty_pgrp = 0;
 	tty_icancel(tp);
 	(*tp->tty_ocancel)(tp, 0);
 	(*tp->tty_close)(tp, 0);
+	tp->tty_proc = tp->tty_fg_pgid = 0;
 	tp->tty_termios = termios_defaults;
 	tp->tty_winsize = winsize_defaults;
 	setattr(tp);
@@ -1499,8 +1535,8 @@ int mayflush;
  */
   int status;
 
-  if (tp->tty_pgrp != 0)  {
-      if (OK != (status = sys_kill(tp->tty_pgrp, sig))) {
+  if (tp->tty_proc != 0)  {
+      if (OK != (status = sys_kill(tp->tty_proc, sig))) {
         panic("Error; call to sys_kill failed: %d", status);
       }
   }
