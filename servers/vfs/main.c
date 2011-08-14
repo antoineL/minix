@@ -939,6 +939,19 @@ static void service_pm()
 	}
 	break;
 
+  case PM_SETPGID:
+	{
+		r = pm_setpgid(m_in.PM_PROC, m_in.PM_PGID, !!m_in.PM_CALLER_IS_PARENT);
+
+		m_out.m_type = PM_SETPGID_REPLY;
+		m_out.PM_PROC = m_in.PM_PROC;
+		m_out.PM_PGID = m_in.PM_PGID;
+		m_out.PM_CALLER_IS_PARENT = m_in.PM_CALLER_IS_PARENT;
+		m_out.PM_STATUS = r;
+
+	}
+	break;
+
     case PM_EXEC:
     case PM_EXIT:
     case PM_DUMPCORE:

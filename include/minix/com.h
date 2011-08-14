@@ -773,6 +773,7 @@
 #define PM_UNPAUSE	(PM_RQ_BASE + 9)	/* Interrupt process call */
 #define PM_REBOOT	(PM_RQ_BASE + 10)	/* System reboot */
 #define PM_SETGROUPS	(PM_RQ_BASE + 11)	/* Tell VFS about setgroups */
+#define PM_SETPGID	(PM_RQ_BASE + 12)	/* Set program group */
 
 /* Replies from VFS to PM */
 #define PM_SETUID_REPLY	(PM_RS_BASE + 1)
@@ -786,6 +787,7 @@
 #define PM_UNPAUSE_REPLY	(PM_RS_BASE + 9)
 #define PM_REBOOT_REPLY	(PM_RS_BASE + 10)
 #define PM_SETGROUPS_REPLY	(PM_RS_BASE + 11)
+#define PM_SETPGID_REPLY	(PM_RS_BASE + 12)
 
 /* Standard parameters for all requests and replies, except PM_REBOOT */
 #  define PM_PROC		m7_i1	/* process endpoint */
@@ -801,6 +803,10 @@
 /* Additional parameter for PM_SETGROUPS */
 #  define PM_GROUP_NO		m7_i2	/* number of groups */
 #  define PM_GROUP_ADDR		m7_p1	/* struct holding group data */
+
+/* Additional parameter for PM_SETPGID and PM_SETPGID_REPLY */
+#  define PM_PGID		m1_i3	/* process group id */
+#  define PM_CALLER_IS_PARENT	m1_p1	/* caller is really parent of target */
 
 /* Additional parameters for PM_EXEC */
 #  define PM_PATH		m7_p1	/* executable */

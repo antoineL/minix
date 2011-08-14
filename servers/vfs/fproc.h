@@ -66,6 +66,7 @@ EXTERN struct fproc {
 #define FP_PM_PENDING	 0040	/* Set if process has pending PM request */
 #define FP_SRV_PROC	 0100	/* Set if process is a service */
 #define FP_DROP_WORK	 0200	/* Set if process won't accept new work */
+#define FP_EXEC_DONE	 0400	/* Set if process has succesfully exec() */
 
 /* Field values. */
 #define NOT_REVIVING       0xC0FFEEE	/* process is not being revived */

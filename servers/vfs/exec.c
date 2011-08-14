@@ -349,8 +349,9 @@ int pm_exec(endpoint_t proc_e, vir_bytes path, size_t path_len,
 	rfp->fp_effgid = execi.args.new_gid;
   }
 
-  /* Remember the new name of the process */
+  /* Remember the new name of the process, and the fact it exec() */
   strlcpy(rfp->fp_name, execi.args.progname, PROC_NAME_LEN);
+  rfp->fp_flags |= FP_EXEC_DONE;
 
 pm_execfinal:
   if (execi.vp != NULL) {

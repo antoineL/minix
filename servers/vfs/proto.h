@@ -133,6 +133,7 @@ void unlock_proc(struct fproc *rfp);
 void pm_exit(int proc);
 int do_fcntl(void);
 void pm_fork(int pproc, int cproc, int cpid);
+int pm_setpgid(int proc_e, int pgid, int caller_e);
 void pm_setgid(int proc_e, int egid, int rgid);
 void pm_setuid(int proc_e, int euid, int ruid);
 void pm_setgroups(int proc_e, int ngroups, gid_t *addr);
