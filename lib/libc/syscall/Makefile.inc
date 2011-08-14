@@ -128,8 +128,10 @@ SRCS+=  \
 	tcflow.S \
 	tcflush.S \
 	tcgetattr.S \
+	tcgetpgrp.S \
 	tcsendbreak.S \
 	tcsetattr.S \
+	tcsetpgrp.S \
 	time.S \
 	times.S \
 	truncate.S \
