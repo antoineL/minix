@@ -25,6 +25,8 @@
 #include <minix/com.h>
 #include <minix/endpoint.h>
 #include <minix/ioctl.h>
+#include <sys/ioc_tty.h>
+#include <signal.h>
 #include <minix/u64.h>
 #include "file.h"
 #include "fproc.h"
@@ -522,6 +524,9 @@ PUBLIC int tty_opcl(
  
   int r;
   register struct fproc *rfp;
+  struct dmap *dp;
+  message setpgrp_mess;
+  cp_grant_id_t gid;
 
   /* Add O_NOCTTY to the flags if this process is not a session leader, or
    * if it already has a controlling tty, or if it is someone elses
@@ -541,7 +546,20 @@ PUBLIC int tty_opcl(
   /* Did this call make the tty the controlling tty? */
   if (r == 1) {
 	fp->fp_tty = dev;
-	r = OK;
+	/* now sends the initial pgid to tty */
+	dp = &dmap[(dev >> MAJOR) & BYTE];
+	setpgrp_mess.m_type   = DEV_IOCTL_S;
+	setpgrp_mess.TTY_LINE = (dev >> MINOR) & BYTE;
+	setpgrp_mess.TTY_REQUEST = TIOCSPGRP;
+	setpgrp_mess.POSITION = fp->fp_endpoint;
+	gid = cpf_grant_magic(dp->dmap_driver, VFS_PROC_NR,
+		(vir_bytes)&fp->fp_pgid, sizeof(pid_t), CPF_READ);
+	if (gid < 0)
+		panic("cpf_grant_magic failed (TIOCSPGRP)");
+	setpgrp_mess.IO_GRANT = (char*)gid;
+	setpgrp_mess.USER_ENDPT = VFS_PROC_NR;
+	r = sendrec(dp->dmap_driver, &setpgrp_mess);
+	cpf_revoke(gid);
   }
   return(r);
 }

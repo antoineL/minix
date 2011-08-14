@@ -58,7 +58,7 @@ typedef struct tty {
   char tty_reprint;		/* 1 when echoed input messed up, else 0 */
   char tty_escaped;		/* 1 when LNEXT (^V) just seen, else 0 */
   char tty_inhibited;		/* 1 when STOP (^S) just seen (stops output) */
-  endpoint_t tty_pgrp;		/* endpoint of controlling process */
+  endpoint_t tty_proc;		/* endpoint of controlling process */
   char tty_openct;		/* count of number of opens of this tty */
 
   /* Information about incomplete I/O requests is stored here. */
@@ -95,6 +95,7 @@ typedef struct tty {
   void *tty_priv;		/* pointer to per device private data */
   struct termios tty_termios;	/* terminal attributes */
   struct winsize tty_winsize;	/* window size (#lines and #columns) */
+  pid_t tty_fg_pgid;		/* foreground process group id */
 
   u16_t tty_inbuf[TTY_IN_BYTES];/* tty input buffer */
 
