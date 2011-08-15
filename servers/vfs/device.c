@@ -13,6 +13,7 @@
  *   tty_opcl:   perform tty-specific processing for open/close
  *   ctty_opcl:  perform controlling-tty-specific processing for open/close
  *   ctty_io:    perform controlling-tty-specific processing for I/O
+ *   tty_io:     perform tty-specific processing for I/O
  *   do_ioctl:	 perform the IOCTL system call
  *   do_setsid:	 perform the SETSID system call (FS side)
  */
@@ -38,7 +39,7 @@
 FORWARD _PROTOTYPE( int safe_io_conversion, (endpoint_t, cp_grant_id_t *,
 					     int *, cp_grant_id_t *, int,
 					     endpoint_t *, void **, int *,
-					     vir_bytes, u32_t *)	);
+					     vir_bytes, u32_t*, u32_t*)	);
 FORWARD _PROTOTYPE( void safe_io_cleanup, (cp_grant_id_t, cp_grant_id_t *,
 					   int)				);
 FORWARD _PROTOTYPE( void restart_reopen, (int maj)			);
@@ -204,7 +205,7 @@ PUBLIC void dev_status(message *m)
  *				safe_io_conversion			     *
  *===========================================================================*/
 PRIVATE int safe_io_conversion(driver, gid, op, gids, gids_size,
-	io_ept, buf, vec_grants, bytes, pos_lo)
+	io_ept, buf, vec_grants, bytes, pos_lo, pos_hi)
 endpoint_t driver;
 cp_grant_id_t *gid;
 int *op;
@@ -214,7 +215,7 @@ endpoint_t *io_ept;
 void **buf;
 int *vec_grants;
 vir_bytes bytes;
-u32_t *pos_lo;
+u32_t *pos_lo, *pos_hi;
 {
   int access = 0, size, j;
   iovec_t *v;
@@ -270,6 +271,7 @@ u32_t *pos_lo;
 	   break;
 	case VFS_DEV_IOCTL:
 	   *pos_lo = *io_ept; /* Old endpoint in POSITION field. */
+	   *pos_hi = (u32_t) *buf; /* Old ADDRESS in HIGHPOS field. */
 	   *op = DEV_IOCTL_S;
 	   if(_MINIX_IOCTL_IOR(m_in.REQUEST)) access |= CPF_WRITE;
 	   if(_MINIX_IOCTL_IOW(m_in.REQUEST)) access |= CPF_READ;
@@ -384,7 +386,7 @@ PUBLIC int dev_io(
   buf_used = buf;
   safe = safe_io_conversion(dp->dmap_driver, &gid, &op, gids, NR_IOREQS,
   			    (endpoint_t*) &dev_mess.USER_ENDPT, &buf_used,
-			    &vec_grants, bytes, &pos_lo);
+			    &vec_grants, bytes, &pos_lo, &pos_high);
 
   if(buf != buf_used)
 	panic("dev_io: safe_io_conversion changed buffer");
@@ -728,6 +730,51 @@ message *mess_ptr;		/* pointer to message for task */
 	(*dp->dmap_io)(dp->dmap_driver, mess_ptr);
   }
   return(OK);
+}
+
+/*===========================================================================*
+ *				tty_io					     *
+ *===========================================================================*/
+PUBLIC int tty_io(task_nr, mess_ptr)
+int task_nr;			/* not used - for compatibility with dmap_t */
+message *mess_ptr;		/* pointer to message for task */
+{
+/* This routine is called for terminal (tty) devices, namely /dev/tty??.
+ * Its job is to deal with the specificities of controlling terminals,
+ * including job control.
+ * Note it cannot be done in ctty_io, since the device can have been open
+ * as the relevant /dev/tty?? but still refers to the controlling tty.
+ */
+  int r = OK;
+  struct fproc * slp = NULL;	/* session leader */
+
+  if (fp->fp_sid != 0)
+	for (slp = &fproc[0]; slp < &fproc[NR_PROCS]; slp++)
+		if (slp->fp_pid == fp->fp_sid) {
+			if (! slp->fp_sesldr) {
+		/* FIXME: do something more sensible? can there be races? */
+				printf("VFS:tty_io: proc.%d has sid=%d "
+					"which is not session leader!\n",
+					fp->fp_pid, fp->fp_sid);
+				slp = NULL;
+			}
+			break;
+		}
+
+  if (mess_ptr->m_type == DEV_OPEN && !(mess_ptr->COUNT & O_NOCTTY) ) {
+	/* We try to open our controlling tty! */
+	mess_ptr->TTY_PGRP = fp->fp_pgid;
+  }
+  else if (slp && slp->fp_tty && minor(slp->fp_tty) == mess_ptr->DEVICE) {
+	/* This I/O is for our controlling tty! */
+	mess_ptr->TTY_PGRP = fp->fp_pgid;
+  } else {
+	mess_ptr->TTY_PGRP = 0;
+  }
+  if(r == OK)
+	r = gen_io(task_nr, mess_ptr);	/* do actual work */
+
+  return(r);
 }
 
 

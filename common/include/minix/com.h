@@ -194,8 +194,10 @@
 #define CANCEL       	(DEV_RQ_BASE +  0) /* force a task to cancel */
 #define DEV_OPEN     	(DEV_RQ_BASE +  6) /* open a minor device */
 #define DEV_CLOSE    	(DEV_RQ_BASE +  7) /* close a minor device */
+#if DEAD_CODE
 #define TTY_SETPGRP 	(DEV_RQ_BASE + 10) /* set process group */
 #define TTY_EXIT	(DEV_RQ_BASE + 11) /* process group leader exited */	
+#endif
 #define DEV_SELECT	(DEV_RQ_BASE + 12) /* request select() attention */
 #define DEV_STATUS   	(DEV_RQ_BASE + 13) /* request driver status */
 #define DEV_REOPEN     	(DEV_RQ_BASE + 14) /* reopen a minor device */
@@ -244,9 +246,11 @@
 
 /* Field names for messages to TTY driver. */
 #define TTY_LINE	DEVICE	/* message parameter: terminal line */
-#define TTY_REQUEST	COUNT	/* message parameter: ioctl request code */
+#define TTY_REQUEST	REQUEST	/* message parameter: ioctl request code */
+#if DEAD_CODE
 #define TTY_SPEK	POSITION/* message parameter: ioctl speed, erasing */
-#define TTY_PGRP 	m2_i3	/* message parameter: process group */	
+#endif
+#define TTY_PGRP 	m2_s1	/* message parameter: process group */	
 
 /* Field names for the QIC 02 status reply from tape driver */
 #define TAPE_STAT0	m2_l1
