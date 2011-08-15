@@ -60,6 +60,7 @@
 #include <minix/drivers.h>
 #include <minix/driver.h>
 #include <termios.h>
+#include <unistd.h>	/* for _POSIX_JOB_CONTROL */
 #include <sys/ioc_tty.h>
 #include <signal.h>
 #include <minix/callnr.h>
@@ -1094,10 +1095,16 @@ int scode;			/* scan code */
 	}
 
 	if (tp->tty_termios.c_lflag & ISIG) {
-		/* Check for INTR (^?) and QUIT (^\) characters. */
+		/* Check for INTR (^?), QUIT (^\), or SUSP (^Z) characters. */
 		if (ch == tp->tty_termios.c_cc[VINTR]
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL>0
+					|| ch == tp->tty_termios.c_cc[VSUSP]
+#endif
 					|| ch == tp->tty_termios.c_cc[VQUIT]) {
 			sig = SIGINT;
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL>0
+			if (ch == tp->tty_termios.c_cc[VSUSP]) sig = SIGTSTP;
+#endif
 			if (ch == tp->tty_termios.c_cc[VQUIT]) sig = SIGQUIT;
 			sigchar(tp, sig, 1);
 			(void) tty_echo(tp, ch);
@@ -1484,20 +1491,37 @@ int status;			/* reply code */
  *===========================================================================*/
 PUBLIC void sigchar(tp, sig, mayflush)
 register tty_t *tp;
-int sig;			/* SIGINT, SIGQUIT, SIGKILL or SIGHUP */
+int sig;			/* SIGINT, SIGQUIT, SIGHUP, ... */
 int mayflush;
 {
-/* Process a SIGINT, SIGQUIT or SIGKILL char from the keyboard or SIGHUP from
- * a tty close, "stty 0", or a real RS-232 hangup.  PM will send the signal to
- * the process group (INT, QUIT), all processes (KILL), or the session leader
- * (HUP).
+/* Process a SIGINT, SIGQUIT or SIGTSTP char from the keyboard or SIGHUP from
+ * a tty close, "stty 0", or a real RS-232 hangup, or SIGWINCH on TIOCSWINSZ
+ * ioctl. Send the signal to the foreground process group, or just the session
+ * leader for SIGHUP.
+ * Previous documentation (but not code) mentionned all processes signalled
+ * for SIGKILL (MINIX extension?) This is no longer done, and there are
+ * no provision for any key or any console action to send SIGKILL.
  */
   int status;
 
   if (tp->tty_proc != 0)  {
-      if (OK != (status = sys_kill(tp->tty_proc, sig))) {
-        panic("Error; call to sys_kill failed: %d", status);
-      }
+	/* Posix says, SIGHUP should be delivered only to control process */
+	if (sig == SIGHUP || tp->tty_fg_pgid == 0) {
+		status = sys_kill(tp->tty_proc, sig);
+		if (OK != status)
+    			panic("Error; call to sys_kill failed: %d", status);
+	}
+	else {
+		status = kill(-tp->tty_fg_pgid, sig);
+		if (OK != status) {
+			printf("TTY: kill(%d, %d) failed, errno=%d\n",
+				-tp->tty_fg_pgid, sig, errno);
+			/* try to work around bad mood */
+			status = sys_kill(tp->tty_proc, sig);
+		}
+		if (OK != status)
+			panic("Error; calls to killpg then sig_kill failed: %d", status);
+	}
   }
 
   if (mayflush && !(tp->tty_termios.c_lflag & NOFLSH)) {
