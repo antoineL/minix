@@ -3,6 +3,7 @@
 
 # XXX: Can only be built with ACK currently
 .include "${.CURDIR}/../minix.ack16.mk"
+LDFLAGS+=	-sep
 AFLAGS+=	-Was-ncc
 #LDFLAGS+=	-stack 12kb
 STRIPFLAG=	-s
