@@ -559,6 +559,7 @@ message *m_ptr;			/* pointer to message sent to task */
   size_t size;
 
   /* Size of the ioctl parameter. */
+#if 0
   switch (m_ptr->TTY_REQUEST) {
     case TCGETS:        /* Posix tcgetattr function */
     case TCSETS:        /* Posix tcsetattr function, TCSANOW option */ 
@@ -593,6 +594,11 @@ message *m_ptr;			/* pointer to message sent to task */
     case TCDRAIN:	/* Posix tcdrain function -- no parameter */
     default:		size = 0;
   }
+#else
+  size = _MINIX_IOCTL_BIG(m_ptr->TTY_REQUEST)
+		? _MINIX_IOCTL_SIZE_BIG(m_ptr->TTY_REQUEST)
+		: _MINIX_IOCTL_SIZE(m_ptr->TTY_REQUEST);
+#endif
 
   r = OK;
   switch (m_ptr->TTY_REQUEST) {
