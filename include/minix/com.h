@@ -240,9 +240,11 @@
 
 /* Field names for messages to TTY driver. */
 #define TTY_LINE	DEVICE	/* message parameter: terminal line */
-#define TTY_REQUEST	COUNT	/* message parameter: ioctl request code */
+#define TTY_REQUEST	REQUEST	/* message parameter: ioctl request code */
+#if DEAD_CODE
 #define TTY_SPEK	POSITION/* message parameter: ioctl speed, erasing */
-#define TTY_PGRP 	m2_i3	/* message parameter: process group */	
+#endif
+#define TTY_PGRP 	m2_s1	/* message parameter: process group */	
 
 /*===========================================================================*
  *                  	   Messages for networking layer		     *

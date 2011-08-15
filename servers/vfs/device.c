@@ -15,8 +15,9 @@
  *   no_dev_io:  i/o processing for devices that don't exist
  *   tty_opcl:   perform tty-specific processing for open/close
  *   ctty_opcl:  perform controlling-tty-specific processing for open/close
- *   ctty_io:    perform controlling-tty-specific processing for I/O
  *   pm_setsid:	 perform VFS's side of setsid system call
+ *   ctty_io:    perform controlling-tty-specific processing for I/O
+ *   tty_io:     perform tty-specific processing for I/O
  *   do_ioctl:	 perform the IOCTL system call
  */
 
@@ -41,7 +42,7 @@
 
 static void restart_reopen(int major);
 static int safe_io_conversion(endpoint_t, cp_grant_id_t *, int *,
-	endpoint_t *, void **, size_t, u32_t *);
+	endpoint_t *, void **, size_t, u32_t *, u32_t *);
 
 static int dummyproc;
 
@@ -176,7 +177,7 @@ static int bdev_ioctl(dev_t dev, endpoint_t proc_e, int req, void *buf)
   /* Set up a grant if necessary. */
   op = VFS_DEV_IOCTL;
   (void) safe_io_conversion(dp->dmap_driver, &gid, &op, &proc_e, &buf, req,
-	&dummy);
+	&dummy, &dummy);
 
   /* Set up the message passed to the task. */
   memset(&dev_mess, 0, sizeof(dev_mess));
@@ -293,14 +294,16 @@ void dev_status(endpoint_t drv_e)
 /*===========================================================================*
  *				safe_io_conversion			     *
  *===========================================================================*/
-static int safe_io_conversion(driver, gid, op, io_ept, buf, bytes, pos_lo)
-endpoint_t driver;
-cp_grant_id_t *gid;
-int *op;
-endpoint_t *io_ept;
-void **buf;
-size_t bytes;
-u32_t *pos_lo;
+static int
+safe_io_conversion(
+  endpoint_t driver,	/* . */
+  cp_grant_id_t *gid,	/* . */
+  int *op,		/* . */
+  endpoint_t *io_ept,	/* . */
+  void **buf,		/* . */
+  size_t bytes,		/* . */
+  u32_t *pos_lo,	/* . */
+  u32_t *pos_hi)	/* . */
 {
 /* Convert operation to the 'safe' variant (i.e., grant based) if applicable.
  * If no copying of data is involved, there is also no need to convert. */
@@ -322,6 +325,7 @@ u32_t *pos_lo;
 	break;
     case VFS_DEV_IOCTL:
 	*pos_lo = *io_ept; /* Old endpoint in POSITION field. */
+	*pos_hi = (u32_t) *buf; /* Old ADDRESS in HIGHPOS field. */
 	*op = DEV_IOCTL_S;
 	/* For IOCTLs, the bytes parameter encodes requested access method
 	 * and buffer size */
@@ -445,7 +449,7 @@ int dev_io(
   buf_used = buf;
   safe = safe_io_conversion(dp->dmap_driver, &gid, &op,
 			    (endpoint_t *) &dev_mess.USER_ENDPT, &buf_used,
-			    bytes, &pos_lo);
+			    bytes, &pos_lo, &pos_high);
 
   is_asyn = dev_style_asyn(dp->dmap_style);
 
@@ -819,6 +823,50 @@ int ctty_io(
   }
 
   return(OK);
+}
+
+/*===========================================================================*
+ *				tty_io					     *
+ *===========================================================================*/
+int
+tty_io(endpoint_t task_nr, message *mess_ptr)
+{
+/* This routine is called for terminal (tty) devices, namely /dev/tty??.
+ * Its job is to deal with the specificities of controlling terminals,
+ * including job control.
+ * Note it cannot be done in ctty_io, since the device can have been open
+ * as the relevant /dev/tty?? but still refers to the controlling tty.
+ */
+  int r = OK;
+  struct fproc * slp = NULL;	/* session leader */
+
+  if (fp->fp_sid != 0)
+	for (slp = &fproc[0]; slp < &fproc[NR_PROCS]; slp++)
+		if (slp->fp_pid == fp->fp_sid) {
+			if (! slp->fp_sesldr) {
+		/* FIXME: do something more sensible? can there be races? */
+				printf("VFS:tty_io: proc.%d has sid=%d "
+					"which is not session leader!\n",
+					fp->fp_pid, fp->fp_sid);
+				slp = NULL;
+			}
+			break;
+		}
+
+  if (mess_ptr->m_type == DEV_OPEN && !(mess_ptr->COUNT & O_NOCTTY) ) {
+	/* We try to open our controlling tty! */
+	mess_ptr->TTY_PGRP = fp->fp_pgid;
+  }
+  else if (slp && slp->fp_tty && minor(slp->fp_tty) == mess_ptr->DEVICE) {
+	/* This I/O is for our controlling tty! */
+	mess_ptr->TTY_PGRP = fp->fp_pgid;
+  } else {
+	mess_ptr->TTY_PGRP = 0;
+  }
+  if(r == OK)
+	r = gen_io(task_nr, mess_ptr);	/* do actual work */
+
+  return(r);
 }
 
 
