@@ -196,7 +196,7 @@ void make_image(char *image, char **procv)
  * to SECTOR_SIZE, so it may be read from disk into memory without trickery.
  */
 {
-	FILE *imagef, *procf;
+	FILE *imagef, *procf=NULL;
 	char *proc, *file;
 	int procn;
 	struct image_header ihdr;
@@ -338,7 +338,7 @@ static const char *rawdev;	/* Name of device. */
 void readblock(off_t blk, char *buf, int block_size)
 /* For rawfs, so that it can read blocks. */
 {
-	int n;
+	int n=0;
 
 	if (lseek(rawfd, blk * block_size, SEEK_SET) < 0
 		|| (n= read(rawfd, buf, block_size)) < 0
