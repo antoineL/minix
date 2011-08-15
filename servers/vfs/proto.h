@@ -27,6 +27,7 @@ _PROTOTYPE( int tty_opcl, (int op, dev_t dev, int proc, int flags)	);
 _PROTOTYPE( int ctty_opcl, (int op, dev_t dev, int proc, int flags)	);
 _PROTOTYPE( int clone_opcl, (int op, dev_t dev, int proc, int flags)	);
 _PROTOTYPE( int ctty_io, (int task_nr, message *mess_ptr)		);
+_PROTOTYPE( int tty_io, (int task_nr, message *mess_ptr)		);
 _PROTOTYPE( int do_ioctl, (void)					);
 _PROTOTYPE( void pm_setsid, (int proc_e)				);
 _PROTOTYPE( void dev_status, (message *)				);

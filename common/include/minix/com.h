@@ -244,9 +244,11 @@
 
 /* Field names for messages to TTY driver. */
 #define TTY_LINE	DEVICE	/* message parameter: terminal line */
-#define TTY_REQUEST	COUNT	/* message parameter: ioctl request code */
+#define TTY_REQUEST	REQUEST	/* message parameter: ioctl request code */
+#if DEAD_CODE
 #define TTY_SPEK	POSITION/* message parameter: ioctl speed, erasing */
-#define TTY_PGRP 	m2_i3	/* message parameter: process group */	
+#endif
+#define TTY_PGRP 	HIGHPOS	/* message parameter: process group */	
 
 /* Field names for the QIC 02 status reply from tape driver */
 #define TAPE_STAT0	m2_l1

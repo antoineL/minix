@@ -136,7 +136,7 @@ int flags;			/* device flags */
 	break;
   case STYLE_TTY:
 	dp->dmap_opcl = tty_opcl;
-	dp->dmap_io = gen_io;
+	dp->dmap_io = tty_io;
 	break;
   case STYLE_CTTY:
 	dp->dmap_opcl = ctty_opcl;

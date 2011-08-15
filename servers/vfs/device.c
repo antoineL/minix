@@ -13,6 +13,7 @@
  *   tty_opcl:   perform tty-specific processing for open/close
  *   ctty_opcl:  perform controlling-tty-specific processing for open/close
  *   ctty_io:    perform controlling-tty-specific processing for I/O
+ *   tty_io:     perform tty-specific processing for I/O
  *   do_ioctl:	 perform the IOCTL system call
  *   do_setsid:	 perform the SETSID system call (FS side)
  */
@@ -43,6 +44,7 @@ FORWARD _PROTOTYPE( int safe_io_conversion, (endpoint_t, cp_grant_id_t *,
 					     vir_bytes, u32_t *)	);
 FORWARD _PROTOTYPE( void safe_io_cleanup, (cp_grant_id_t, cp_grant_id_t *,
 					   int)				);
+FORWARD _PROTOTYPE( int check_pgid, (pid_t pgid)			);
 FORWARD _PROTOTYPE( void restart_reopen, (int maj)			);
 
 extern int dmap_size;
@@ -552,6 +554,7 @@ PUBLIC int tty_opcl(
 	setpgrp_mess.TTY_LINE = (dev >> MINOR) & BYTE;
 	setpgrp_mess.TTY_REQUEST = TIOCSPGRP;
 	setpgrp_mess.POSITION = fp->fp_endpoint;
+	setpgrp_mess.TTY_PGRP = fp->fp_pgid;
 	gid = cpf_grant_magic(dp->dmap_driver, VFS_PROC_NR,
 		(vir_bytes)&fp->fp_pgid, sizeof(pid_t), CPF_READ);
 	if (gid < 0)
@@ -746,6 +749,104 @@ message *mess_ptr;		/* pointer to message for task */
 	(*dp->dmap_io)(dp->dmap_driver, mess_ptr);
   }
   return(OK);
+}
+
+/*===========================================================================*
+ *				check_pgid				     *
+ *===========================================================================*/
+PRIVATE int check_pgid(pid_t pgid)
+{
+  /* Check if a program group id can be accepted */
+  struct fproc *rfp;
+  pid_t session_id;
+
+  if (pgid == fp->fp_pgid)
+	return TRUE;	/* the pgid of the calling process is always OK */
+  session_id = fp->fp_sid;
+  if (pgid == session_id)
+	return TRUE;	/* the sid of the calling process is always OK (?) */
+
+  /* Look for processes that are in the same session */
+  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	if (rfp->fp_pid == PID_FREE) continue;
+	if (rfp->fp_sid != session_id) continue;
+	if (rfp->fp_pgid == pgid) return TRUE;
+  }
+  return FALSE;
+}
+
+/*===========================================================================*
+ *				tty_io					     *
+ *===========================================================================*/
+PUBLIC int tty_io(task_nr, mess_ptr)
+int task_nr;			/* not used - for compatibility with dmap_t */
+message *mess_ptr;		/* pointer to message for task */
+{
+/* This routine is called for terminal (tty) devices, namely /dev/tty??.
+ * Its job is to deal with the specificities of controlling terminals,
+ * including job control.
+ * Note it cannot be done in ctty_io, since the device can have been open
+ * as the relevant /dev/tty?? but still refers to the controlling tty.
+ */
+  int r = OK;
+  cp_grant_id_t gid = GRANT_INVALID;
+  pid_t new_pgrp;
+
+  if (fp->fp_tty && ((fp->fp_tty >> MINOR)&BYTE) == mess_ptr->DEVICE) {
+	/* This I/O is for our controlling tty! */
+	if (fp->fp_pgid == 0 || fp->fp_pgid == PID_FREE)
+		/* FIXME: do something more sensible? can there be races? */
+		printf("Unexpected message to ctty %x, pid=%d pgid=%d sesldr:%d\n",
+			fp->fp_tty, fp->fp_pid, fp->fp_pgid, fp->fp_sesldr);
+	mess_ptr->TTY_PGRP = fp->fp_pgid;
+
+	switch(mess_ptr->m_type) {
+	case DEV_IOCTL_S:
+		switch(mess_ptr->TTY_REQUEST) {
+		case TIOCSPGRP:
+			gid = cpf_grant_magic(mess_ptr->POSITION, VFS_PROC_NR,
+				(vir_bytes) &new_pgrp, sizeof(pid_t), CPF_WRITE);
+			if (gid < 0)
+				panic("cpf_grant_magic failed (ctty::ioctl)");
+			r = sys_safecopyfrom(mess_ptr->POSITION, gid, 0,
+				(vir_bytes) &new_pgrp, (vir_bytes)sizeof(pid_t), D);
+			cpf_revoke(gid);
+			if (r != OK) return(r);
+			if (check_pgid(new_pgrp) != TRUE)
+				return(EINVAL);
+			break;	/* let tty proceed to inform of new value */
+		/* Note: TIOCGPGRP is handled by tty */
+		case TIOCGSID:
+			gid = cpf_grant_magic(mess_ptr->m_source, VFS_PROC_NR,
+			      (vir_bytes)&fp->fp_sid, sizeof(pid_t), CPF_READ);
+			if (gid < 0)
+				panic("cpf_grant_magic failed (ctty::ioctl)");
+			r = sys_safecopyto(mess_ptr->m_source, gid, 0,
+			  (vir_bytes)&fp->fp_sid, (vir_bytes)sizeof(pid_t), D);
+			cpf_revoke(gid);
+			return(r);
+		default:	break;
+		}
+		break;
+	default:	break;
+	}
+  } else {
+	mess_ptr->TTY_PGRP = 0;
+	if(mess_ptr->m_type == DEV_IOCTL_S) {
+		switch(mess_ptr->TTY_REQUEST) {
+		case TIOCGPGRP:
+		case TIOCGSID:
+		case TIOCSPGRP:
+		/* This is not the controlling terminal; fail these calls */
+			return(ENOTTY);
+		default:	break;
+		}
+	}
+  }
+  if(r == OK)
+	r = gen_io(task_nr, mess_ptr);	/* do actual work */
+
+  return(r);
 }
 
 
