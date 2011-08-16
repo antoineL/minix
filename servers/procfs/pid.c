@@ -75,6 +75,8 @@ PRIVATE void pid_psinfo(int i)
 			state = STATE_ZOMBIE;	/* zombie */
 		else if (mproc[pi].mp_flags & STOPPED)
 			state = STATE_STOP;	/* stopped (traced) */
+		else if (mproc[pi].mp_flags & JOBCTL_STOPPED)
+			state = STATE_STOP;	/* stopped (untraced) */
 		else if (proc[i].p_rts_flags == 0)
 			state = STATE_RUN;	/* in run-queue */
 		else if (fp_is_blocked(&fproc[pi]) ||
