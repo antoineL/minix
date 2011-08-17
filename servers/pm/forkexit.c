@@ -34,6 +34,7 @@
 static void zombify(struct mproc *rmp);
 static void check_parent(struct mproc *child, int try_cleanup);
 static void tell_parent(struct mproc *child);
+static void tell_parent_untraced(struct mproc *child);
 static void tell_tracer(struct mproc *child);
 static void tracer_died(struct mproc *child);
 static void cleanup(register struct mproc *rmp);
@@ -510,6 +511,15 @@ int do_waitpid()
 				cleanup(rp);
 			return(SUSPEND);
 		}
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL > 0
+		if (options & WUNTRACED && rp->mp_flags & JOBCTL_STOPPED
+				&& rp->mp_stoppingsig != 0) {
+			/* This stopped child meets the pid test, and the
+			 * parent does not know it is stopped; tell him */
+			tell_parent_untraced(rp);
+			return(SUSPEND);
+		}
+#endif
 	}
   }
 
@@ -654,6 +664,34 @@ register struct mproc *child;	/* tells which process is exiting */
 }
 
 #if USE_TRACE
+/*===========================================================================*
+ *				tell_parent_untraced			     *
+ *===========================================================================*/
+static void
+tell_parent_untraced(register struct mproc *child) /* tells which process is stopped */
+{
+  int exitstatus, mp_parent;
+  struct mproc *parent;
+
+  mp_parent= child->mp_parent;
+  if (mp_parent <= 0)
+	panic("tell_parent_untraced: bad value in mp_parent: %d", mp_parent);
+  if(!(child->mp_flags & JOBCTL_STOPPED))
+  	panic("tell_parent_untraced: child is not stopped");
+  if(child->mp_flags & ZOMBIE)
+  	panic("tell_parent_untraced: child is a zombie");
+  if(child->mp_stoppingsig == 0)
+	panic("tell_parent_untraced: parent already told");
+  parent = &mproc[mp_parent];
+
+  /* Wake up the parent by sending the reply message. */
+  exitstatus = (child->mp_stoppingsig << 8) | 0177;
+  parent->mp_reply.reply_res2 = exitstatus;
+  setreply(child->mp_parent, child->mp_pid);
+  parent->mp_flags &= ~WAITING;		/* parent no longer waiting */
+  child->mp_stoppingsig = 0;		/* avoid informing parent twice */
+}
+
 /*===========================================================================*
  *				tell_tracer				     *
  *===========================================================================*/
