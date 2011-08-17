@@ -14,6 +14,7 @@
 EXTERN struct mproc {
   char mp_exitstatus;		/* storage for status when process exits */
   char mp_sigstatus;		/* storage for signal # for killed procs */
+  char mp_stoppingsig;		/* storage for signal # for stopped procs */
   pid_t mp_pid;			/* process id */
   endpoint_t mp_endpoint;	/* kernel endpoint id */
   pid_t mp_session;		/* pid of session (used for job control) */
