@@ -245,7 +245,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   			 * that mp_parent always points to a valid slot number.
   			 */
   			rmp->mp_parent = INIT_PROC_NR;
-  			rmp->mp_procgrp = rmp->mp_pid = INIT_PID;
+  			rmp->mp_session= rmp->mp_procgrp= rmp->mp_pid=INIT_PID;
 			rmp->mp_flags |= IN_USE; 
 
 			/* Set scheduling info */

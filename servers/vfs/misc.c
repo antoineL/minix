@@ -489,7 +489,7 @@ static void free_proc(struct fproc *exiter, int flags)
   }
 
   /* Exit done. Mark slot as free. */
-  exiter->fp_pid = PID_FREE;
+  exiter->fp_pid = exiter->fp_pgid = exiter->fp_sid = PID_FREE;
   if (exiter->fp_flags & FP_PENDING)
 	pending--;	/* No longer pending job, not going to do it */
   exiter->fp_flags = FP_NOFLAGS;

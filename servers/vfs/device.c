@@ -646,6 +646,7 @@ void pm_setsid(endpoint_t proc_e)
   rfp = &fproc[slot];
   rfp->fp_flags |= FP_SESLDR;
   rfp->fp_tty = 0;
+  rfp->fp_sid = rfp->fp_pgid = rfp->fp_pid;
 }
 
 

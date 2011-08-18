@@ -25,6 +25,8 @@ EXTERN struct fproc {
   fd_set fp_cloexec_set;	/* bit map for POSIX Table 6-2 FD_CLOEXEC */
 
   dev_t fp_tty;			/* major/minor of controlling tty */
+  pid_t fp_pgid;		/* process group id */
+  pid_t fp_sid;			/* session id */
 
   int fp_blocked_on;		/* what is it blocked on */
   int fp_block_callnr;		/* blocked call if rd/wr can't finish */
