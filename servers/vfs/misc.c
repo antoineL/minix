@@ -487,7 +487,7 @@ PRIVATE void free_proc(struct fproc *exiter, int flags)
   }
 
   /* Exit done. Mark slot as free. */
-  fp->fp_pid = PID_FREE;
+  fp->fp_pid = fp->fp_pgid = fp->fp_sid = PID_FREE;
 
   SANITYCHECK;
 }

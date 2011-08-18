@@ -50,7 +50,8 @@ PUBLIC pid_t get_free_pid()
 	t = 0;			
 	next_pid = (next_pid < NR_PIDS ? next_pid + 1 : INIT_PID + 1);
 	for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++)
-		if (rmp->mp_pid == next_pid || rmp->mp_procgrp == next_pid) {
+		if (rmp->mp_pid == next_pid || rmp->mp_session == next_pid
+					|| rmp->mp_procgrp == next_pid) {
 			t = 1;
 			break;
 		}
