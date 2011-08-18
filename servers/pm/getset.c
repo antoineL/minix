@@ -76,7 +76,7 @@ PUBLIC int do_get()
 		r = ESRCH;
 		if(target) {
 			r = target->mp_procgrp;
-			rmp->mp_reply.reply_res2 = target->mp_procgrp;
+			rmp->mp_reply.reply_res2 = target->mp_session;
 		}
 		break;
 	}
@@ -161,7 +161,7 @@ PUBLIC int do_set()
 		break;
 	case SETSID:
 		if (rmp->mp_procgrp == rmp->mp_pid) return(EPERM);
-		rmp->mp_procgrp = rmp->mp_pid;
+		rmp->mp_session = rmp->mp_procgrp = rmp->mp_pid;
 
 		m.m_type = PM_SETSID;
 		m.PM_PROC = rmp->mp_endpoint;
