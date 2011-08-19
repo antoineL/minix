@@ -47,9 +47,6 @@ typedef unsigned long sigset_t;
 #define SIGVTALRM         24	/* virtual alarm */
 #define SIGPROF           25	/* profiler alarm */
 
-/* POSIX requires the following signals to be defined, even if they are
- * not supported.  Here are the definitions, but they are not supported.
- */
 #define SIGCONT           18	/* continue if stopped */
 #define SIGSTOP           19	/* stop signal */
 #define SIGTSTP           20	/* interactive stop signal */

@@ -199,6 +199,7 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
   static char ign_sigs[] = { SIGCHLD, SIGWINCH, SIGCONT };
   static char noign_sigs[] = { SIGILL, SIGTRAP, SIGEMT, SIGFPE, 
 				SIGBUS, SIGSEGV };
+  static char stop_sigs[] = { SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU };
   register struct mproc *rmp;
   register char *sig_ptr;
   message mess;
@@ -208,8 +209,9 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 	init_timer(&rmp->mp_timer);
   }
 
-  /* Build the set of signals which cause core dumps, and the set of signals
-   * that are by default ignored.
+  /* Build the set of signals which cause core dumps, the sets of signals
+   * that are by default ignored or cannot be, and the set of signals that
+   * cause by default processes to stop.
    */
   (void) sigemptyset(&core_sset);
   for (sig_ptr = core_sigs; sig_ptr < core_sigs+sizeof(core_sigs); sig_ptr++)
@@ -220,6 +222,9 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
   (void) sigemptyset(&noign_sset);
   for (sig_ptr = noign_sigs; sig_ptr < noign_sigs+sizeof(noign_sigs); sig_ptr++)
 	(void) sigaddset(&noign_sset, *sig_ptr);
+  (void) sigemptyset(&stop_sset);
+  for (sig_ptr = stop_sigs; sig_ptr < stop_sigs+sizeof(stop_sigs); sig_ptr++)
+	(void) sigaddset(&stop_sset, *sig_ptr);
 
   /* Obtain a copy of the boot monitor parameters and the kernel info struct.  
    * Parse the list of free memory chunks. This list is what the boot monitor 

@@ -347,6 +347,7 @@ int ksig;			/* non-zero means signal comes from kernel  */
   }
 
   if (rmp->mp_flags & VFS_CALL) {
+/* FIXME: check if process could be stopped for job control; what to do? */
 	(void) sigaddset(&rmp->mp_sigpending, signo);
 	if(ksig)
 		(void) sigaddset(&rmp->mp_ksigpending, signo);
@@ -397,7 +398,34 @@ int ksig;			/* non-zero means signal comes from kernel  */
 	return;
   }
 
-  /* Handle user processes now. See if the signal cannot be safely ignored. */
+  /* Handle user processes now. First check if SIGSTOP or analoguous will
+   * erase pending SIGCONT, or conversely if SIGCONT will erase pending stop.
+   */
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL > 0
+  if (sigismember(&stop_sset,signo)&&sigismember(&rmp->mp_sigpending,SIGCONT)){
+	(void) sigdelset(&rmp->mp_sigpending,SIGCONT);
+	(void) sigdelset(&rmp->mp_ksigpending,SIGCONT);
+  }
+  if (signo==SIGCONT) {
+	(void) sigdelset(&rmp->mp_sigpending,SIGSTOP);
+	(void) sigdelset(&rmp->mp_ksigpending,SIGSTOP);
+	(void) sigdelset(&rmp->mp_sigpending,SIGTSTP);
+	(void) sigdelset(&rmp->mp_ksigpending,SIGTSTP);
+	(void) sigdelset(&rmp->mp_sigpending,SIGTTIN);
+	(void) sigdelset(&rmp->mp_ksigpending,SIGTTIN);
+	(void) sigdelset(&rmp->mp_sigpending,SIGTTOU);
+	(void) sigdelset(&rmp->mp_ksigpending,SIGTTOU);
+
+	if (rmp->mp_flags & JOBCTL_STOPPED) {
+		if ((r = sys_resume(rmp->mp_endpoint)) != OK)
+		  	panic("sys_resume failed: %d", r);
+		rmp->mp_flags &= ~JOBCTL_STOPPED;
+		rmp->mp_stoppingsig = 0;
+	}
+  }
+#endif
+
+  /* See if the signal cannot be safely ignored. */
   badignore = ksig && sigismember(&noign_sset, signo) && (
 	  sigismember(&rmp->mp_ignore, signo) ||
 	  sigismember(&rmp->mp_sigmask, signo));
@@ -456,6 +484,18 @@ int ksig;			/* non-zero means signal comes from kernel  */
 	/* Signal defaults to being ignored. */
 	return;
   }
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL > 0
+  else if (!badignore && sigismember(&stop_sset, signo)) {
+	/* Signal defaults to stop process. */
+/* FIXME: consider sys_delay_stop */
+	if ((r = sys_stop(rmp->mp_endpoint)) != OK)
+	  	panic("sys_stop failed: %d", r);
+	rmp->mp_flags |= JOBCTL_STOPPED;
+	rmp->mp_stoppingsig = signo;
+	/* Do not bother signalling the parent with SIGCHLD */
+	return;
+  }
+#endif
 
   /* Terminate process */
   sig_proc_exit(rmp, signo);
@@ -538,7 +578,8 @@ int ksig;			/* non-zero means signal comes from kernel  */
 	    && mp->mp_realuid != rmp->mp_realuid
 	    && mp->mp_effuid != rmp->mp_realuid
 	    && mp->mp_realuid != rmp->mp_effuid
-	    && mp->mp_effuid != rmp->mp_effuid) {
+	    && mp->mp_effuid != rmp->mp_effuid
+	    && (signo!=SIGCONT || mp->mp_session!=rmp->mp_session) ) {
 		error_code = EPERM;
 		continue;
 	}
@@ -619,6 +660,7 @@ struct mproc *rmp;
 	 */
 	if (!(rmp->mp_flags & VFS_CALL)) {
 		rmp->mp_flags &= ~(PM_SIG_PENDING | UNPAUSED);
+/* FIXME: process could be stopped for job control or tracing... */
 
 		if ((r = sys_resume(rmp->mp_endpoint)) != OK)
 			panic("sys_resume failed: %d", r);
@@ -753,7 +795,7 @@ int signo;			/* signal to send to process (1 to _NSIG-1) */
   }
 
   /* Was the process stopped just for this signal? Then resume it. */
-  if ((rmp->mp_flags & (PM_SIG_PENDING | UNPAUSED)) == UNPAUSED) {
+  if ((rmp->mp_flags & (JOBCTL_STOPPED | PM_SIG_PENDING | UNPAUSED)) == UNPAUSED) {
 	rmp->mp_flags &= ~UNPAUSED;
 
 	if ((r = sys_resume(rmp->mp_endpoint)) != OK)
