@@ -1,4 +1,4 @@
-.TH SIGACTION 2
+.TH SIGACTION 2 "October 5th, 2011"
 .SH NAME
 sigaction, signal \- manage signal state and handlers
 .SH SYNOPSIS
@@ -97,23 +97,17 @@ when the signal is caught.
 .B SA_NODEFER
 Do not block the signal on entry to the handler.
 .TP
-.B SA_COMPAT
-Handle the signal in a way that is compatible with the the old
-.B signal()
-call.
 .PP
 The old
 .B signal()
-signal system call sets a signal handler for a given signal and returns the
+system call sets a signal handler for a given signal and returns the
 old signal handler.  No signals are blocked, the flags are
-.BR "SA_RESETHAND | SA_NODEFER | SA_COMPAT" .
+.BR "SA_RESETHAND | SA_NODEFER" .
 New code should not use
 .BR signal() .
 Note that
 .B signal()
-and all of the
-.B SA_*
-flags are MINIX 3 extensions.
+is a MINIX 3 extension.
 .PP
 Signal handlers are reset to
 .B SIG_DFL
@@ -143,13 +137,13 @@ SIGPIPE	13	k	Write to a pipe with no reader
 SIGALRM	14	k	Alarm clock
 SIGTERM	15	km	Terminate (default for kill(1))
 SIGEMT	16	xKc	Emulator trap
-SIGCHLD	17	pi	Child process terminated
-SIGCONT	18	pi	Continue if stopped
-SIGSTOP	19	ps	Stop signal
-SIGTSTP	20	ps	Interactive stop signal
+SIGCHLD	17	i	Child process terminated
+SIGCONT	18	r	Continue if stopped
+SIGSTOP	19	s	Stop signal
+SIGTSTP	20	s	Interactive stop signal
 SIGWINCH	21	xi	Window size change
-SIGTTIN	22	ps	Background read
-SIGTTOU	23	ps	Background write
+SIGTTIN	22	s	Background read
+SIGTTOU	23	s	Background write
 SIGVTALRM	24	k	Virtual alarm clock
 SIGPROF	25	k	Profiler alarm clock
 .ft R
@@ -175,15 +169,14 @@ The signal is ignored if not caught.
 .B m
 The signal is converted to a message for system processes.
 .TP
+.B s
+The process is stopped.
+.TP
+.B r
+The process is continued (restarted) if stopped.
+.TP
 .B x
 MINIX 3 extension, not defined by \s-2POSIX\s+2.
-.TP
-.B p
-These signals are not implemented, but \s-2POSIX\s+2 requires that they are
-defined.
-.TP
-.B s
-The process should be stopped, but is killed instead.
 .PP
 The
 .B SIGKILL
@@ -251,5 +244,3 @@ addresses.
 .SH AUTHOR
 Kees J. Bot (kjb@cs.vu.nl)
 
-.\"
-.\" $PchId: sigaction.2,v 1.2 1996/04/11 06:00:28 philip Exp $
