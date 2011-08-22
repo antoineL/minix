@@ -35,7 +35,7 @@ static int pagelines;
 	  if (++pagelines > LINES) { oldrp = rp; printf("--more--\n"); break; }\
 	  if (proc_nr(rp) == IDLE) 	printf("(%2d) ", proc_nr(rp));  \
 	  else if (proc_nr(rp) < 0) 	printf("[%2d] ", proc_nr(rp)); 	\
-	  else 				printf(" %2d  ", proc_nr(rp));
+	  else 				printf( "%3d  ", proc_nr(rp));
 
 #define click_to_round_k(n) \
 	((unsigned) ((((unsigned long) (n) << CLICK_SHIFT) + 512) / 1024))
@@ -415,19 +415,19 @@ PUBLIC void memmap_dmp()
       return;
   }
 
-  printf("\n-nr/name--- --pc--   --sp-- -text---- -data---- -stack--- -cr3-\n");
+  printf("\n-nr-/name--- --pc--  --sp--- --text---- --data---- -stack----- -cr3-\n");
   PROCLOOP(rp, oldrp)
 	size = rp->p_memmap[T].mem_len
 		+ ((rp->p_memmap[S].mem_phys + rp->p_memmap[S].mem_len)
 						- rp->p_memmap[D].mem_phys);
-	printf("%-7.7s%7lx %8lx %4x %4x %4x %4x %5x %5x %8lu\n",
+	printf("%-7.7s%7lx %8lx %5x %4x %5x %4x %5x %5x %9lu %5lx\n",
 	       rp->p_name,
 	       (unsigned long) rp->p_reg.pc,
 	       (unsigned long) rp->p_reg.sp,
 	       rp->p_memmap[T].mem_phys, rp->p_memmap[T].mem_len,
 	       rp->p_memmap[D].mem_phys, rp->p_memmap[D].mem_len,
 	       rp->p_memmap[S].mem_phys, rp->p_memmap[S].mem_len,
-	       rp->p_seg.p_cr3);
+	       rp->p_seg.p_cr3, rp->p_seg.p_cr3>>12);
   }
 }
 
