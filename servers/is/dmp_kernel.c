@@ -36,7 +36,7 @@ static int pagelines;
 	  if (++pagelines > LINES) { oldrp = rp; printf("--more--\n"); break; }\
 	  if (proc_nr(rp) == IDLE) 	printf("(%2d) ", proc_nr(rp));  \
 	  else if (proc_nr(rp) < 0) 	printf("[%2d] ", proc_nr(rp)); 	\
-	  else 				printf(" %2d  ", proc_nr(rp));
+	  else 				printf( "%3d  ", proc_nr(rp));
 
 #define click_to_round_k(n) \
 	((unsigned) ((((unsigned long) (n) << CLICK_SHIFT) + 512) / 1024))
