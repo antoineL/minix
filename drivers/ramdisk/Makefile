@@ -32,6 +32,9 @@ CLEANFILES += $(PROGRAMS) $(SCRIPTS) $(EXTRA) bintoc image image.c t proto.gen
 
 install: all
 
+.if ${COMPILER_TYPE} == "gnu"
+realall: image
+.else
 realall: image.c
 
 image.c:	bintoc image
@@ -41,6 +44,7 @@ image.c:	bintoc image
 # host system
 bintoc:	bintoc.c
 	$(CC) -o $@ bintoc.c
+.endif	# ! ${COMPILER_TYPE} == "gnu"
 
 image:	proto.gen mtab rc $(EXTRA)
 	mkfs.mfs image proto.gen || { rm -f image; false; }
