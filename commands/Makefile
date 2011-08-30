@@ -23,7 +23,7 @@ SUBDIR=	aal add_route adduser arp ash at autil awk \
 	ping postinstall poweroff pr prep printf printroot \
 	profile progressbar proto pr_routes ps pwd pwdauth \
 	ramdisk rarpd rawspeed rcp rdate readall readclock \
-	reboot remsync rev rget rlogin rlogind rmdir \
+	readfs reboot remsync rev rget rlogin rlogind rmdir \
 	rotate rsh rshd sed service setup shar acksize \
 	sleep slip sort spell split srccrc ackstrip \
 	stty su sum svclog swifi sync synctree sysenv \

@@ -1,0 +1,31 @@
+.TH READFS 1 2011-08-25
+.SH NAME
+readfs \- read a MINIX 3 file system
+.SH SYNOPSIS
+\fBreadfs\fR [\fB\-dil\fR] \fIblock_special\fR [\fIdir\fR]\fR
+.br
+.SH OPTIONS
+.TP
+.B \-d
+Extract the directories, do not extract plain files.
+This can be used to clone an hierarchical structure.
+.TP
+.B \-i
+Give information about the file, but do not extract files.
+.TP
+.B \-l
+List the files extracted on standard output
+.SH EXAMPLES
+.TP 20
+.B readfs \-l /dev/fd0
+# List contents of diskette
+.SH DESCRIPTION
+.PP
+\fIReadfs\fR reads a diskette, or any raw device, containing a 
+\s-1MINIX 3\s-1
+file system.  It can
+extract all the files from it, give a listing of them, or both.  The files
+extracted can be put in a user-specified directory (default: current
+directory).  If subdirectories are needed, they will be created automatically.
+.SH "SEE ALSO"
+.BR mkproto "(1), " mkfs (1).
