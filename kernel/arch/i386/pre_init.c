@@ -240,15 +240,15 @@ PRIVATE void get_parameters(multiboot_info_t *mbi)
 		disk = ((mbi->boot_device&0xff000000) >> 24)-0x80;
 		prim = (mbi->boot_device & 0xff0000) >> 16;
 		if (prim == 0xff)
-		    prim = 0;
+		    prim = -1;
 		sub = (mbi->boot_device & 0xff00) >> 8;
-		if (sub == 0xff)
-		    sub = 0;
 		ctrlr = 0;
 		dev = dev_cNd0[ctrlr];
 
 		/* Determine the value of rootdev */
-		dev += 0x80
+		if (sub == 0xff)
+		    dev += disk * (NR_PARTITIONS+1) + prim + 1;
+		else dev += 0x80
 		    + (disk * NR_PARTITIONS + prim) * NR_PARTITIONS + sub;
 
 		mb_itoa(dev, temp);
