@@ -8,11 +8,14 @@ PROG =	shmt02 shmt03 shmt04 shmt05 shmt06 \
 
 all: $(PROG)
 
-$(PROG): tst_res.o
+$(PROG): tst_res.o .gitignore
 	$(CC) $(CFLAGS) -o $@ $@.c tst_res.o
 
 tst_res.o: ../lib/tst_res.c
 	$(CC) $(CFLAGS) -c -o tst_res.o ../lib/tst_res.c
+
+.gitignore: Makefile
+	echo $(PROG) | tr ' ' '\n' > $@
 
 test:
 	sh testshm.sh

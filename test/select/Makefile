@@ -9,8 +9,11 @@ PROG =	speed test00 test01 test02 test03 test04_srv test04_cli test05_srv \
 
 all: $(PROG)
 
-$(PROG): 
-	$(CC) $(CFLAGS) -o $@ $@.c -lutil
+$(PROG): .gitignore
+	$(CC) $(CFLAGS) -o $@ $@.c -lminixutil
+
+.gitignore: Makefile
+	echo $(PROG) | tr -s ' ' '\n' > $@
 
 clean:
 	rm -f *.o $(PROG)

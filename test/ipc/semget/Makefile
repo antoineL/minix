@@ -7,7 +7,7 @@ PROG =	semget01 semget02 semget03 semget05 semget06
 
 all: $(PROG)
 
-$(PROG): tst_res.o libipc.o tst_sig.o parse_opts.o tst_tmpdir.o rmobj.o
+$(PROG): tst_res.o libipc.o tst_sig.o parse_opts.o tst_tmpdir.o rmobj.o .gitignore
 	$(CC) $(CFLAGS) -o $@ $@.c tst_res.o libipc.o tst_sig.o parse_opts.o tst_tmpdir.o rmobj.o
 
 rmobj.o: ../lib/rmobj.c
@@ -27,6 +27,9 @@ parse_opts.o: ../lib/parse_opts.c
 
 libipc.o: ../lib/libipc.c
 	$(CC) $(CFLAGS) -c -o libipc.o ../lib/libipc.c
+
+.gitignore: Makefile
+	echo $(PROG) | tr ' ' '\n' > $@
 
 clean:
 	rm -f *.o $(PROG)
