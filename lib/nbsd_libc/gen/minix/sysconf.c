@@ -58,7 +58,11 @@ int name;			/* property being inspected */
 		return (long) OPEN_MAX;
 
 	case _SC_JOB_CONTROL:
+#ifdef _POSIX_JOB_CONTROL
+		return (long)_POSIX_JOB_CONTROL;
+#else
 		return -1L;			/* no job control */
+#endif
 
 	case _SC_SAVED_IDS:
 		return -1L;			/* no saved uid/gid */

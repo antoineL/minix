@@ -73,7 +73,6 @@
 /* POSIX defines several options that may be implemented or not, at the
  * implementer's whim.  This implementer has made the following choices:
  *
- * _POSIX_JOB_CONTROL	    not defined:	no job control
  * _POSIX_SAVED_IDS 	    not defined:	no saved uid/gid
  * _POSIX_NO_TRUNC	    defined as -1:	long path names are truncated
  * _POSIX_CHOWN_RESTRICTED  defined:		you can't give away files
@@ -81,6 +80,7 @@
  */
 #define _POSIX_NO_TRUNC       (-1)
 #define _POSIX_CHOWN_RESTRICTED  1
+#define _POSIX_JOB_CONTROL	 1
 
 /* Function Prototypes. */
 _PROTOTYPE( void _exit, (int _status)					);
