@@ -181,7 +181,7 @@ void test3d()
 
 void test3e()
 {
-/* Test ctermid, ttyname, and isatty. */
+/* Test sysconf. */
 
   subtest = 5;
   errno = -5000;		/* None of these calls set errno. */
@@ -192,6 +192,10 @@ void test3e()
   if (sysconf(_SC_OPEN_MAX) < _POSIX_OPEN_MAX) e(4);
 
   /* The rest are MINIX specific */
+#ifdef _POSIX_JOB_CONTROL
+  if (sysconf(_SC_JOB_CONTROL) != _POSIX_JOB_CONTROL) e(6);
+#else
   if (sysconf(_SC_JOB_CONTROL) >= 0) e(5);	/* no job control! */
+#endif
 }
 

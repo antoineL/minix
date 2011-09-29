@@ -161,8 +161,7 @@ Special input character if job control is implemented and
 .B ISIG
 is set.  It causes a
 .B SIGTSTP
-signal to be send to the terminal process group.  (MINIX 3 does not have job
-control.)
+signal to be send to the terminal process group.
 .TP
 .BR STOP " (^S)"
 Special input character if
@@ -415,8 +414,7 @@ Enable parity generation.
 Generate odd parity if parity is generated, otherwise even parity.
 .TP
 .B HUPCL
-Drop the modem control lines on the last close of the terminal line.  (Not
-implemented.)
+Drop the modem control lines on the last close of the terminal line.
 .SS "Local Modes"
 The
 .B c_lflag
@@ -497,7 +495,7 @@ a signal is sent.
 Send a
 .B SIGTTOU
 signal if job control is implemented and a background process tries to
-write.  (MINIX 3 has no job control.)
+write.
 .SS "Input and output speed"
 The input and output speed are encoded into the
 .B c_ispeed
