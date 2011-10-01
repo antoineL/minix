@@ -30,6 +30,7 @@
 #include <minix/com.h>
 #include <minix/endpoint.h>
 #include <minix/ioctl.h>
+#include <sys/ioc_tty.h>
 #include <minix/u64.h>
 #include "file.h"
 #include "fproc.h"
@@ -41,6 +42,8 @@
 #include "param.h"
 
 static void restart_reopen(int major);
+static int do_tcget(message *mess_ptr, pid_t * data);
+static int do_tcsetpgrp(message *, struct fproc * slp);
 static int safe_io_conversion(endpoint_t, cp_grant_id_t *, int *,
 	endpoint_t *, void **, size_t, u32_t *, u32_t *);
 
@@ -650,7 +653,9 @@ void pm_setsid(endpoint_t proc_e)
   rfp = &fproc[slot];
   rfp->fp_flags |= FP_SESLDR;
   rfp->fp_tty = 0;
-  rfp->fp_sid = rfp->fp_pgid = rfp->fp_pid;
+  rfp->fp_pgid = rfp->fp_fg_pgid = rfp->fp_pid;
+  rfp->fp_slproc = rfp;
+/* CHECKME: can there be more processes in the session? */
 }
 
 
@@ -826,6 +831,53 @@ int ctty_io(
 }
 
 /*===========================================================================*
+ *				do_tcget				     *
+ *===========================================================================*/
+int
+do_tcget(message *mess_ptr, pid_t * data)
+{
+  return sys_vircopy(VFS_PROC_NR, (vir_bytes)data, 
+	(endpoint_t)mess_ptr->POSITION, (vir_bytes)mess_ptr->HIGHPOS,
+	sizeof(pid_t));
+}
+
+/*===========================================================================*
+ *				do_tcsetpgrp				     *
+ *===========================================================================*/
+int
+do_tcsetpgrp(message *m_ptr, struct fproc * slp)
+{
+  pid_t new_pgid;
+  register struct fproc *rfp;
+  int r;
+
+  r = sys_vircopy((endpoint_t)m_ptr->POSITION, (vir_bytes)m_ptr->HIGHPOS,
+		VFS_PROC_NR, (vir_bytes)&new_pgid, sizeof(pid_t));
+  if (r != OK) return(r);
+  if (new_pgid <= 0) return EINVAL;
+#if defined(_POSIX_JOB_CONTROL) && _POSIX_JOB_CONTROL > 0
+#if DEBUG_CODE
+printf("tcsetpgrp#%x := %d getsid=%d sid=%d fg=%d\n",
+m_ptr->DEVICE, new_pgid, getsid(-new_pgid), slp->fp_pid, slp->fp_fg_pgid);
+#endif
+
+  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	if (rfp->fp_pid == PID_FREE) continue;
+	if (!rfp->fp_slproc || (rfp->fp_slproc != slp)) continue;
+	if (rfp->fp_pgid == new_pgid) {
+		slp->fp_fg_pgid = new_pgid;
+		return OK;
+	}
+  }
+  /* The new pgid is not a valid process group for this session! */
+  return EPERM;
+#else
+  /* No job control; only allow trivial operation */
+  return new_pgid == slp->fp_fg_pgid ? OK : EPERM;
+#endif
+}
+
+/*===========================================================================*
  *				tty_io					     *
  *===========================================================================*/
 int
@@ -838,30 +890,44 @@ tty_io(endpoint_t task_nr, message *mess_ptr)
  * as the relevant /dev/tty?? but still refers to the controlling tty.
  */
   int r = OK;
-  struct fproc * slp = NULL;	/* session leader */
-
-  if (fp->fp_sid != 0)
-	for (slp = &fproc[0]; slp < &fproc[NR_PROCS]; slp++)
-		if (slp->fp_pid == fp->fp_sid) {
-			if (! slp->fp_sesldr) {
-		/* FIXME: do something more sensible? can there be races? */
-				printf("VFS:tty_io: proc.%d has sid=%d "
-					"which is not session leader!\n",
-					fp->fp_pid, fp->fp_sid);
-				slp = NULL;
-			}
-			break;
-		}
+  register struct fproc * slp = fp->fp_slproc;
 
   if (mess_ptr->m_type == DEV_OPEN && !(mess_ptr->COUNT & O_NOCTTY) ) {
-	/* We try to open our controlling tty! */
+	/* We try to open our new controlling tty! */
+/* FIXME/DEBUG: check sid && fg_pgid (or set them? or set them while back?) */
 	mess_ptr->TTY_PGRP = fp->fp_pgid;
   }
   else if (slp && slp->fp_tty && minor(slp->fp_tty) == mess_ptr->DEVICE) {
 	/* This I/O is for our controlling tty! */
 	mess_ptr->TTY_PGRP = fp->fp_pgid;
+	if (mess_ptr->m_type == DEV_IOCTL_S) {
+		switch(mess_ptr->ioctl_request) {
+		case TIOCGSID:
+			r = do_tcget(mess_ptr, &slp->fp_pid);
+			return(r); /* work is done */
+
+		case TIOCGPGRP:
+			r = do_tcget(mess_ptr, &slp->fp_fg_pgid);
+			break;
+
+		case TIOCSPGRP:
+			r = do_tcsetpgrp(mess_ptr, slp);
+			break;
+		default: break;
+		}
+	}
   } else {
 	mess_ptr->TTY_PGRP = 0;
+	if (mess_ptr->m_type == DEV_IOCTL_S) {
+		switch(mess_ptr->ioctl_request) {
+		case TIOCGPGRP:
+		case TIOCGSID:
+		case TIOCSPGRP:
+		/* This is not the controlling terminal; fail these calls */
+			return(ENOTTY);
+		default:	break;
+		}
+	}
   }
   if(r == OK)
 	r = gen_io(task_nr, mess_ptr);	/* do actual work */

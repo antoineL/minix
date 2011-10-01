@@ -26,7 +26,8 @@ EXTERN struct fproc {
 
   dev_t fp_tty;			/* major/minor of controlling tty */
   pid_t fp_pgid;		/* process group id */
-  pid_t fp_sid;			/* session id */
+  struct fproc * fp_slproc;	/* ptr to session leader */
+  pid_t fp_fg_pgid;		/* foreground process group id */
 
   int fp_blocked_on;		/* what is it blocked on */
   int fp_block_callnr;		/* blocked call if rd/wr can't finish */

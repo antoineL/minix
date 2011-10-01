@@ -6,6 +6,7 @@
 #define buffer	      m1_p1
 #define child_endpt      m1_i2
 #define co_mode	      m1_i1
+#define ioctl_data    m2_p1
 #define fd	      m1_i1
 #define fd2	      m1_i2
 #define group	      m1_i3
@@ -33,6 +34,7 @@
 #define mount_flags   m1_i3
 #define pipe_flags    m1_i3
 #define request       m1_i2
+#define ioctl_request m2_i3
 #define sig	      m1_i2
 #define endpt1	      m1_i1
 #define fs_label      m1_p3
