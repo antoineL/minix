@@ -15,6 +15,7 @@ INCS+= 	minix/acpi.h minix/ansi.h minix/audio_fw.h minix/bitmap.h \
 	minix/mq.h minix/netdriver.h minix/partition.h minix/portio.h \
 	minix/priv.h minix/procfs.h minix/profile.h minix/queryparam.h \
 	minix/rs.h minix/safecopies.h minix/sched.h minix/sef.h \
+	minix/sighandled.h \
 	minix/sound.h minix/spin.h minix/sys_config.h minix/sysinfo.h \
 	minix/syslib.h minix/sysutil.h minix/timers.h minix/type.h \
 	minix/tty.h minix/u64.h minix/usb.h minix/usb_ch9.h minix/vm.h \

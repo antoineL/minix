@@ -85,6 +85,7 @@ _PROTOTYPE( int check_sig, (pid_t proc_id, int signo, int ksig)		);
 _PROTOTYPE( void sig_proc, (struct mproc *rmp, int signo, int trace,
 							int ksig)	);
 _PROTOTYPE( int do_sigaction, (void)					);
+_PROTOTYPE( int do_sighandled, (void)					);
 _PROTOTYPE( int do_sigpending, (void)					);
 _PROTOTYPE( int do_sigprocmask, (void)					);
 _PROTOTYPE( int do_sigreturn, (void)					);

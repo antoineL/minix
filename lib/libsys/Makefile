@@ -54,6 +54,7 @@ SRCS=  \
 	sef_ping.c \
 	sef_signal.c \
 	ser_putc.c \
+	sighandled.c \
 	spin.c \
 	sqrt_approx.c \
 	stacktrace.c \

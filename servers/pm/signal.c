@@ -6,6 +6,7 @@
  *
  * The entry points into this file are:
  *   do_sigaction:	perform the SIGACTION system call
+ *   do_sighandled:	perform the SIGHANDLED pseudo system call
  *   do_sigpending:	perform the SIGPENDING system call
  *   do_sigprocmask:	perform the SIGPROCMASK system call
  *   do_sigreturn:	perform the SIGRETURN system call
@@ -25,6 +26,7 @@
 #include <minix/callnr.h>
 #include <minix/endpoint.h>
 #include <minix/com.h>
+#include <minix/sighandled.h>
 #include <minix/vm.h>
 #include <signal.h>
 #include <sys/resource.h>
@@ -300,6 +302,96 @@ PUBLIC int do_pause()
 
   mp->mp_flags |= PAUSED;
   return(SUSPEND);
+}
+
+/*===========================================================================*
+ *				do_sighandled				     *
+ *===========================================================================*/
+PUBLIC int do_sighandled(void)
+{
+/* Check how would be handled a signal sent to a process.
+ * Check to see if the signal is to be caught, ignored, or blocked.
+ * Check if the signal is already pending.
+ * Check if the process is stopped or paused (waiting).
+ *
+ * The code in this function should be kept synchronised with
+ * sig_proc below.
+ */
+  register struct mproc *rmp;	/* pointer to the process */
+  int signo;			/* signal to examine (1 to _NSIG-1) */
+  int r, proc_nr;
+
+  /* Only system services are allowed to use sighandled. */
+  if (! (mp->mp_flags & PRIV_PROC) )
+	return EPERM;
+  if ((signo=m_in.sig_nr) < 1 || signo >= _NSIG) return(EINVAL);
+  if(pm_isokendpt(m_in.who, &proc_nr) != OK || proc_nr < 0) {
+	printf("PM: sighandled: %d?? not ok\n", m_in.who);
+	return EDEADEPT; /* process is gone. */
+  }
+  rmp = &mproc[proc_nr];
+  if ((rmp->mp_flags & (IN_USE | EXITING)) != IN_USE) {
+	printf("PM: sighandled: %d?? exiting / not in use\n", m_in.who);
+	return EDEADEPT; /* process is gone. */
+  }
+
+  r = 0;
+  if(rmp->mp_flags & PRIV_PROC) {
+  	if (! SIGS_IS_TERMINATION(signo))
+		r = SIG_IS_SYSMSG;
+	else
+		r = SIG_IS_KILLER;
+  }
+  else
+  /* See if the signal cannot be safely ignored (badignore in sig_proc). */
+  if (sigismember(&noign_sset, signo)
+	&& ( sigismember(&rmp->mp_ignore, signo)
+	  || sigismember(&rmp->mp_sigmask, signo) )) {
+	r = SIG_IS_KILLER;
+  }
+  else
+  if (sigismember(&rmp->mp_ignore, signo))
+	r = SIG_IS_IGNORED;
+  else
+  if (sigismember(&rmp->mp_sigmask, signo))
+	r = SIG_IS_BLOCKED;
+  else
+  if (sigismember(&rmp->mp_catch, signo)) {
+	r = SIG_IS_CAUGHT;
+	if (signo==SIGCONT)
+	/* SIGCONT can be caught, but it still causes process to continue */
+		r |= SIG_IS_CONT;
+  }
+  else
+  if (sigismember(&ign_sset, signo))
+	/* Signal defaults to being ignored. */
+	r = SIG_IS_IGNORED;
+  else
+  if (sigismember(&stop_sset, signo))
+	/* Signal defaults to stop process. */
+	r = SIG_IS_STOPPER;
+  else
+  if (signo==SIGCONT)
+	r |= SIG_IS_CONT;
+  else {
+	/* Terminate process */
+	r = SIG_IS_KILLER;
+  }
+  if (r == 0) {
+	printf("PM:sighandled: bad logic for sig=%d proc=%d pid=%d\n",
+			signo, m_in.who, rmp->mp_pid);
+	r = SIG_IS_IGNORED;
+  }
+
+  if (sigismember(&rmp->mp_sigpending, signo))
+	r |= SIG_IS_PENDING;
+
+  if (rmp->mp_flags & (STOPPED | JOBCTL_STOPPED) )
+	r |= PROC_IS_STOPPED;
+  if (rmp->mp_flags & (PAUSED | WAITING | SIGSUSPENDED) )
+	r |= PROC_IS_PAUSED;
+/* FIXME: + ORPHANED */
+  return r;
 }
 
 /*===========================================================================*
