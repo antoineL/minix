@@ -584,7 +584,13 @@ int proc_e;
   rfp = &fproc[slot];
   rfp->fp_sesldr = TRUE;
   rfp->fp_tty = 0;
+#ifdef SLPROCPTR
+  rfp->fp_pgid = rfp->fp_pid;
+  rfp->fp_slproc = rfp;
+/* CHECKME: can there be more processes in the session? */
+#else
   rfp->fp_sid = rfp->fp_pgid = rfp->fp_pid;
+#endif
 }
 
 
@@ -746,6 +752,9 @@ message *mess_ptr;		/* pointer to message for task */
  * as the relevant /dev/tty?? but still refers to the controlling tty.
  */
   int r = OK;
+#ifdef SLPROCPTR
+  register struct fproc * slp = fp->fp_slproc;
+#else
   struct fproc * slp = NULL;	/* session leader */
 
   if (fp->fp_sid != 0)
@@ -760,6 +769,7 @@ message *mess_ptr;		/* pointer to message for task */
 			}
 			break;
 		}
+#endif
 
   if (mess_ptr->m_type == DEV_OPEN && !(mess_ptr->COUNT & O_NOCTTY) ) {
 	/* We try to open our controlling tty! */
