@@ -33,6 +33,7 @@ SRCS+=  \
 	sef_liveupdate.c \
 	sef_ping.c \
 	sef_signal.c \
+	sighandled.c \
 	sqrt_approx.c \
 	stacktrace.c \
 	sys_abort.c \

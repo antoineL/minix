@@ -120,7 +120,7 @@ int (*call_vec[])(void) = {
 	do_get,		/* 106 = issetugid */
 	do_getepinfo_o,	/* 107 = getepinfo XXX: old implementation*/
 	do_set,		/* 108 = */	/* tentative 108 = setpgid */
-	no_sys,		/* 109 = unused */
+	do_sighandled,	/* 109 = */	/* tentative 109 = sighandled */
 	no_sys,		/* 110 = unused */
 	do_srv_kill,	/* 111 = srv_kill */
  	no_sys, 	/* 112 = gcov_flush */

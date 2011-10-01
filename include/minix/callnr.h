@@ -124,8 +124,9 @@
 #define CLOCK_GETTIME	115	/* clock_gettime() */
 #define CLOCK_SETTIME	116	/* clock_settime() */
 
-/* Provisional number reusing old value to avoid conflicts */
+/* Provisional numbers reusing old values to avoid conflicts */
 #define SETPGID		108	/* to PM: setpgid() */
+#define SIGHANDLED	109	/* to PM: sighandled() [from services] */
 
 #define TASK_REPLY	121	/* to VFS: reply code from drivers, not 
 				 * really a standalone call.
