@@ -386,7 +386,7 @@ PUBLIC int do_sighandled(void)
   if (sigismember(&rmp->mp_sigpending, signo))
 	r |= SIG_IS_PENDING;
 
-  if (rmp->mp_flags & (STOPPED | JOBCTL_STOPPED) )
+  if (rmp->mp_flags & (TRACE_STOPPED | JOBCTL_STOPPED) )
 	r |= PROC_IS_STOPPED;
   if (rmp->mp_flags & (PAUSED | WAITING | SIGSUSPENDED) )
 	r |= PROC_IS_PAUSED;
@@ -432,7 +432,7 @@ int ksig;			/* non-zero means signal comes from kernel  */
 
 	(void) sigaddset(&rmp->mp_sigtrace, signo);
 
-	if (!(rmp->mp_flags & STOPPED))
+	if (!(rmp->mp_flags & TRACE_STOPPED))
 		stop_proc(rmp, signo);	/* a signal causes it to stop */
 
 	return;
@@ -534,7 +534,7 @@ int ksig;			/* non-zero means signal comes from kernel  */
 	return;
   }
 
-  if ((rmp->mp_flags & STOPPED) && signo != SIGKILL) {
+  if ((rmp->mp_flags & TRACE_STOPPED) && signo != SIGKILL) {
 	/* If the process is stopped for a debugger, do not deliver any signals
 	 * (except SIGKILL) in order not to confuse the debugger. The signals
 	 * will be delivered using the check_pending() calls in do_trace().

@@ -73,7 +73,7 @@ PRIVATE void pid_psinfo(int i)
 	if (!task) {
 		if (is_zombie(i))
 			state = STATE_ZOMBIE;	/* zombie */
-		else if (mproc[pi].mp_flags & STOPPED)
+		else if (mproc[pi].mp_flags & TRACE_STOPPED)
 			state = STATE_STOP;	/* stopped (traced) */
 		else if (mproc[pi].mp_flags & JOBCTL_STOPPED)
 			state = STATE_STOP;	/* stopped (untraced) */

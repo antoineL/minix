@@ -26,7 +26,7 @@ PRIVATE char *flags_str(int flags)
 	str[2] = (flags & PAUSED)  ? 'P' : '-';
 	str[3] = (flags & ALARM_ON)  ? 'A' : '-';
 	str[4] = (flags & EXITING) ? 'E' : '-';
-	str[5] = (flags & STOPPED)  ? 'T' : 
+	str[5] = (flags & TRACE_STOPPED)  ? 'T' : 
 		( (flags & JOBCTL_STOPPED)  ? 'S' : '-');
 	str[6] = (flags & SIGSUSPENDED)  ? 'U' : '-';
 	str[7] = (flags & REPLY)  ? 'R' : '-';

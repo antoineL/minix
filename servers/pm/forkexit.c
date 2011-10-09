@@ -467,7 +467,7 @@ PUBLIC int do_waitpid()
 			check_parent(rp, TRUE /*try_cleanup*/);
 			return(SUSPEND);
 		}
-		if (rp->mp_flags & STOPPED) {
+		if (rp->mp_flags & TRACE_STOPPED) {
 			/* This child meets the pid test and is being traced.
 			 * Deliver a signal to the tracer, if any.
 			 */
