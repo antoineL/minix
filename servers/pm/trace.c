@@ -158,7 +158,7 @@ int do_trace()
   if ((child = find_proc(m_in.pid)) == NULL) return(ESRCH);
   if (child->mp_flags & EXITING) return(ESRCH);
   if (child->mp_tracer != who_p) return(ESRCH);
-  if (!(child->mp_flags & STOPPED)) return(EBUSY);
+  if (!(child->mp_flags & TRACE_STOPPED)) return(EBUSY);
 
   switch (req) {
   case T_EXIT:		/* exit */
@@ -223,7 +223,7 @@ int do_trace()
 	}
 
 	/* Resume the child as if nothing ever happened. */ 
-	child->mp_flags &= ~STOPPED;
+	child->mp_flags &= ~TRACE_STOPPED;
 	child->mp_trace_flags = 0;
 
 	check_pending(child);
@@ -250,7 +250,7 @@ int do_trace()
 		}
 	}
 
-	child->mp_flags &= ~STOPPED;
+	child->mp_flags &= ~TRACE_STOPPED;
 
 	check_pending(child);
 
@@ -278,7 +278,7 @@ int signo;
   r = sys_trace(T_STOP, rmp->mp_endpoint, 0L, (long *) 0);
   if (r != OK) panic("sys_trace failed: %d", r);
  
-  rmp->mp_flags |= STOPPED;
+  rmp->mp_flags |= TRACE_STOPPED;
   if (wait_test(rpmp, rmp, WAITING)) {
 	sigdelset(&rmp->mp_sigtrace, signo);
 
