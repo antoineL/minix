@@ -560,50 +560,9 @@ message *m_ptr;			/* pointer to message sent to task */
   size_t size;
 
   /* Size of the ioctl parameter. */
-#if 0
-  switch (m_ptr->TTY_REQUEST) {
-    case TCGETS:        /* Posix tcgetattr function */
-    case TCSETS:        /* Posix tcsetattr function, TCSANOW option */ 
-    case TCSETSW:       /* Posix tcsetattr function, TCSADRAIN option */
-    case TCSETSF:	/* Posix tcsetattr function, TCSAFLUSH option */
-        size = sizeof(struct termios);
-        break;
-
-    case TCSBRK:        /* Posix tcsendbreak function */
-    case TCFLOW:        /* Posix tcflow function */
-    case TCFLSH:        /* Posix tcflush function */
-        size = sizeof(int);
-        break;
-
-    case TIOCGPGRP:	/* Posix tcgetpgrp function */
-    case TIOCSPGRP:	/* Posix tcsetpgrp function */
-    case TIOCGSID:	/* X/Open tcgetsid function */
-        size = sizeof(pid_t);
-        break;
-
-    case TIOCGWINSZ:    /* get window size (not Posix) */
-    case TIOCSWINSZ:	/* set window size (not Posix) */
-        size = sizeof(struct winsize);
-        break;
-
-#if (MACHINE == IBM_PC)
-    case KIOCSMAP:	/* load keymap (Minix extension) */
-        size = sizeof(keymap_t);
-        break;
-
-    case TIOCSFON:	/* load font (Minix extension) */
-        size = sizeof(u8_t [8192]);
-        break;
-
-#endif
-    case TCDRAIN:	/* Posix tcdrain function -- no parameter */
-    default:		size = 0;
-  }
-#else
   size = _MINIX_IOCTL_BIG(m_ptr->TTY_REQUEST)
 		? _MINIX_IOCTL_SIZE_BIG(m_ptr->TTY_REQUEST)
 		: _MINIX_IOCTL_SIZE(m_ptr->TTY_REQUEST);
-#endif
 
   r = OK;
   switch (m_ptr->TTY_REQUEST) {
