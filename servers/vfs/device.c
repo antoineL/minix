@@ -27,6 +27,8 @@
 #include <minix/endpoint.h>
 #include <minix/ioctl.h>
 #include <sys/ioc_tty.h>
+#include <minix/sighandled.h>
+#include <signal.h>
 #include <minix/u64.h>
 #include "file.h"
 #include "fproc.h"
@@ -45,6 +47,7 @@ FORWARD _PROTOTYPE( int safe_io_conversion, (endpoint_t, cp_grant_id_t *,
 					     vir_bytes, u32_t*, u32_t*)	);
 FORWARD _PROTOTYPE( void safe_io_cleanup, (cp_grant_id_t, cp_grant_id_t *,
 					   int)				);
+FORWARD _PROTOTYPE( int tty_bg_io, (int signo)				);
 FORWARD _PROTOTYPE( void restart_reopen, (int maj)			);
 
 extern int dmap_size;
@@ -798,6 +801,49 @@ m_ptr->DEVICE, new_pgid, getsid(-new_pgid), slp->fp_pid, slp->fp_fg_pgid);
 }
 
 /*===========================================================================*
+ *				tty_bg_io					     *
+ *===========================================================================*/
+PRIVATE int tty_bg_io(int signo)
+{
+/* A background process wants to do something on its controlling tty;
+ * ask PM to check if SIGTTIN/SIGTTOU is blocked or ignored,
+ * else deliver the signal (which should stop the process);
+ * then register the blocking condition, to restart the call later.
+ */
+  int sigh;
+
+  sigh = sighandled(fp->fp_endpoint, signo);
+  if (sigh < 0)
+	panic("VFS:tty_bg_io: sighandled returned %d", sigh);
+  if (sigh & SIG_IS_IGNORED || sigh & SIG_IS_BLOCKED)
+	return(signo == SIGTTIN ? EIO : OK);
+  if (sigh & PGRP_IS_ORPHAN)
+	return(EIO);
+
+  if (OK != kill(-fp->fp_pgid, signo)) {
+	printf("VFS:tty_bg_io: killpg(%d, %d) failed, errno=%d\n",
+			fp->fp_pgid, signo, errno);
+	/* do not try to work around bad mood */
+	return(EIO);
+  }
+  if (sigh & SIG_IS_CAUGHT) {
+	/* This call should be interrupted (unpause) to let the
+	 * signal handler run; make life easier (and do not block).
+	 */
+	return(EINTR);
+  } else if (sigh & SIG_IS_STOPPER) {
+	/* Else (SIG_DFL) the process is safely stopped;
+	 * block the process waiting to be restarted later through revive().
+	 */
+	suspend(FP_BLOCKED_ON_BGIO);
+	return SUSPEND;
+  } else {
+	printf("VFS:tty_bg_io: sighandled returned unexpected %x\n",sigh);
+	return(EINTR); /* try to go ahead */
+  }
+}
+
+/*===========================================================================*
  *				tty_io					     *
  *===========================================================================*/
 PUBLIC int tty_io(task_nr, mess_ptr)
@@ -821,8 +867,17 @@ message *mess_ptr;		/* pointer to message for task */
   else if (slp && slp->fp_tty && minor(slp->fp_tty) == mess_ptr->DEVICE) {
 	/* This I/O is for our controlling tty! */
 	mess_ptr->TTY_PGRP = fp->fp_pgid;
-	if (mess_ptr->m_type == DEV_IOCTL_S) {
-		switch(mess_ptr->ioctl_request) {
+	switch(mess_ptr->m_type) {
+	case DEV_READ_S:
+		if (fp->fp_pgid != slp->fp_fg_pgid)
+			r = tty_bg_io(SIGTTIN);
+		break;
+	case DEV_IOCTL_S:
+		if (fp->fp_pgid != slp->fp_fg_pgid
+		  && _MINIX_IOCTL_IOW(mess_ptr->ioctl_request))
+			r = tty_bg_io(SIGTTOU);
+
+		if (r == OK) switch(mess_ptr->ioctl_request) {
 		case TIOCGSID:
 			r = do_tcget(mess_ptr, &slp->fp_pid);
 			return(r); /* work is done */
@@ -833,9 +888,13 @@ message *mess_ptr;		/* pointer to message for task */
 
 		case TIOCSPGRP:
 			r = do_tcsetpgrp(mess_ptr, slp);
+			revive_now_fg(slp->fp_fg_pgid);
 			break;
+
 		default: break;
 		}
+		break;
+	default: break;
 	}
   } else {
 	mess_ptr->TTY_PGRP = 0;

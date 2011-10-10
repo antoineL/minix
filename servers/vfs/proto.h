@@ -150,6 +150,7 @@ _PROTOTYPE( int pipe_check, (struct vnode *vp, int rw_flag,
 	      int oflags, int bytes, u64_t position, int notouch)	);
 _PROTOTYPE( void release, (struct vnode *vp, int call_nr, int count)	);
 _PROTOTYPE( void revive, (int proc_nr, int bytes)			);
+_PROTOTYPE( void revive_now_fg, (pid_t pgid)				);
 _PROTOTYPE( void suspend, (int task)					);
 _PROTOTYPE( void pipe_suspend, (int rw_flag, int fd_nr, char *buf,
 							size_t size)	);
