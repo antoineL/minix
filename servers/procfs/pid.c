@@ -150,6 +150,7 @@ PRIVATE void pid_psinfo(int i)
 		case FP_BLOCKED_ON_SELECT:	f_state = FSTATE_SELECT; break;
 		case FP_BLOCKED_ON_DOPEN:	f_state = FSTATE_DOPEN; break;
 		case FP_BLOCKED_ON_OTHER:	f_state = FSTATE_TASK; break;
+		case FP_BLOCKED_ON_BGIO:	f_state = FSTATE_BGIO; break;
 		default:			f_state = FSTATE_UNKNOWN;
 		}
 

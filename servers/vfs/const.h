@@ -19,6 +19,7 @@
 #define FP_BLOCKED_ON_DOPEN	5 /* susp'd on device open */
 #define FP_BLOCKED_ON_OTHER	6 /* blocked on other process, check 
 				     fp_task to find out */
+#define FP_BLOCKED_ON_BGIO	7 /* susp'd on background I/O (job control) */
 
 /* test if the process is blocked on something */
 #define fp_is_blocked(fp)	((fp)->fp_blocked_on != FP_BLOCKED_ON_NONE)

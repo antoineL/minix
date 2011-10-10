@@ -274,6 +274,10 @@ PUBLIC void suspend(int why)
   if (why == FP_BLOCKED_ON_LOCK) {
 	fp->fp_buffer = (char *) m_in.name1;	/* third arg to fcntl() */
 	fp->fp_nbytes = m_in.request;		/* second arg to fcntl() */
+  } else if (why == FP_BLOCKED_ON_BGIO && call_nr == IOCTL) {
+	fp->fp_block_fd = m_in.ls_fd;		/* first arg to ioctl() */
+	fp->fp_buffer = m_in.ioctl_data;	/* third arg to ioctl() */
+	fp->fp_nbytes = m_in.ioctl_request;	/* second arg to ioctl() */
   } else {
 	fp->fp_buffer = m_in.buffer;		/* for reads and writes */
 	fp->fp_nbytes = m_in.nbytes;
@@ -421,8 +425,10 @@ int returned;			/* if hanging on task, how many bytes read */
    *  the proc must be restarted so it can try again.
    */
   blocked_on = rfp->fp_blocked_on;
-  if (blocked_on == FP_BLOCKED_ON_PIPE || blocked_on == FP_BLOCKED_ON_LOCK) {
-	/* Revive a process suspended on a pipe or lock. */
+  if (blocked_on == FP_BLOCKED_ON_PIPE
+   || blocked_on == FP_BLOCKED_ON_LOCK
+   || blocked_on == FP_BLOCKED_ON_BGIO) {
+	/* Revive a process suspended on a pipe or lock or background I/O. */
 	rfp->fp_revived = REVIVING;
 	reviving++;		/* process was waiting on pipe or lock */
   } else if (blocked_on == FP_BLOCKED_ON_DOPEN) {
@@ -559,6 +565,10 @@ int proc_nr_e;
 			rfp->fp_grant = GRANT_INVALID;
 		}
 		break;
+
+	case FP_BLOCKED_ON_BGIO:/* background process trying to do I/O */
+		break;
+
 	default :
 		panic("FS: unknown value: %d", blocked_on);
   }

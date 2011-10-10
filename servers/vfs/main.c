@@ -342,6 +342,11 @@ PRIVATE void get_work()
 			m_in.fd = rp->fp_block_fd;
 			m_in.buffer = rp->fp_buffer;
 			m_in.nbytes = rp->fp_nbytes;
+			if (blocked_on==FP_BLOCKED_ON_BGIO && call_nr==IOCTL) {
+				m_in.ls_fd = rp->fp_block_fd;
+				m_in.ioctl_data = rp->fp_buffer;
+				m_in.ioctl_request = rp->fp_nbytes;
+			}
 			/*no longer hanging*/
 			rp->fp_blocked_on = FP_BLOCKED_ON_NONE;
 			rp->fp_revived = NOT_REVIVING;

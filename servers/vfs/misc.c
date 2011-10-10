@@ -12,7 +12,6 @@
  *   do_setpgid:  perform the SETPGID system call (FS side)
  *   do_exit:	  a process has exited; note that in the tables
  *   do_set:	  set uid or gid for some process
- *   do_revive:	  revive a process that was waiting for something (e.g. TTY)
  *   do_svrctl:	  file system control
  *   do_getsysinfo:	request copy of FS data structure
  *   pm_dumpcore: create a core dump
@@ -504,8 +503,6 @@ PRIVATE void free_proc(struct fproc *exiter, int flags)
 
       for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
 	  if(rfp->fp_pid == PID_FREE) continue;
-          if (rfp->fp_tty == dev) rfp->fp_tty = 0;
-
           for (i = 0; i < OPEN_MAX; i++) {
 		if ((rfilp = rfp->fp_filp[i]) == NULL) continue;
 		if (rfilp->filp_mode == FILP_CLOSED) continue;
@@ -518,6 +515,7 @@ PRIVATE void free_proc(struct fproc *exiter, int flags)
 
 		rfilp->filp_mode = FILP_CLOSED;
           }
+          if (rfp->fp_tty == dev) rfp->fp_tty = 0;
       }
   }
 

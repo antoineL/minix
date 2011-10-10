@@ -111,7 +111,17 @@ PUBLIC int dev_close(
   int filp_no
 )
 {
+  register struct fproc *rfp;
   int r;
+
+  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	if(rfp->fp_pid == PID_FREE) continue;
+	if (rfp->fp_tty != dev) continue;
+	if (rfp->fp_blocked_on == FP_BLOCKED_ON_BGIO
+	  && rfp->fp_revived == NOT_REVIVING) {
+		revive(rfp->fp_endpoint, 0); /* unsuspend blocked process */
+	}
+  }
 
   /* See if driver is roughly valid. */
   if (dmap[(dev >> MAJOR)].dmap_driver == NONE) return(ENXIO);
@@ -426,6 +436,11 @@ PUBLIC int dev_io(
 	/* fp is uninitialized at init time. */
 	if(!fp) panic("SUSPEND on NULL fp");
 
+	if (fp->fp_blocked_on == FP_BLOCKED_ON_BGIO) {
+		/* The request was not even passed to the driver...
+		 * Nothing special, business as usual: cleaning up, no reply.
+		 */
+	} else
 	if ((flags & O_NONBLOCK) && !(dp->dmap_style == STYLE_DEVA)) {
 		/* Not supposed to block. */
 		dev_mess.m_type = CANCEL;
