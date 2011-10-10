@@ -11,6 +11,7 @@
  *   release:	  check to see if a suspended process can be released and do
  *                it
  *   revive:	  mark a suspended process as able to run again
+ *   revive_now_fg: find all background suspended processes able to run again
  *   unsuspend_by_endpt: revive all processes blocking on a given process
  *   do_unpause:  a signal has been sent to a process; see if it suspended
  */
@@ -541,6 +542,29 @@ void revive(endpoint_t proc_e, int returned)
   }
 }
 
+
+/*===========================================================================*
+ *				revive_now_fg				     *
+ *===========================================================================*/
+void
+revive_now_fg(pid_t pgid)
+{
+/* Revive any process which were hung on I/O while being in the background
+ * process group 'pgid', which is now switched to foreground.
+ */
+  register struct fproc *rfp;
+
+  /* Search the proc table. */
+  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	if (rfp->fp_pid != PID_FREE
+	  && fp_is_blocked(rfp)
+	  && rfp->fp_blocked_on == FP_BLOCKED_ON_BGIO
+	  && !(rfp->fp_flags & FP_REVIVED)
+	  && rfp->fp_pgid == pgid) {
+		revive(rfp->fp_endpoint, 0);
+	}
+  }
+}
 
 /*===========================================================================*
  *				unpause					     *

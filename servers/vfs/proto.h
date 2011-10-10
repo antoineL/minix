@@ -192,6 +192,7 @@ int pipe_check(struct filp *filp, int rw_flag, int oflags, int bytes,
 	int notouch);
 void release(struct vnode *vp, int op, int count);
 void revive(endpoint_t proc_e, int returned);
+void revive_now_fg(pid_t pgid);
 void suspend(int why);
 void pipe_suspend(struct filp *rfilp, char *buf, size_t size);
 void unsuspend_by_endpt(endpoint_t proc_e);
