@@ -37,6 +37,7 @@
 #define FSTATE_SELECT	'S'
 #define FSTATE_DOPEN	'D'
 #define FSTATE_TASK	'T'
+#define FSTATE_BGIO	'B'
 #define FSTATE_UNKNOWN	'?'
 
 #endif /* _MINIX_PROCFS_H */

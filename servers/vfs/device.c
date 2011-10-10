@@ -112,7 +112,17 @@ int dev_close(
 )
 {
 /* Close a character device. */
+  register struct fproc *rfp;
   int r, major;
+
+  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	if(rfp->fp_pid == PID_FREE) continue;
+	if (rfp->fp_tty != dev) continue;
+	if (rfp->fp_blocked_on == FP_BLOCKED_ON_BGIO
+	  && !(rfp->fp_flags & FP_REVIVED)) {
+		revive(rfp->fp_endpoint, 0); /* unsuspend blocked process */
+	}
+  }
 
   /* See if driver is roughly valid. */
   major = major(dev);
@@ -489,6 +499,11 @@ int dev_io(
 
   /* Task has completed.  See if call completed. */
   if (ret == SUSPEND) {
+	if (fp->fp_blocked_on == FP_BLOCKED_ON_BGIO) {
+		/* The request was not even passed to the driver...
+		 * Nothing special, business as usual: cleaning up, no reply.
+		 */
+	} else
 	if ((flags & O_NONBLOCK) && !is_asyn) {
 		/* Not supposed to block. */
 		ret = cancel_nblock(dp, minor_dev, job_call_nr, ioproc, gid);

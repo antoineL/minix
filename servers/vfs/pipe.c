@@ -487,7 +487,9 @@ void revive(endpoint_t proc_e, int returned)
    */
   blocked_on = rfp->fp_blocked_on;
   fd_nr = scratch(rfp).file.fd_nr;
-  if (blocked_on == FP_BLOCKED_ON_PIPE || blocked_on == FP_BLOCKED_ON_LOCK) {
+  if (blocked_on == FP_BLOCKED_ON_PIPE
+   || blocked_on == FP_BLOCKED_ON_LOCK
+   || blocked_on == FP_BLOCKED_ON_BGIO) {
 	/* Revive a process suspended on a pipe or lock. */
 	rfp->fp_flags |= FP_REVIVED;
 	reviving++;		/* process was waiting on pipe or lock */
@@ -630,6 +632,10 @@ void unpause(endpoint_t proc_e)
 			rfp->fp_grant = GRANT_INVALID;
 		}
 		break;
+
+	case FP_BLOCKED_ON_BGIO:/* background process trying to do I/O */
+		break;
+
 	default :
 		panic("VFS: unknown block reason: %d", blocked_on);
   }
