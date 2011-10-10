@@ -39,6 +39,7 @@ EXTERN struct fproc {
   cp_grant_id_t fp_grant;	/* revoke this grant on unsuspend if > -1 */
   char fp_sesldr;		/* true if proc is a session leader */
   char fp_execced;		/* true if proc has exec()ced after fork */
+  char fp_tostop;		/* true if bg.processes can write on ctty */
   pid_t fp_pid;			/* process id */
   pid_t fp_pgid;		/* process group id */
   struct fproc * fp_slproc;	/* ptr to session leader */

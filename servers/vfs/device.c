@@ -29,6 +29,7 @@
 #include <sys/ioc_tty.h>
 #include <minix/sighandled.h>
 #include <signal.h>
+#include <termios.h>
 #include <minix/u64.h>
 #include "file.h"
 #include "fproc.h"
@@ -41,6 +42,7 @@
 
 FORWARD _PROTOTYPE( int do_tcget, (message *mess_ptr, pid_t * data)	);
 FORWARD _PROTOTYPE( int do_tcsetpgrp, (message *, struct fproc * slp)	);
+FORWARD _PROTOTYPE( int do_tcsetattr_tostop, (message *, char * ptostop));
 FORWARD _PROTOTYPE( int safe_io_conversion, (endpoint_t, cp_grant_id_t *,
 					     int *, cp_grant_id_t *, int,
 					     endpoint_t *, void **, int *,
@@ -608,6 +610,7 @@ int proc_e;
   rfp->fp_pgid = rfp->fp_fg_pgid = rfp->fp_pid;
   rfp->fp_slproc = rfp;
 /* CHECKME: can there be more processes in the session? */
+  rfp->fp_tostop = FALSE;
 }
 
 
@@ -801,6 +804,21 @@ m_ptr->DEVICE, new_pgid, getsid(-new_pgid), slp->fp_pid, slp->fp_fg_pgid);
 }
 
 /*===========================================================================*
+ *				do_tcsetattr_tostop				     *
+ *===========================================================================*/
+PRIVATE int do_tcsetattr_tostop(message *m_ptr, char * ptostop)
+{
+  struct termios termios;
+  int r;
+
+  r = sys_vircopy((endpoint_t)m_ptr->POSITION, D, (vir_bytes)m_ptr->HIGHPOS, 
+		VFS_PROC_NR, D,	(vir_bytes)&termios, sizeof(termios));
+  if (r != OK) return(r);
+  *ptostop = (termios.c_lflag & TOSTOP) != 0;
+  return OK;
+}
+
+/*===========================================================================*
  *				tty_bg_io					     *
  *===========================================================================*/
 PRIVATE int tty_bg_io(int signo)
@@ -872,6 +890,10 @@ message *mess_ptr;		/* pointer to message for task */
 		if (fp->fp_pgid != slp->fp_fg_pgid)
 			r = tty_bg_io(SIGTTIN);
 		break;
+	case DEV_WRITE_S:
+		if (fp->fp_pgid != slp->fp_fg_pgid && slp->fp_tostop)
+			r = tty_bg_io(SIGTTOU);
+		break;
 	case DEV_IOCTL_S:
 		if (fp->fp_pgid != slp->fp_fg_pgid
 		  && _MINIX_IOCTL_IOW(mess_ptr->ioctl_request))
@@ -889,6 +911,11 @@ message *mess_ptr;		/* pointer to message for task */
 		case TIOCSPGRP:
 			r = do_tcsetpgrp(mess_ptr, slp);
 			revive_now_fg(slp->fp_fg_pgid);
+			break;
+
+		case TCSETS:
+			do_tcsetattr_tostop(mess_ptr, &slp->fp_tostop);
+			/* ignore any error */
 			break;
 
 		default: break;
