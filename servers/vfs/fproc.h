@@ -68,6 +68,10 @@ EXTERN struct fproc {
 #define FP_SRV_PROC	 0100	/* Set if process is a service */
 #define FP_DROP_WORK	 0200	/* Set if process won't accept new work */
 #define FP_EXEC_DONE	 0400	/* Set if process has succesfully exec() */
+#define FP_TOSTOP	 01000	/* Set (on session leader) if background
+				 * processes in that session can write on
+				 * controlling tty without being STOPped.
+				 */
 
 /* Field values. */
 #define NOT_REVIVING       0xC0FFEEE	/* process is not being revived */

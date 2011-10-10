@@ -33,6 +33,7 @@
 #include <sys/ioc_tty.h>
 #include <minix/sighandled.h>
 #include <signal.h>
+#include <termios.h>
 #include <minix/u64.h>
 #include "file.h"
 #include "fproc.h"
@@ -46,6 +47,7 @@
 static void restart_reopen(int major);
 static int do_tcget(message *mess_ptr, pid_t * data);
 static int do_tcsetpgrp(message *, struct fproc * slp);
+static int do_tcsetattr(message *, struct fproc * slp);
 static int safe_io_conversion(endpoint_t, cp_grant_id_t *, int *,
 	endpoint_t *, void **, size_t, u32_t *, u32_t *);
 static int tty_bg_io(int signo);
@@ -669,6 +671,7 @@ void pm_setsid(endpoint_t proc_e)
   okendpt(proc_e, &slot);
   rfp = &fproc[slot];
   rfp->fp_flags |= FP_SESLDR;
+  rfp->fp_flags &= ~FP_TOSTOP;
   rfp->fp_tty = 0;
   rfp->fp_pgid = rfp->fp_fg_pgid = rfp->fp_pid;
   rfp->fp_slproc = rfp;
@@ -895,6 +898,26 @@ m_ptr->DEVICE, new_pgid, getsid(-new_pgid), slp->fp_pid, slp->fp_fg_pgid);
 }
 
 /*===========================================================================*
+ *				do_tcsetattr				     *
+ *===========================================================================*/
+static int
+do_tcsetattr(message *m_ptr, struct fproc * slp)
+{
+  struct termios termios;
+  int r;
+
+  r = sys_vircopy((endpoint_t)m_ptr->POSITION, (vir_bytes)m_ptr->HIGHPOS, 
+		VFS_PROC_NR, (vir_bytes)&termios, sizeof(termios));
+  if (r != OK) return(r);
+  /* Copy new value of TOSTOP flag into session leader fproc */
+  if (termios.c_lflag & TOSTOP)
+	slp->fp_flags |= FP_TOSTOP;
+  else
+	slp->fp_flags &= ~FP_TOSTOP;
+  return OK;
+}
+
+/*===========================================================================*
  *				tty_bg_io				     *
  *===========================================================================*/
 static int
@@ -966,6 +989,10 @@ tty_io(endpoint_t task_nr, message *mess_ptr)
 		if (fp->fp_pgid != slp->fp_fg_pgid)
 			r = tty_bg_io(SIGTTIN);
 		break;
+	case DEV_WRITE_S:
+		if (fp->fp_pgid != slp->fp_fg_pgid && (slp->fp_flags&FP_TOSTOP))
+			r = tty_bg_io(SIGTTOU);
+		break;
 	case DEV_IOCTL_S:
 		if (fp->fp_pgid != slp->fp_fg_pgid
 		  && _MINIX_IOCTL_IOW(mess_ptr->ioctl_request))
@@ -983,6 +1010,11 @@ tty_io(endpoint_t task_nr, message *mess_ptr)
 		case TIOCSPGRP:
 			r = do_tcsetpgrp(mess_ptr, slp);
 			revive_now_fg(slp->fp_fg_pgid);
+			break;
+
+		case TCSETS:
+			do_tcsetattr_sesldr(mess_ptr, slp);
+			/* ignore any error */
 			break;
 
 		default: break;
