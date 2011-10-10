@@ -37,8 +37,10 @@
 #include <sys/featuretest.h>
 
 /* compile-time symbolic constants */
+#ifndef __minix
 #define	_POSIX_JOB_CONTROL	1
 				/* implementation supports job control */
+#endif
 
 /*
  * According to POSIX 1003.1:
@@ -94,8 +96,10 @@
 #define	_POSIX_FSYNC			1
 					/* support IPv6 */
 #define	_POSIX_IPV6			0
+#ifndef __minix
 					/* job control is available */
 #define	_POSIX_JOB_CONTROL		1
+#endif
 					/* memory mapped files */
 #define	_POSIX_MAPPED_FILES		1
 					/* memory locking whole address space */
