@@ -35,7 +35,6 @@ FORWARD _PROTOTYPE (void zombify, (struct mproc *rmp) );
 FORWARD _PROTOTYPE (void check_parent, (struct mproc *child,
 	int try_cleanup) );
 FORWARD _PROTOTYPE (void tell_parent, (struct mproc *child) );
-FORWARD _PROTOTYPE (void tell_parent_untraced, (struct mproc *child) );
 FORWARD _PROTOTYPE (void tell_tracer, (struct mproc *child) );
 FORWARD _PROTOTYPE (void tracer_died, (struct mproc *child) );
 FORWARD _PROTOTYPE (void cleanup, (register struct mproc *rmp) );
@@ -511,6 +510,9 @@ PUBLIC int do_waitpid()
 		return(0);    /* parent does not want to wait */
 	}
 	mp->mp_flags |= WAITING;	     /* parent wants to wait */
+	if (options & WUNTRACED) {
+		mp->mp_flags |= WAITING_UNTRC; /* also stopping signals */
+	}
 	mp->mp_wpid = (pid_t) pidarg;	     /* save pid for later */
 	return(SUSPEND);		     /* do not reply, let it wait */
   } else {
@@ -522,9 +524,10 @@ PUBLIC int do_waitpid()
 /*===========================================================================*
  *				wait_test				     *
  *===========================================================================*/
-PUBLIC int wait_test(rmp, child)
+PUBLIC int wait_test(rmp, child, waiting_flag)
 struct mproc *rmp;			/* process that may be waiting */
 struct mproc *child;			/* process that may be waited for */
+int waiting_flag;			/* WAITING or WAITING_UNTRC */
 {
 /* See if a parent or tracer process is waiting for a child process.
  * A tracer is considered to be a pseudo-parent.
@@ -533,7 +536,7 @@ struct mproc *child;			/* process that may be waited for */
   pid_t pidarg;
 
   pidarg = rmp->mp_wpid;		/* who's being waited for? */
-  parent_waiting = rmp->mp_flags & WAITING;
+  parent_waiting = rmp->mp_flags & waiting_flag;
   right_child =				/* child meets one of the 3 tests? */
   	(pidarg == -1 || pidarg == child->mp_pid ||
   	 -pidarg == child->mp_procgrp);
@@ -564,7 +567,7 @@ struct mproc *rmp;
 	t_mp = &mproc[rmp->mp_tracer];
 
 	/* Do not bother sending SIGCHLD signals to tracers. */
-	if (!wait_test(t_mp, rmp))
+	if (!wait_test(t_mp, rmp, WAITING))
 		return;
 
 	tell_tracer(rmp);
@@ -600,7 +603,7 @@ int try_cleanup;			/* clean up the child when done? */
 	 * be assigned to INIT and rechecked shortly after. Do nothing.
 	 */
   }
-  else if (wait_test(p_mp, child)) {
+  else if (wait_test(p_mp, child, WAITING)) {
 	tell_parent(child);
 
 	/* The 'try_cleanup' flag merely saves us from having to be really
@@ -637,7 +640,7 @@ register struct mproc *child;	/* tells which process is exiting */
   exitstatus = (child->mp_exitstatus << 8) | (child->mp_sigstatus & 0377);
   parent->mp_reply.reply_res2 = exitstatus;
   setreply(child->mp_parent, child->mp_pid);
-  parent->mp_flags &= ~WAITING;		/* parent no longer waiting */
+  parent->mp_flags &= ~(WAITING|WAITING_UNTRC);	/* parent no longer waiting */
   child->mp_flags &= ~ZOMBIE;		/* child no longer a zombie */
   child->mp_flags |= TOLD_PARENT;	/* avoid informing parent twice */
 }
@@ -645,7 +648,7 @@ register struct mproc *child;	/* tells which process is exiting */
 /*===========================================================================*
  *				tell_parent_untraced			     *
  *===========================================================================*/
-PRIVATE void tell_parent_untraced(
+PUBLIC void tell_parent_untraced(
 register struct mproc *child)	/* tells which process is stopped */
 {
   int exitstatus, mp_parent;
@@ -666,7 +669,7 @@ register struct mproc *child)	/* tells which process is stopped */
   exitstatus = (child->mp_stoppingsig << 8) | 0177;
   parent->mp_reply.reply_res2 = exitstatus;
   setreply(child->mp_parent, child->mp_pid);
-  parent->mp_flags &= ~WAITING;		/* parent no longer waiting */
+  parent->mp_flags &= ~(WAITING|WAITING_UNTRC);	/* parent no longer waiting */
   child->mp_stoppingsig = 0;		/* avoid informing parent twice */
 }
 
@@ -689,7 +692,7 @@ struct mproc *child;			/* tells which process is exiting */
   exitstatus = (child->mp_exitstatus << 8) | (child->mp_sigstatus & 0377);
   tracer->mp_reply.reply_res2 = exitstatus;
   setreply(child->mp_tracer, child->mp_pid);
-  tracer->mp_flags &= ~WAITING;		/* tracer no longer waiting */
+  tracer->mp_flags &= ~(WAITING|WAITING_UNTRC);	/* tracer no longer waiting */
   child->mp_flags &= ~TRACE_ZOMBIE;	/* child no longer zombie to tracer */
   child->mp_flags |= ZOMBIE;		/* child is now zombie to parent */
 }

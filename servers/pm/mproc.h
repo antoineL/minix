@@ -88,4 +88,5 @@ EXTERN struct mproc {
 #define DELAY_CALL	0x20000	/* waiting for call before sending signal */
 #define PM_SCHEDULED	0x40000 /* this process is scheduled by PM */
 #define JOBCTL_STOPPED	0x80000	/* set if process stopped by job control */
+#define WAITING_UNTRC  0x100000	/* set by WAITPID syscall, WUNTRACED option */
 

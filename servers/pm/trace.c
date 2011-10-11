@@ -258,10 +258,11 @@ int signo;
   if (r != OK) panic("sys_trace failed: %d", r);
  
   rmp->mp_flags |= STOPPED;
-  if (wait_test(rpmp, rmp)) {
+  if (wait_test(rpmp, rmp, WAITING)) {
 	(void) sigdelset(&rmp->mp_sigtrace, signo);
 
-	rpmp->mp_flags &= ~WAITING;	/* parent is no longer waiting */
+	/* parent is no longer waiting */
+	rpmp->mp_flags &= ~(WAITING|WAITING_UNTRC);
 	rpmp->mp_reply.reply_res2 = 0177 | (signo << 8);
 	setreply(rmp->mp_tracer, rmp->mp_pid);
   }

@@ -490,9 +490,21 @@ int ksig;			/* non-zero means signal comes from kernel  */
 /* FIXME: consider sys_delay_stop */
 	if ((r = sys_stop(rmp->mp_endpoint)) != OK)
 	  	panic("sys_stop failed: %d", r);
-	rmp->mp_flags |= JOBCTL_STOPPED;
-	rmp->mp_stoppingsig = signo;
-	/* Do not bother signalling the parent with SIGCHLD */
+	if (! (rmp->mp_flags & JOBCTL_STOPPED) ) {
+		register struct mproc *rpmp;
+
+		rmp->mp_flags |= JOBCTL_STOPPED;
+		rmp->mp_stoppingsig = signo;
+
+		if (rmp->mp_parent <= 0)
+			panic("sig_proc`STOP: bad value in mp_parent: %d",
+					rmp->mp_parent);
+		rpmp = &mproc[rmp->mp_parent];
+		if (wait_test(rpmp, rmp, WAITING_UNTRC))
+			/* parent was waiting with WUNTRACED option: */
+			tell_parent_untraced(rmp);
+		/* We ought to signal the parent with SIGCHLD... */
+	}
 	return;
   }
 #endif
@@ -789,7 +801,7 @@ int signo;			/* signal to send to process (1 to _NSIG-1) */
 
   /* Was the process suspended in PM? Then interrupt the blocking call. */
   if (rmp->mp_flags & (PAUSED | WAITING | SIGSUSPENDED)) {
-	rmp->mp_flags &= ~(PAUSED | WAITING | SIGSUSPENDED);
+	rmp->mp_flags &= ~(PAUSED | WAITING | WAITING_UNTRC | SIGSUSPENDED);
 
 	setreply(slot, EINTR);
   }

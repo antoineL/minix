@@ -36,7 +36,9 @@ _PROTOTYPE( void exit_proc, (struct mproc *rmp, int exit_status,
 	int dump_core)							);
 _PROTOTYPE( void exit_restart, (struct mproc *rmp, int dump_core)	);
 _PROTOTYPE( int do_waitpid, (void)					);
-_PROTOTYPE( int wait_test, (struct mproc *rmp, struct mproc *child)	);
+_PROTOTYPE( void tell_parent_untraced, (struct mproc *child)		);
+_PROTOTYPE( int wait_test, (struct mproc *rmp, struct mproc *child,
+				int waiting_flag)			);
 
 /* getset.c */
 _PROTOTYPE( int do_get, (void)						);
