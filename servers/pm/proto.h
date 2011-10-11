@@ -29,7 +29,8 @@ int do_exit(void);
 void exit_proc(struct mproc *rmp, int exit_status, int dump_core);
 void exit_restart(struct mproc *rmp, int dump_core);
 int do_waitpid(void);
-int wait_test(struct mproc *rmp, struct mproc *child);
+void tell_parent_untraced(struct mproc *child);
+int wait_test(struct mproc *rmp, struct mproc *child, int waiting_flag);
 
 /* getset.c */
 int do_get(void);
