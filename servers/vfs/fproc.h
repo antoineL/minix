@@ -41,12 +41,8 @@ EXTERN struct fproc {
   char fp_execced;		/* true if proc has exec()ced after fork */
   pid_t fp_pid;			/* process id */
   pid_t fp_pgid;		/* process group id */
-#define SLPROCPTR
-#ifdef SLPROCPTR
   struct fproc * fp_slproc;	/* ptr to session leader */
-#else
-  pid_t fp_sid;			/* session id */
-#endif
+  pid_t fp_fg_pgid;		/* foreground process group id */
   fd_set fp_cloexec_set;	/* bit map for POSIX Table 6-2 FD_CLOEXEC */
   endpoint_t fp_endpoint;	/* kernel endpoint number of this process */
 } fproc[NR_PROCS];

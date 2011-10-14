@@ -522,12 +522,8 @@ PRIVATE void free_proc(struct fproc *exiter, int flags)
   }
 
   /* Exit done. Mark slot as free. */
-#ifdef SLPROCPTR
-  fp->fp_pid = fp->fp_pgid = PID_FREE;
+  fp->fp_pid = fp->fp_pgid = fp->fp_fg_pgid = PID_FREE;
   fp->fp_slproc = NULL;
-#else
-  fp->fp_pid = fp->fp_pgid = fp->fp_sid = PID_FREE;
-#endif
 
   SANITYCHECK;
 }
