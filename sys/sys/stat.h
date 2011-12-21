@@ -214,6 +214,15 @@ struct minix_prev_stat {
 
 #endif /* _NETBSD_SOURCE */
 
+#if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
+    defined(_NETBSD_SOURCE)
+/*
+ * Special values for utimensat and futimens
+ */
+#define	UTIME_NOW	((1 << 30) - 1)
+#define	UTIME_OMIT	((1 << 30) - 2)
+#endif
+
 #if defined(__minix)
 #include <machine/vmparam.h>
 /* Convenient constant to use when st_blocksize field is required. */
