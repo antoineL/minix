@@ -1,7 +1,7 @@
 /* This file contains a few general purpose utility routines.
  *
  * The entry points into this file are
- *   clock_time:  ask the clock task for the real time
+ *   clock_timespec: ask the clock task for the real time
  *   copy:	  copy a block of data
  *   fetch_name:  go get a path name from user space
  *   no_sys:      reject a system call that FS does not handle
@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <time.h>
 #include "file.h"
 #include "fproc.h"
 #include "param.h"
@@ -141,9 +142,9 @@ int isokendpt_f(char *file, int line, endpoint_t endpoint, int *proc,
 
 
 /*===========================================================================*
- *				clock_time				     *
+ *				clock_timespec				     *
  *===========================================================================*/
-time_t clock_time()
+struct timespec clock_timespec(void)
 {
 /* This routine returns the time in seconds since 1.1.1970.  MINIX is an
  * astrophysically naive system that assumes the earth rotates at a constant
@@ -151,14 +152,19 @@ time_t clock_time()
  */
 
   register int r;
+  struct timespec tv;
   clock_t uptime;
   time_t boottime;
 
   r = getuptime2(&uptime, &boottime);
   if (r != OK)
-	panic("clock_time err: %d", r);
+	panic("clock_timespec err: %d", r);
 
-  return( (time_t) (boottime + (uptime/system_hz)));
+  tv.tv_sec = (time_t) (boottime + (uptime/system_hz));
+  /* We do not want to overflow, and system_hz can be as high as 50kHz */
+  assert(system_hz < LONG_MAX/40000);
+  tv.tv_nsec = (uptime%system_hz) * 40000 / system_hz * 25000;
+  return tv;
 }
 
 /*===========================================================================*
