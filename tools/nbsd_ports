@@ -42,3 +42,12 @@ usr.bin/bzip2recover	src/usr.bin/bzip2recover
 libexec/makewhatis	src/libexec/makewhatis
 dist/bzip2		src/dist/bzip2
 share/zoneinfo		src/share/zoneinfo
+boot/mbr		src/sys/arch/i386/stand/mbr
+boot/mbr/gpt		src/sys/arch/i386/stand/mbr/gpt
+boot/mbr/mbr		src/sys/arch/i386/stand/mbr/mbr
+boot/mbr/mbr_bootsel	src/sys/arch/i386/stand/mbr/mbr_bootsel
+boot/mbr/mbr_com0	src/sys/arch/i386/stand/mbr/mbr_com0
+boot/mbr/mbr_com0_9600	src/sys/arch/i386/stand/mbr/mbr_com0_9600
+boot/mbr/mbr_ext	src/sys/arch/i386/stand/mbr/mbr_ext
+boot/mbr/mbr_gpt	src/sys/arch/i386/stand/mbr/mbr_gpt
+boot/mbr/mbr_gpt_com0	src/sys/arch/i386/stand/mbr/mbr_gpt_com0

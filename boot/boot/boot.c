@@ -332,8 +332,8 @@ int getch(void)
 
 #define get_tick()		((u32_t) time(nil))
 #define clear_screen()		printf("[clear]")
-#define boot_device(device)	printf("[boot %s]\n", device)
-#define ctty(line)		printf("[ctty %s]\n", line)
+#define boot_device(device)	printf("[boot %s]\n", (device))
+#define ctty(line)		printf("[ctty %s]\n", (char*)((line) || "") )
 #define bootminix()		(void)(run_trailer() && printf("[boot]\n"))
 #define off()			printf("[off]")
 

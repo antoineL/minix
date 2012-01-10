@@ -2,8 +2,6 @@
 
 .include <bsd.own.mk>
 
-MAKE=make
-
 usage:
 	@echo "" 
 	@echo "Master Makefile for MINIX commands and utilities." 
@@ -52,12 +50,16 @@ libraries: includes
 
 MKHEADERSS=/usr/pkg/gcc*/libexec/gcc/*/*/install-tools/mkheaders
 gnu-includes: includes
-	SHELL=/bin/sh; for d in $(MKHEADERSS); do if [ -f $$d ] ; then sh -e $$d ; fi; done
+	SHELL=/bin/sh; for d in $(MKHEADERSS); do if [ -f $$d ] ; then sh -e $$d -v ; fi; done
 
 elf-libraries: includes
 	$(MAKE) -C lib build_elf
 
+.if ${COMPILER_TYPE} == "ack"
 commands: includes libraries
+.else
+commands: includes elf-libraries
+.endif
 	$(MAKE) -C commands all
 	$(MAKE) -C bin all
 	$(MAKE) -C sbin all
@@ -66,7 +68,7 @@ commands: includes libraries
 	$(MAKE) -C usr.sbin all
 
 dep-all:
-	$(MAKE) CC=cc -C boot dependall
+	$(MAKE) -C boot dependall
 	$(MAKE) -C commands dependall
 	$(MAKE) -C bin dependall
 	$(MAKE) -C sbin dependall
@@ -84,7 +86,7 @@ etcforce:
 	$(MAKE) -C etc installforce
 
 all:
-	$(MAKE) CC=cc -C boot all
+	$(MAKE) -C boot all
 	$(MAKE) -C commands all
 	$(MAKE) -C bin all
 	$(MAKE) -C sbin all
@@ -94,7 +96,7 @@ all:
 	$(MAKE) -C tools all
 
 install:
-	$(MAKE) CC=cc -C boot install
+	$(MAKE) -C boot install
 	$(MAKE) -C libexec install
 	$(MAKE) -C man install makedb
 	$(MAKE) -C commands install
