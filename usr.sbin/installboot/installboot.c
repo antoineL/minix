@@ -107,6 +107,12 @@ main(int argc, char *argv[])
 	const char	*op;
 	ib_flags	unsupported_flags;
 
+	/* XXX Temp stuff for MINIX until fdisk is ported */
+	if ((4 <= argc && argc <= 6) && isoption(argv[1], "-master")) {
+		install_master(argv[2], argv[3], argv + 4);
+		exit(0);
+	}
+
 	setprogname(argv[0]);
 	params = &installboot_params;
 	memset(params, 0, sizeof(*params));

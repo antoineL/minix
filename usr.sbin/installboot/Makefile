@@ -5,7 +5,7 @@
 
 PROG=	installboot
 MAN=	installboot.8
-SRCS=	installboot.c sum.c machines.c fstypes.c
+SRCS=	installboot.c sum.c machines.c fstypes.c install_master.c
 
 
 ARCH_XLAT= amd64-i386.c
