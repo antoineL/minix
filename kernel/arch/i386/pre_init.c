@@ -13,7 +13,6 @@
 #include <minix/com.h>
 #include <sys/param.h>
 #include <machine/partition.h>
-#include "../../../boot/image.h"
 #include "string.h"
 #include "arch_proto.h"
 #include "libexec.h"
@@ -147,6 +146,8 @@ PRIVATE void mb_print(char *str)
 	while (*str) {
 		if (*str == '\n') {
 			str++;
+			while (print_col < MULTIBOOT_CONSOLE_COLS)
+				mb_put_char(' ', print_line, print_col++);
 			print_line++;
 			print_col = 0;
 			continue;
@@ -283,10 +284,10 @@ PRIVATE void get_parameters(multiboot_info_t *mbi)
 			value_i = 0;
 			while (*p == ' ') p++;
 			if (!*p) break;
-			while (*p && *p != '=' && var_i < GRAN - 1) 
+			while (*p && *p != '=' && *p != ' ' && var_i < GRAN - 1) 
 				var[var_i++] = *p++ ;
 			var[var_i] = 0;
-			p++; /* skip '=' */
+			if (*p++ != '=') continue; /* skip if not name=value */
 			while (*p && *p != ' ' && value_i < GRAN - 1) 
 				value[value_i++] = *p++ ;
 			value[value_i] = 0;
@@ -298,13 +299,28 @@ PRIVATE void get_parameters(multiboot_info_t *mbi)
 
 PRIVATE int mb_clear_memrange(phys_bytes start, phys_bytes end)
 {
-	int empty = 0;
-	int i;
+	u32_t empty = 0;
 
-	/* FIXME: use faster function */
-	for (i = start; i < end; i++)
-		phys_copy((phys_bytes)&empty, i, 1);
-
+	if (start >= end )
+		return 0;
+	if (start & 1) {
+		phys_copy((phys_bytes)&empty, start, 1);
+		start += 1;
+	}
+	if (start & 2 && start+2 <= end ) {
+		phys_copy((phys_bytes)&empty, start, 2);
+		start += 2;
+	}
+	if (end & 1) {
+		phys_copy((phys_bytes)&empty, end, 1);
+		end -= 1;
+	}
+	if (end & 2 && start <= end-2 ) {
+		phys_copy((phys_bytes)&empty, end, 2);
+		end -= 2;
+	}
+	/* Now both start and end are aligned, or the job is done. */
+	phys_memset(start, 0, end-start);
 	return 0;
 }
 
@@ -312,7 +328,7 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 {
 	multiboot_module_t *mb_module_info;
 	multiboot_module_t *module;
-	u32_t mods_count = mbi.mods_count;
+	u32_t mods_count;
 	int r, i;
 	vir_bytes text_vaddr, text_filebytes, text_membytes;
 	vir_bytes data_vaddr, data_filebytes, data_membytes;
@@ -349,11 +365,21 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	mb_print_hex(pc);
 #endif
 
+	mods_count = (mbi.flags & MULTIBOOT_INFO_MODS) ? mbi.mods_count : 0;
 	mb_module_info = ((multiboot_module_t *)mbi.mods_addr);
 	module = &mb_module_info[0];
 
 	/* Load boot image services into memory and save memory map */
+#if 1
 	for (i = 0; module < &mb_module_info[mods_count]; ++module, ++i) {
+#else
+	/* Start with top-most module to avoid overwriting.
+	 * This assume that modules are loaded by multiboot loader lower
+	 * than the physical address they are linked at...
+	 */
+	for (i = mods_count; i > 0;  ) {
+	    module = &mb_module_info[--i];
+#endif
 	    r = read_header_elf((const char *)module->mod_start,
 				&text_vaddr, &text_paddr,
 				&text_filebytes, &text_membytes,
