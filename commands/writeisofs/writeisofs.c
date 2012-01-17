@@ -11,7 +11,6 @@
 #include <dirent.h>
 #include <assert.h>
 #include <ctype.h>
-#include <a.out.h>
 #include <machine/partition.h>
 
 #include <sys/stat.h>
@@ -115,9 +114,9 @@ struct bc_validation {
 
 #define BOOTMEDIA_UNSPECIFIED	-1
 #define BOOTMEDIA_NONE		0
-#define BOOTMEDIA_120M		1
-#define BOOTMEDIA_144M		2
-#define BOOTMEDIA_288M		3
+#define BOOTMEDIA_1200K		1
+#define BOOTMEDIA_1440K		2
+#define BOOTMEDIA_2880K		3
 #define BOOTMEDIA_HARDDISK	4
 
 struct bc_initial {
@@ -777,7 +776,7 @@ writebootimage(char *bootimage, int bootfd, int fd, int *currentsector,
 	static unsigned char buf[1024*64], *addr;
 	ssize_t written = 0, rest;
 	int virtuals, rem;
-	struct exec hdr;
+	struct stat sb;
 	struct bap {
 		off_t sector;
 		int length;
@@ -785,28 +784,29 @@ writebootimage(char *bootimage, int bootfd, int fd, int *currentsector,
 
 	bap[1].length = bap[1].sector = 0;
 
-	Read(bootfd, &hdr, A_MINHDR);
-
-	if(hdr.a_magic[0] != A_MAGIC0) {
-		fprintf(stderr, "bad magic in a.out of boot image.\n");
+	if (fstat(bootfd, &sb) < 0) {
+		perror("stat boot image");
 		exit(1);
 	}
-
-	if(hdr.a_hdrlen > sizeof(hdr)) {
-		fprintf(stderr, "surprisingly large header in boot image.\n");
-		exit(1);
-	}
-
-	/* read rest of a.out header. */
-	Read(bootfd, (char *) &hdr + A_MINHDR, hdr.a_hdrlen - A_MINHDR);
-
-	/* copy text+data */
-	rem = hdr.a_text + hdr.a_data;
+	rem = sb.st_size;
 
 	while(rem > 0) {
 		int want;
 		want = rem < sizeof(buf) ? rem : sizeof(buf);
 		Read(bootfd, buf, want);
+		if (written == 0) {
+			/* check some properties at beginning. */
+			if (buf[0] == 1 && buf[1] == 3) {
+				fprintf(stderr, "boot image %s is an a.out executable\n",
+						bootimage);
+				exit(1);
+			}
+			if (rem >= VIRTUAL_SECTOR
+			  && (buf[510] != 0x55 || buf[511] != 0xaa) ) {
+				fprintf(stderr, "invalid boot sector (bad magic.)\n");
+				exit(1);
+			}
+		}
 		written += Write(fd, buf, want);
 		rem -= want;
 	}
@@ -924,7 +924,7 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	while ((ch = getopt(argc, argv, "a:b:s:Rb:hl:nf")) != -1) {
+	while ((ch = getopt(argc, argv, "a:b:s:Rb:hl:nfF")) != -1) {
 		switch(ch) {
 			case 's':
 				if(optarg[0] != '0' || optarg[1] != 'x') {
@@ -941,7 +941,10 @@ main(int argc, char *argv[])
 				bootmedia= BOOTMEDIA_NONE;
 				break;
 			case 'f':
-				bootmedia= BOOTMEDIA_144M;
+				bootmedia= BOOTMEDIA_1440K;
+				break;
+			case 'F':
+				bootmedia= BOOTMEDIA_2880K;
 				break;
 			case 'a':
 				if(!(appendsectorinfo = strdup(optarg)))
@@ -950,7 +953,7 @@ main(int argc, char *argv[])
 			case 'l':
 				label = optarg;
 				break;
-			case 'r':
+			case 'R':
 				remove_after = 1;
 				break;
 			case 'b':
@@ -969,7 +972,7 @@ main(int argc, char *argv[])
 	/* Args check */
 
 	if(argc != 2) {
-		fprintf(stderr, "usage: %s [-l <label>] [-b <bootimage> [-n] [-f] [-h] [-s <bootsegment>] [ -a <appendfile> ] <dir> <isofile>\n",
+		fprintf(stderr, "usage: %s [-l <label>] [-b <bootimage> [-n|-f|-F|-h] [-s <bootsegment>] [ -a <appendfile> ] <dir> <isofile>\n",
 			prog);
 		return 1;
 	}
@@ -1169,8 +1172,8 @@ main(int argc, char *argv[])
 			writebootimage(bootimage, bootfd,
 				fd, &currentsector, appendsectorinfo, &root);
 
-			close(bootfd);
 		}
+		close(bootfd);
 	}
 
 	fprintf(stderr, " * all ok\n");
