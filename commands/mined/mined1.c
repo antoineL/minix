@@ -1583,6 +1583,7 @@ int c;
 #endif
 #endif
 #if (CHIP == INTEL)
+	case '@': return(MA);
 	case 'G': return(FS);
 	case 'S': return(SR);
 	case 'T': return(SF);
