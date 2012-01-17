@@ -5,7 +5,8 @@ exec >/dev/log
 exec 2>/dev/log
 exec </dev/null
 
-FSCK=/bin/fsck.mfs
+FSCK_BASE=/bin/fsck.
+FsType=mfs
 ACPI=/sbin/acpi
 if [ -e $ACPI -a -n "`sysenv acpi`" ]
 then
@@ -68,10 +69,18 @@ then
 	loadramdisk "$ramimagename" || echo "WARNING: loadramdisk failed"
 fi
 echo "Root device name is $rootdevname"
-if [ -e $FSCK ]
-then	$FSCK -p $rootdevname
+
+if /bin/sysenv rootfstype >/dev/null
+then
+	FsType=`/bin/sysenv rootfstype`
 fi
-/bin/newroot $bin_img"$rootdevname"
+if [ -x "$FSCK_BASE$FsType" ]
+then	$FSCK_BASE$FsType -p $rootdevname
+fi
+/bin/mount -n -t $FsType $bin_img "$rootdevname" / >/dev/null ||
+		{ echo "mount -t $FsType has failed"; \
+		  /bin/newroot $bin_img"$rootdevname" || exit 1; }
+
 /bin/mount -e -n -t procfs none /proc || echo "WARNING: couldn't mount procfs"
 
 exec /bin/sh /etc/rc "$@"

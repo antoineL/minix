@@ -7,7 +7,7 @@ PROGRAMS= at_wini bios_wini cdprobe dev2name floppy loadramdisk mount \
 SCRIPTS=newroot
 
 .if ${MKSMALL} != "yes"
-PROGRAMS+= ahci ext2
+PROGRAMS+= ahci ext2 fsck.ext2
 .endif
 
 .if ${MKACPI} != "no"
@@ -103,6 +103,12 @@ fsck.mfs:  ../../commands/fsck.mfs/fsck.mfs
 
 ../../commands/fsck.mfs/fsck.mfs:
 	$(MAKE) -C ../../commands/fsck.mfs
+
+fsck.ext2: ../../sbin/fsck_ext2fs/fsck_ext2fs
+	install ${STRIPFLAG} ../../sbin/fsck_ext2fs/fsck_ext2fs $@
+
+../../sbin/fsck_ext2fs/fsck_ext2fs:
+	$(MAKE) -C ../../sbin/fsck_ext2fs
 
 newroot:  ../../commands/newroot/newroot.sh
 	install ${STRIPFLAG} ../../commands/$@/$@.sh $@

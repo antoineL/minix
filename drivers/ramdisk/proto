@@ -1,5 +1,5 @@
 boot 
-840 540
+896 540
 d--755 0 0
 	bin d--755 0 0
 		cdprobe ---755 0 0 cdprobe
@@ -11,6 +11,7 @@ d--755 0 0
 		service ---755 0 0 service
 		sysenv ---755 0 0 sysenv
 		fsck.mfs ---755 0 0 fsck.mfs
+		fsck.ext2 ---755 0 0 fsck.ext2
 	$
 	sbin d--755 0 0
 		@ACPI@
