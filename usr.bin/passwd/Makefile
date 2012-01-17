@@ -3,7 +3,9 @@
 
 .include <bsd.own.mk>
 
+.ifndef __MINIX # not yet supported on MINIX (see nbsd_libc/minix-config.inc)
 USE_FORT?= yes	# setuid
+.endif
 PROG=	passwd
 SRCS=	local_passwd.c passwd.c
 MAN=	passwd.1
