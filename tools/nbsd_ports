@@ -43,6 +43,7 @@ usr.bin/bzip2recover	src/usr.bin/bzip2recover
 libexec/makewhatis	src/libexec/makewhatis
 dist/bzip2		src/dist/bzip2
 share/zoneinfo		src/share/zoneinfo
+boot/cdboot		src/sys/arch/i386/stand/cdboot
 boot/mbr		src/sys/arch/i386/stand/mbr
 boot/mbr/gpt		src/sys/arch/i386/stand/mbr/gpt
 boot/mbr/mbr		src/sys/arch/i386/stand/mbr/mbr

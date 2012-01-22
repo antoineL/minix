@@ -5,8 +5,8 @@
 # 16-bit code; various boot blocks
 SUBDIR= bootblock cdbootblock
 
-# various MBR blocks from NetBSD, ELF-compatible
-SUBDIR+= mbr
+# various boot blocks from NetBSD, ELF-compatible
+SUBDIR+= mbr cdboot
 
 # 16-bit code; needs the i86 ACK library
 SUBDIR+= boot
