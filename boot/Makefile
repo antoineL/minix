@@ -15,6 +15,6 @@ SUBDIR+= mbr
 SUBDIR+= boot
 
 # Userland MINIX code
-SUBDIR+= installboot edparams
+SUBDIR+= edparams
 
 .include <bsd.subdir.mk>
