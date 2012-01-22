@@ -50,16 +50,12 @@ libraries: includes
 
 MKHEADERSS=/usr/pkg/gcc*/libexec/gcc/*/*/install-tools/mkheaders
 gnu-includes: includes
-	SHELL=/bin/sh; for d in $(MKHEADERSS); do if [ -f $$d ] ; then sh -e $$d -v ; fi; done
+	SHELL=/bin/sh; for d in $(MKHEADERSS); do if [ -f $$d ] ; then sh -e $$d ; fi; done
 
 elf-libraries: includes
 	$(MAKE) -C lib build_elf
 
-.if ${COMPILER_TYPE} == "ack"
 commands: includes libraries
-.else
-commands: includes elf-libraries
-.endif
 	$(MAKE) -C commands all
 	$(MAKE) -C bin all
 	$(MAKE) -C sbin all

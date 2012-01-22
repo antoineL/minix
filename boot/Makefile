@@ -3,10 +3,7 @@
 .include <bsd.own.mk>
 
 # 16-bit code; various boot blocks
-SUBDIR= masterboot bootblock cdbootblock
-
-# Supplementary MBR code (alternate to masterboot)
-SUBDIR+= jumpboot
+SUBDIR= bootblock cdbootblock
 
 # various MBR blocks from NetBSD, ELF-compatible
 SUBDIR+= mbr
