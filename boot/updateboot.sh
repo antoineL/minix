@@ -2,8 +2,14 @@
 set -e
 
 MDEC=/usr/mdec
-BOOT=/boot/boot
+BOOT=/boot
+BOOTXX=bootxx_minixfs3
 ROOT=`printroot -r`
+
+if [ ! -b "$ROOT" ]
+then	echo root device $ROOT not found
+	exit 1
+fi
 
 if [ ! -b "$ROOT" ]
 then	echo root device $ROOT not found
@@ -18,11 +24,14 @@ then	echo Aborting.
 	exit 1
 fi
 
+if [ ! "$CC" ]
+then	export CC=clang
+fi
 make install || true
 
-echo Installing boot monitor into $BOOT.
+echo Installing boot loader into $BOOT.
 cp $MDEC/boot $BOOT
 
-echo Patching position of $BOOT into $ROOT.
-installboot -d "$ROOT" $MDEC/bootblock $BOOT
+echo Patching 1st stage $BOOTXX into $ROOT.
+installboot "$ROOT" $MDEC/$BOOTXX
 sync

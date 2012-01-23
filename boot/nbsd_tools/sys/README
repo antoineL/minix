@@ -1,0 +1,6 @@
+This directory is here ONLY for the untouched osrelease.sh script
+to perform its duty, without changing all the MINIX sys/param.h...
+
+This is clearly a temporary solution.
+
+AL 20120123

@@ -3,9 +3,9 @@
 .include <bsd.own.mk>
 
 # various boot blocks from NetBSD, ELF-compatible
-SUBDIR+= mbr cdboot
+SUBDIR+= mbr cdboot bootxx
 
-# 16-bit code; needs the i86 ACK library
+# boot loader from NetBSD
 SUBDIR+= boot
 
 .include <bsd.subdir.mk>
