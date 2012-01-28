@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <limits.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -63,7 +64,9 @@ struct mtab {	/* List of mounted devices from /etc/mtab. */
 
 struct mtab *searchtab(char *name);
 static void readmtab(const char *type);
-int df(const struct mtab *mt);
+int df_super(const struct mtab *mt);
+int df_statvfs(const struct mtab *mt);
+int (*df)(const struct mtab *) = df_super;
 bit_t bit_count(unsigned blocks, bit_t bits, int fd, int bs);
 
 int iflag= 0;	/* Focus on inodes instead of blocks. */
@@ -75,7 +78,7 @@ gid_t rgid, egid;
 
 void usage(void)
 {
-	fprintf(stderr, "Usage: df [-ikP] [-t type] [device]...\n");
+	fprintf(stderr, "Usage: df [-ikPS] [-t type] [device]...\n");
 	exit(1);
 }
 
@@ -96,6 +99,7 @@ int main(int argc, char *argv[])
   		case 'i':	iflag= 1;	break;
   		case 'k':	kflag= 1;	break;
   		case 'P':	Pflag= 1;	break;
+  		case 'S':	df= df_statvfs;	break;
   		case 't':
 			if (argc < 3) usage();
 			type= argv[2];
@@ -275,7 +279,7 @@ struct mtab *searchtab(char *name)
 /* One must be careful printing all these _t types. */
 #define L(n)	((long) (n))
 
-int df(const struct mtab *mt)
+int df_super(const struct mtab *mt)
 {
   int fd;
   bit_t i_count, z_count;
@@ -429,6 +433,79 @@ done:
 	);
   }
   close(fd);
+  return(0);
+}
+
+int df_statvfs(const struct mtab *mt)
+{
+  block_t totblocks, busyblocks;
+  int n, files;
+  struct statvfs svb;
+
+  if (!mt->mountpoint || !mt->mountpoint[0] || mt->mountpoint[0]=='?') {
+	fprintf(stderr, "df: %s mounted at %s: cannot identify mounting point\n",
+		mt->devname, mt->mountpoint ? mt->mountpoint : "(null)");
+	return(1);
+  }
+
+  /* Don't allow Joe User to df just any device. */
+  seteuid(euid);
+  setegid(egid);
+
+  if (statvfs(mt->mountpoint, &svb) < 0) {
+	fprintf(stderr, "df: error on statvfs on %s mounted at %s: %s\n",
+		mt->devname, mt->mountpoint, strerror(errno));
+	return(1);
+  }
+
+  busyblocks = (svb.f_blocks - svb.f_bfree) * (svb.f_bsize/512) / (unitsize/512);
+  totblocks = svb.f_blocks * (svb.f_bsize/512) / (unitsize/512);
+  files = svb.f_files - svb.f_ffree;
+
+  /* Print results. */
+  printf("%s", mt->devname);
+  n= strlen(mt->devname);
+  if (n > 15 && istty) { putchar('\n'); n= 0; }
+  while (n < 15) { putchar(' '); n++; }
+
+  if (!Pflag && !iflag) {
+	printf(" %9ld  %9ld  %9ld %3d%%   %3d%%   %s\n",
+		L(totblocks),				/* Blocks */
+		L(totblocks - busyblocks),		/* free */
+		L(busyblocks),				/* used */
+		percent(busyblocks, totblocks),		/* % */
+		percent(files, svb.f_files),		/* FUsed% */
+		mt->mountpoint				/* Mounted on */
+	);
+  }
+  if (!Pflag && iflag) {
+	printf(" %9ld  %9ld  %9ld %3d%%   %3d%%   %s\n",
+		L(svb.f_files),				/* Files */
+		L(svb.f_ffree),				/* free */
+		L(files),				/* used */
+		percent(files, svb.f_files),		/* FUsed% */
+		percent(busyblocks, totblocks),		/* BUsed% */
+		mt->mountpoint				/* Mounted on */
+	);
+  }
+  if (Pflag && !iflag) {
+	printf(" %9ld   %9ld  %9ld     %4d%%    %s\n",
+		L(totblocks),				/* Blocks */
+		L(busyblocks),				/* Used */
+		L(svb.f_bavail * (svb.f_bsize/512)/(unitsize/512)), /* Available */
+		percent(busyblocks, totblocks),		/* Capacity */
+		mt->mountpoint				/* Mounted on */
+	);
+  }
+  if (Pflag && iflag) {
+	printf(" %9ld   %9ld  %9ld     %4d%%    %s\n",
+		L(svb.f_files),				/* Inodes */
+		L(files),				/* IUsed */
+		L(svb.f_favail),			/* IAvail */
+		percent(files, svb.f_files),		/* Capacity */
+		mt->mountpoint				/* Mounted on */
+	);
+  }
   return(0);
 }
 
