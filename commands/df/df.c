@@ -35,6 +35,13 @@
 #include <servers/mfs/super.h>
 #undef printf
 
+#define SUPER_EXT2	0xEF53
+#define super_block ext2_super_block
+#define superblock ext2_superblock
+#include <servers/ext2/super.h>
+#undef  super_block
+#undef  superblock
+
 #if !__minix_vmd
 /* Map Minix-vmd names to Minix names. */
 #define v12_super_block		super_block
@@ -185,7 +192,8 @@ static void readmtab(const char *type)
 							  devname[0] != 0) {
 	if (strcmp(type, "dev") == 0) {
 		if (strcmp(version, "1") != 0 && strcmp(version, "2") != 0 &&
-		 	strcmp(version, "3") && strcmp(version, "MFSv3"))
+		 	strcmp(version, "3") && strcmp(version, "MFSv3") &&
+			strcmp(version, "ext2"))
 			continue;
 	} else {
 		if (strcmp(type, version) != 0) continue;
@@ -274,6 +282,7 @@ int df(const struct mtab *mt)
   block_t totblocks, busyblocks, offset;
   int n, block_size;
   struct v12_super_block super, *sp;
+  struct ext2_super_block *e2sp = (void*) &super;
 
   /* Don't allow Joe User to df just any device. */
   seteuid(*mt->mountpoint == 0 ? ruid : euid);
@@ -292,6 +301,15 @@ int df(const struct mtab *mt)
   }
 
   sp = &super;
+  if (e2sp->s_magic == SUPER_EXT2) {
+	/* Black magic! do not look too close */
+	block_size = 1024 << e2sp->s_log_block_size;
+	totblocks = e2sp->s_blocks_count;
+	busyblocks = totblocks - e2sp->s_free_blocks_count;
+	i_count = e2sp->s_inodes_count - e2sp->s_free_inodes_count;
+	super.s_ninodes = e2sp->s_inodes_count; /* effectively a no-op! */
+	goto done;
+  } else
   if (sp->s_magic != SUPER_V1 && sp->s_magic != SUPER_V2
       && sp->s_magic != SUPER_V3) {
 	fprintf(stderr, "df: %s: Not a valid file system\n", mt->devname);
@@ -361,6 +379,7 @@ int df(const struct mtab *mt)
   totblocks = (block_t) sp->s_zones << sp->s_log_zone_size;
   busyblocks = (block_t) z_count << sp->s_log_zone_size;
 #endif
+done:
 
   busyblocks = busyblocks * (block_size/512) / (unitsize/512);
   totblocks = totblocks * (block_size/512) / (unitsize/512);
@@ -395,7 +414,7 @@ int df(const struct mtab *mt)
 	printf(" %9ld   %9ld  %9ld     %4d%%    %s\n",
 		L(totblocks),				/* Blocks */
 		L(busyblocks),				/* Used */
-		totblocks - busyblocks,			/* Available */
+		L(totblocks - busyblocks),		/* Available */
 		percent(busyblocks, totblocks),		/* Capacity */
 		mt->mountpoint				/* Mounted on */
 	);
