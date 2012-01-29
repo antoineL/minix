@@ -20,7 +20,6 @@ SRCS+=	arch_do_vmctl.c \
 	io_outw.S \
 	klib.S \
 	klib16.S \
-	multiboot.S \
 	memory.c \
 	oxpcie.c \
 	protect.c \

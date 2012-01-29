@@ -116,9 +116,6 @@ _PROTOTYPE(void __switch_address_space, (struct proc * p,
 
 _PROTOTYPE(void refresh_tlb, (void));
 
-/* multiboot.c */
-_PROTOTYPE( void multiboot_init, (void)					);
-
 /* protect.c */
 struct tss_s {
   reg_t backlink;

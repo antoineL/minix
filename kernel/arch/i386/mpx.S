@@ -23,26 +23,7 @@
 
 #include "kernel/kernel.h" /* configures the kernel */
 
-/* sections */
-
 #include <machine/vm.h>
-
-#ifdef __ACK__
-.text
-begtext:
-#ifdef __ACK__
-.rom
-#else
-.data
-#endif
-begrom:
-.data
-begdata:
-.bss
-begbss:
-#endif
-
-#include "../../kernel.h"
 #include <minix/config.h>
 #include <minix/const.h>
 #include <minix/com.h>
@@ -70,10 +51,6 @@ IMPORT(mon_ds)
 IMPORT(switch_to_user)
 IMPORT(multiboot_init)
 
-/* Exported variables. */
-.globl	begbss
-.globl	begdata
-
 .text
 /*===========================================================================*/
 /*				MINIX					     */
@@ -82,74 +59,35 @@ IMPORT(multiboot_init)
 MINIX:
 /* this is the entry point for the MINIX kernel */
 
-	jmp _C_LABEL(multiboot_init)
+/* We were loaded as multiboot kernel. All segments are set up as flat */
+/* (base is logical 0) and cannot be reloaded until the GDT is set up. */
+/* EAX contains a magic number and EBX points to multiboot_info structure. */
+/* There is no possible return to monitor (mon_return stays 0.) */
+/* Note BSS is cleared. Also note that we are linked at our final address. */
+/* We need to set up GDT. */
+	mov	$_C_LABEL(gdt), %esi
+	lea	GDT_SELECTOR(%esi), %edi
+	movw	$(GDT_SIZE*DESC_SIZE), (%edi)
+	mov	%esi, DESC_BASE(%edi)
+	lgdt	(%edi)
 
-/* Multiboot header here*/
+/* Load segment registers. */
+	ljmp	$CS_SELECTOR, $6f
+6:
+	mov	$DS_SELECTOR, %ax
+	mov	%eax, %ds
 
-.balign 8
-
-multiboot_magic:
-	.long MULTIBOOT_HEADER_MAGIC
-multiboot_flags:
-	.long MULTIBOOT_FLAGS
-multiboot_checksum:
-	.long -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_FLAGS)
-	.long 0
-	.long 0
-	.long 0
-	.long 0
-	.long 0
-/* Video mode */
-multiboot_mode_type:
-	.long MULTIBOOT_VIDEO_MODE_EGA
-multiboot_width:
-	.long MULTIBOOT_CONSOLE_COLS
-multiboot_height:
-	.long MULTIBOOT_CONSOLE_LINES
-multiboot_depth:
-	.long 0
-
-.globl kernel_init
-kernel_init: /* after pre-init*/
-	push	%ebp
-	mov	%esp, %ebp
-	push	%esi
-	push	%edi
-	cmp	$0, 4(%ebp)	/* monitor return vector is */
-	je	noret	/* nonzero if return possible */
-	incl	_C_LABEL(mon_return)
-noret:
-	movl	%esp, _C_LABEL(mon_sp) /* save stack pointer for later return */
-
-/* Copy the monitor global descriptor table to the address space of kernel and */
-/* switch over to it.  Prot_init() can then update it with immediate effect. */
-
-	sgdt	_C_LABEL(gdt)+GDT_SELECTOR	/* get the monitor gdtr */
-	movl	_C_LABEL(gdt)+GDT_SELECTOR+2, %esi	/* absolute address of GDT */
-	mov	$_C_LABEL(gdt), %ebx	/* address of kernel GDT */
-	mov	$8*8, %ecx	/* copying eight descriptors */
-copygdt:
-	movb    %es:(%esi), %al
-	movb	%al, (%ebx)
-	inc	%esi
-	inc	%ebx
-	loop	copygdt
-	movl	_C_LABEL(gdt)+DS_SELECTOR+2, %eax /* base of kernel data */
-	and	$0x00FFFFFF, %eax	/* only 24 bits */
-	add	$_C_LABEL(gdt), %eax	/* eax = vir2phys(gdt) */
-	movl	%eax, _C_LABEL(gdt)+GDT_SELECTOR+2 /* set base of GDT */
-	lgdt	_C_LABEL(gdt)+GDT_SELECTOR	/* switch over to kernel GDT */
-
-/* Locate boot parameters, set up kernel segment registers and stack. */
-	mov	8(%ebp), %ebx	/* boot parameters offset */
-	mov	12(%ebp), %edx	/* boot parameters length */
-	mov	16(%ebp), %eax	/* address of a.out headers */
-	mov	%ds, %ax	/* kernel data */
 	mov	%ax, %es
 	mov	%ax, %fs
 	mov	%ax, %gs
 	mov	%ax, %ss
 	mov	$_C_LABEL(k_boot_stktop) - 4, %esp	/* set sp to point to the top of kernel stack */
+
+	push	%ebx
+	call	_C_LABEL(pre_init)
+	add	$4, %esp
+	mov	$MULTIBOOT_PARAM_BUF_SIZE, %edx
+	mov	$_C_LABEL(multiboot_param_buf), %ebx
 
 /* Save boot parameters into these global variables for i386 code */
 	movl	%edx, _C_LABEL(params_size)
@@ -185,6 +123,29 @@ csinit:
 	popf	/* esp, clear nested task and int enable */
 	jmp	_C_LABEL(main)	/* main() */
 
+/* Multiboot header here. Note that with ELF, it is not needed. */
+.balign 8
+
+multiboot_magic:
+	.long MULTIBOOT_HEADER_MAGIC
+multiboot_flags:
+	.long MULTIBOOT_FLAGS
+multiboot_checksum:
+	.long -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_FLAGS)
+	.long 0
+	.long 0
+	.long 0
+	.long 0
+	.long 0	/* XXX entry point... */
+/* Video mode */
+multiboot_mode_type:
+	.long MULTIBOOT_VIDEO_MODE_EGA
+multiboot_width:
+	.long MULTIBOOT_CONSOLE_COLS
+multiboot_height:
+	.long MULTIBOOT_CONSOLE_LINES
+multiboot_depth:
+	.long 0
 
 /*===========================================================================*/
 /*				interrupt handlers			     */
@@ -636,12 +597,6 @@ ENTRY(startup_ap_32)
 /*				data					     */
 /*===========================================================================*/
 
-#ifdef __ACK__
-.rom	/* Before the string table please */
-#else
-.data
-#endif
-.short	0x526F	/* this must be the first data entry (magic #) */
 .bss
 /*
  * the kernel stack
@@ -659,3 +614,7 @@ LABEL(k_stacks_start)
 LABEL(k_stacks_end)
 
 /* top of kernel stack */
+
+.bss
+LABEL(multiboot_param_buf)
+	.space	MULTIBOOT_PARAM_BUF_SIZE
