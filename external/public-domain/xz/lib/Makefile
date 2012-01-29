@@ -95,4 +95,8 @@ liblzma.pc:	${XZSRCDIR}/src/liblzma/liblzma.pc.in
 
 CLEANFILES+=	liblzma.pc
 
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
+
 .include <bsd.lib.mk>

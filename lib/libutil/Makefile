@@ -107,4 +107,8 @@ MLINKS+=stat_flags.3 string_to_flags.3
 MLINKS+=stat_flags.3 flags_to_string.3
 MLINKS+=snprintb.3 snprintb_m.3
 
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
+
 .include <bsd.lib.mk>

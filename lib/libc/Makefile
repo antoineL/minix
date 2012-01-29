@@ -172,3 +172,6 @@ SHLIB_SHFLAGS+=	-Wl,-z,initfirst
 SUBDIR+= pkgconfig
 .include <bsd.subdir.mk>
 
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile.inc
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
