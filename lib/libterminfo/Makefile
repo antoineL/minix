@@ -106,4 +106,8 @@ SYMLINKS+=	libterminfo.so ${LIBDIR}/libtermlib.so
 
 .endif	# ${MKPIC} != "no"
 
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
+
 .include <bsd.lib.mk>

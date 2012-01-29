@@ -77,6 +77,7 @@ CPPFLAGS.${i}+= -I${LIBCSRCDIR}/stdlib -I${LIBCSRCDIR}/include
 errlist.c: ${LIBCSRCDIR}/gen/errlist.awk \
 	   ${MINIXSRCDIR}/include/sys/errno.h
 	cat ${MINIXSRCDIR}/include/sys/errno.h | ${TOOL_SED} 's/(_SIGN//' | ${TOOL_AWK} -f ${LIBCSRCDIR}/gen/errlist.awk > ${.TARGET}
+CLEANFILES+=errlist.c
 
 .for i in assert.c _errno.c errno.c _env.c errlist.c \
 	execle.c getprogname.c sleep.c time.c \
@@ -138,5 +139,9 @@ CPPFLAGS.${i}+= -I${LIBCSRCDIR}/include
 .endfor
 
 CPPFLAGS+= -D_LIBSYS
+
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
 
 .include <bsd.lib.mk>

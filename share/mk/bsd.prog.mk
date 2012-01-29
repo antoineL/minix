@@ -15,7 +15,7 @@
 ##### "all" and "depend" targets
 realinstall: realall
 realall: depend
-depend: ${.CURDIR}/.gitignore
+depend: ${.OBJDIR}/.gitignore
 
 ##### Basic targets
 realinstall:	proginstall scriptsinstall
@@ -366,7 +366,7 @@ cleanextra: .PHONY
 
 ${TARGETS}:	# ensure existence
 
-${.CURDIR}/.gitignore: Makefile
+${.OBJDIR}/.gitignore: Makefile
 	echo $(CLEANFILES) $(PROGS) | tr ' ' '\n' >${.TARGET}
 
 .if defined(MINIXDYNAMIC)

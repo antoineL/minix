@@ -166,3 +166,7 @@ INCSDIR= /usr/include
 .SUFFIXES:	.m4 .c
 .m4.c:
 	m4 -D SRCDIR=${.CURDIR} ${.IMPSRC} > ${.TARGET}
+
+depend: ${.OBJDIR}/.gitignore
+${.OBJDIR}/.gitignore: ${.CURDIR}/Makefile
+	echo $(CLEANFILES) | tr ' ' '\n' >${.TARGET}
