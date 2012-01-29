@@ -23,8 +23,6 @@
 #include "kernel/proc.h"
 #include "kernel/debug.h"
 #include "mb_utils.h"
-#include <machine/multiboot.h>
-
 #include "glo.h"
 
 #ifdef USE_APIC
