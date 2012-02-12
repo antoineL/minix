@@ -8,11 +8,19 @@
 #include "archconst.h"
 #include "kernel/const.h"
 #include "sconst.h"
-#include <machine/multiboot.h>
 
 /*
  * This file contains a number of 16-bit assembly code utility routines needed by the
  * kernel.
+ * This piece of code is put in the first 64KB of real-mode memory,
+ * at BIOS_POWEROFF_ENTRY to be precise. It is entered with a long jump
+ * from 32-bit code; IDT is OK for real-mode. It cannot return.
+ * It is expected that this code will stay in he first 64KB of memory.
+ *
+ * Since the code is relocated, it has to be position-independent.
+ * Calls are PC-relative so it is OK; address references for any data
+ * should take special precautions; they can take advantage of the fact
+ * this is executed at virtual address BIOS_POWEROFF_ENTRY.
  */
 
 .text
@@ -21,18 +29,19 @@
 /*===========================================================================*/
 /*				poweroff16					     */
 /*===========================================================================*/
-/* PUBLIC void poweroff16(); */
+/* PUBLIC __dead void poweroff16(void) */
 /* Power down system */
 ENTRY(poweroff16)
 	/* Assume eax is already set to required value of cr0*/
 .byte	0x0F,0x22,0xC0	/* mov %cr0,%eax */
 	ljmp	$0,$(BIOS_POWEROFF_ENTRY + real_mode - _C_LABEL(poweroff16))
+	.short	0	/* play safe, let it work even in 32-bit mode */
 real_mode:
-	mov	$((BIOS_POWEROFF_ENTRY >> 4) + 0x200),%ax
+	xor	%ax, %ax	/* Also use first 64K segment for data */
 	mov	%ax, %ds
 	mov	%ax, %es
 	mov	%ax, %ss
-	mov	$0x1000, %sp
+	xor	%sp, %sp	/* stack at top of 64 KB */
 
 	xorb	%ah, %ah
 /* Close gate A20 */
@@ -77,6 +86,8 @@ poweroff_msg_end:
 #define POWEROFF_MSG_LEN	(poweroff_msg_end-poweroff_msg)
 apm_err:
 	/* If APM can't perform the shutdown, print something to inform */
+#if 0
+/* Unfortunately the video BIOS can be badly wounded, so do not use it... */
 	mov	$0x02, %ax	/* clear screen */
 	int	$0x10
 	
@@ -88,8 +99,20 @@ apm_err:
 	mov	$0x0300, %dx
 	mov	$(poweroff_msg - _C_LABEL(poweroff16)), %bp
 	int	$0x10
-0:	hlt
-	jmp	0b
+#else
+	mov	$0xB800, %bx
+	mov	%bx, %es
+	mov	$24*80*2, %di	/* line 25, left column */
+	mov	$BIOS_POWEROFF_ENTRY + poweroff_msg - _C_LABEL(poweroff16), %si
+	mov	$POWEROFF_MSG_LEN, %cx
+	movb	$0x0F, %ah
+3:	lodsb
+	stos
+	loop	3b
+#endif
+8:	sti
+	hlt
+	jmp	8b
 	
 kb_wait:
 	inb	$0x64

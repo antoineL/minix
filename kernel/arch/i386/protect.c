@@ -33,7 +33,7 @@ PUBLIC struct segdesc_s gdt[GDT_SIZE]=		/* used in klib.s and mpx.s */
 	{0xffff,0,0,0x93,0xcf,0},	/* kernel ES (386: flag 4 Gb at startup) */
 	{0xffff,0,0,0x93,0xcf,0},	/* kernel SS (386: monitor SS at startup) */
 	{0xffff,0,0,0x9b,0xcf,0},	/* kernel CS */
-	{0xffff,0,0,0x9b,0xcf,0},	/* temp for BIOS (386: monitor CS at startup) */
+	{0xffff,0,0,0x9a,0x00,0},	/* temp for BIOS (386: monitor CS at startup) */
 };
 PRIVATE struct gatedesc_s idt[IDT_SIZE];	/* zero-init so none present */
 PUBLIC struct tss_s tss[CONFIG_MAX_CPUS];			/* zero init */

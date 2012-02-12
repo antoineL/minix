@@ -25,7 +25,6 @@
 #include "oxpcie.h"
 #include "kernel/proc.h"
 #include "kernel/debug.h"
-#include <machine/multiboot.h>
 
 #include "glo.h"
 
@@ -69,7 +68,7 @@ PRIVATE __dead void arch_bios_poweroff(void)
 {
 	u32_t cr0;
 	
-	/* Disable paging */
+	/* Disable paging; kernel is identity-mapped, so it is OK! */
 	cr0 = read_cr0();
 	cr0 &= ~I386_CR0_PG;
 	write_cr0(cr0);
@@ -78,6 +77,7 @@ PRIVATE __dead void arch_bios_poweroff(void)
 		(u32_t)&poweroff16,
 		BIOS_POWEROFF_ENTRY,
 		(u32_t)&poweroff16_end-(u32_t)&poweroff16);
+	/* Jump down to assembler (klib.S) for low-level operations */
 	poweroff_jmp();
 }
 

@@ -9,7 +9,6 @@
 #include "archconst.h"
 #include "kernel/const.h"
 #include "sconst.h"
-#include <machine/multiboot.h>
 
 /*
  * This file contains a number of assembly code utility routines needed by the
@@ -826,51 +825,79 @@ ENTRY(__switch_address_space)
 	ret
 
 /*===========================================================================*/
-/*				poweroff					     */
+/*				poweroff_jmp				     */
 /*===========================================================================*/
-/* PUBLIC void poweroff(); */
+/* PUBLIC __dead void poweroff_jmp(void) */
 /* Jump to 16-bit poweroff code */
 ENTRY(poweroff_jmp)
 	cli
-	/* Make real mode descriptor */
+	/* Make real-mode code descriptor for first 64 KB. */
+	/* Clearly this could have been done in C too... */
+#if USE_SYSDEBUG
+	/* While not really necessary, also make data descriptor for debugging.*/
 	mov	$(_C_LABEL(gdt) + SS_SELECTOR), %edi
-	mov	$0x100, %eax
-	movw %ax, 2(%edi)
+	mov	$(_C_LABEL(gdt) + MON_CS_SELECTOR), %ebx
+	xor	%eax, %eax	/* base is 0 */
+	movw	%ax, DESC_BASE(%edi)
+	movw	%ax, DESC_BASE(%ebx)
 	shr	$16, %eax
-	movb	%al, 4(%edi)
-	and	$0xff00, %ax
-	andw	$0xff, 6(%edi)
-	or	%ax, 6(%edi)
-	mov	$0xffff, %eax
+	movb	%al, DESC_BASE_MIDDLE(%edi)
+	movb	%al, DESC_BASE_MIDDLE(%ebx)
+	movb	%ah, DESC_BASE_HIGH(%edi)
+	movb	%ah, DESC_BASE_HIGH(%ebx)
+	mov	$0xffff, %eax	/* limit is 64K */
+	movw	%ax, (%edi)
+	movw	%ax, (%ebx)
+	shr	$16, %eax
+	and	$0xf, %ax	/* clear GRANULAR, DEFAULT/BIG bits */
+	movb	%al, DESC_GRANULARITY(%edi)
+	movb	%al, DESC_GRANULARITY(%ebx)
+	movb	$PRESENT | SEGMENT | WRITEABLE, DESC_ACCESS(%edi)
+	movb	$PRESENT | SEGMENT | EXECUTABLE | READABLE, DESC_ACCESS(%ebx)
+#else
+	mov	$(_C_LABEL(gdt) + MON_CS_SELECTOR), %edi
+	xor	%eax, %eax	/* base is 0 */
+	movw	%ax, DESC_BASE(%edi)
+	shr	$16, %eax
+	movb	%al, DESC_BASE_MIDDLE(%edi)
+	movb	%ah, DESC_BASE_HIGH(%edi)
+	mov	$0xffff, %eax	/* limit is 64K */
 	movw	%ax, (%edi)
 	shr	$16, %eax
-	and	$0xf, %ax
-	andb	$0xf0, 6(%edi)
-	or	%ax, 6(%edi)
+	and	$0xf, %ax	/* clear GRANULAR, DEFAULT/BIG bits */
+	movb	%al, DESC_GRANULARITY(%edi)
+	movb	$PRESENT | SEGMENT | EXECUTABLE | READABLE, DESC_ACCESS(%edi)
+#endif
 	
 	/* Flush TLB */
+	/* Not really needed since paging has been disabled earlier */
 	xor	%eax, %eax
 	mov	%eax, %cr3
 	
 	xor	%esp, %esp /* clear esp for real mode*/
 	
-	/* Reset IDTR */
+	/* Reset IDTR to the correct value for real-mode ("IVT") */
 	lidt	idt_ptr
 	
+#if USE_SYSDEBUG
 	mov	$SS_SELECTOR, %ax
 	mov	%ax, %ds
 	mov	%ax, %es
 	mov	%ax, %fs
 	mov	%ax, %gs
 	mov	%ax, %ss
+#endif
 	
 	/* Save real mode cr0 in eax */
 	mov	%cr0, %eax
 	andl	$~I386_CR0_PE, %eax
 	
 	/* Jump to 16-bit code that is copied to below 1MB */
-	ljmp	$MON_CS_SELECTOR, $0
+	ljmp	$MON_CS_SELECTOR, $BIOS_POWEROFF_ENTRY
 
+/*===========================================================================*/
+/*				eoi_8259_master				     */
+/*===========================================================================*/
 /* acknowledge just the master PIC */
 ENTRY(eoi_8259_master)
 	movb	$END_OF_INT, %al
@@ -1067,6 +1094,7 @@ ENTRY(switch_k_stack)
 0:	jmp	0b
 
 .data
+/* Real-mode descriptor for IDT: 256 32-bit vectors = 1KB */
 idt_ptr:
 	.short 0x3ff
 	.long 0x0
