@@ -10,6 +10,7 @@
 #include <gelf.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <sysexits.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -20,7 +21,7 @@ int nflag = 0;
 
 int stack_kbytes[] = {
     /*  ds  rs    pm  sched  vfs  memory  log  tty  mfs  vm   pfs  init */
-	16, 8125, 32, 32, 16, 8, 32, 16, 128, 128, 128, 64
+        16, 8125, 32, 32,    16,  8,      32,  16,  128, 128, 128, 64
 };
 
 static void usage(void);
@@ -34,6 +35,7 @@ update_paddr(int nr, char *fname, GElf_Addr startaddr)
 
 	GElf_Phdr phdr;
 	GElf_Addr endaddr = 0;
+	GElf_Addr offset;
 
 	if ((fd = open(fname, O_RDWR, 0)) < 0)
 		err(EX_NOINPUT, "open \"%s\" failed", fname);
@@ -53,10 +55,12 @@ update_paddr(int nr, char *fname, GElf_Addr startaddr)
 			    elf_errmsg(-1));
 
 		if (phdr.p_type == PT_LOAD) {
-			phdr.p_paddr = startaddr + phdr.p_vaddr;
+			if (endaddr == 0)
+				offset = startaddr - phdr.p_vaddr;
+			phdr.p_paddr = offset + phdr.p_vaddr;
 
-			endaddr = round_page(phdr.p_paddr + phdr.p_memsz)
-			    + round_page(stack_kbytes[nr] * 1024);
+			if (endaddr < phdr.p_paddr + phdr.p_memsz)
+				endaddr = phdr.p_paddr + phdr.p_memsz;
 
 			if (gelf_update_phdr(e, i, &phdr) < 0)
 				errx(EX_SOFTWARE,
@@ -72,8 +76,10 @@ update_paddr(int nr, char *fname, GElf_Addr startaddr)
 	(void) elf_end(e);
 	(void) close(fd);
 
-	return endaddr;
+	if (endaddr == 0)
+		errx(EX_DATAERR, "\"%s\" has no PT_LOAD section", fname);
 
+	return round_page(endaddr) + round_page(stack_kbytes[nr] * 1024);
 }
 
 int
@@ -81,13 +87,21 @@ main(int argc, char **argv)
 {
 	int i, ch;
 	GElf_Addr startaddr;
+	char * e;
 
 	startaddr = BOOTPROG_LOAD_START;
 
-	while ((ch = getopt(argc, argv, "n")) != -1) {
+	while ((ch = getopt(argc, argv, "nS:")) != -1) {
 		switch (ch) {
 		case 'n':
 			nflag = 1;
+			break;
+		case 'S':
+			startaddr = strtoul(optarg, &e, 0);
+			if (errno || startaddr==ULONG_MAX || !e || *e) {
+				usage();
+				exit(EX_USAGE);
+			}
 			break;
 		case '?':
 		default:
@@ -105,7 +119,6 @@ main(int argc, char **argv)
 		errx(EX_SOFTWARE, "ELF library intialization failed: %s",
 		    elf_errmsg(-1));
 
-	startaddr = BOOTPROG_LOAD_START;
 	for (i = 0; i < argc; i++) {
 		startaddr = update_paddr(i, argv[i], startaddr);
 	}
@@ -116,5 +129,5 @@ main(int argc, char **argv)
 static void
 usage(void)
 {
-	(void) fprintf(stderr, "usage: %s [-n] elf1 elf2...\n", getprogname());
+	(void) fprintf(stderr, "usage: %s [-n] [-S startaddr] elf1 elf2...\n", getprogname());
 }
