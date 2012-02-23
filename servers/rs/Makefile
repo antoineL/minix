@@ -11,4 +11,4 @@ BINDIR?= /usr/sbin
 
 CPPFLAGS+=	-I${MINIXSRCDIR}
 
-.include <minix.bootprog.mk>
+.include <minix.service.mk>

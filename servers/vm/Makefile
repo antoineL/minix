@@ -17,4 +17,4 @@ CPPFLAGS+= -I${.CURDIR} -I${.CURDIR}/arch/${ARCH}
 CPPFLAGS+=	-I${MINIXSRCDIR}
 
 .include "arch/${ARCH}/Makefile.inc"
-.include <minix.bootprog.mk>
+.include <minix.service.mk>

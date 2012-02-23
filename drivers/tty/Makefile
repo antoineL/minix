@@ -15,5 +15,5 @@ SUBDIR= keymaps
 # Needs kernel/const.h, etc
 CPPFLAGS+=	-I${MINIXSRCDIR}
 
-.include <minix.bootprog.mk>
+.include <minix.service.mk>
 .include <bsd.subdir.mk>

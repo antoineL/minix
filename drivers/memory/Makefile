@@ -29,4 +29,4 @@ imgrd.mfs:
 	ln -s ../ramdisk/image $@
 CLEANFILES+=	imgrd.mfs
 
-.include <minix.bootprog.mk>
+.include <minix.service.mk>

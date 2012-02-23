@@ -13,4 +13,4 @@ CPPFLAGS.main.c+=	-I${MINIXSRCDIR}
 CPPFLAGS.schedule.c+=	-I${MINIXSRCDIR}
 CPPFLAGS.utility.c+=	-I${MINIXSRCDIR}
 
-.include <minix.bootprog.mk>
+.include <minix.service.mk>

@@ -23,4 +23,4 @@ MAN=
 
 BINDIR?= /usr/sbin
 
-.include <minix.bootprog.mk>
+.include <minix.service.mk>
