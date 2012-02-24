@@ -58,6 +58,9 @@ struct {
 			(c) < VM_RQ_BASE + ELEMENTS(vm_calls)) ?	\
 			((c) - VM_RQ_BASE) : -1)
 
+/* Debugging boot-time */
+#define DEBUGBOOT(params) do if (vm_verbose) printf params; while(0)
+
 FORWARD _PROTOTYPE(int map_service, (struct rprocpub *rpub));
 FORWARD _PROTOTYPE(int vm_acl_ok, (endpoint_t caller, int call));
 
@@ -231,10 +234,18 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 
 		/* reset fields as if exited */
 		clear_proc(vmp);
+		DEBUGBOOT(("vm_proc%02d:%-10s", ip->proc_nr, ip->proc_name));
 
 		/* Get memory map for this process from the kernel. */
 		if ((s=get_mem_map(ip->proc_nr, vmp->vm_arch.vm_seg)) != OK)
 			panic("couldn't get process mem_map: %d", s);
+#define SEG	vmp->vm_arch.vm_seg
+		DEBUGBOOT(("T:%x+%x@%x D:%x+%x@%x gap:%x S:%x+%x@%x\n",
+			SEG[T].mem_vir, SEG[T].mem_len, SEG[T].mem_phys,
+			SEG[D].mem_vir, SEG[D].mem_len, SEG[D].mem_phys,
+			SEG[S].mem_vir-SEG[D].mem_vir-SEG[D].mem_len,
+			SEG[S].mem_vir, SEG[S].mem_len, SEG[S].mem_phys));
+#undef SEG
 
 		/* Remove this memory from the free list. */
 		reserve_proc_mem(mem_chunks, vmp->vm_arch.vm_seg);
@@ -256,18 +267,26 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 			vmp->vm_flags |= VMF_SEPARATE;
 	}
 
+	DEBUGBOOT(("map_region_init()..."));
 	/* region management initialization. */
 	map_region_init();
+	DEBUGBOOT(("done.\n"));
 
+	DEBUGBOOT(("pt_init(limit=%lx)...", limit));
 	/* Architecture-dependent initialization. */
 	pt_init(limit);
+	DEBUGBOOT(("done.\n"));
 
+	DEBUGBOOT(("mem_init(mem_chunks)..."));
 	/* Initialize tables to all physical memory. */
 	mem_init(mem_chunks);
 	meminit_done = 1;
+	DEBUGBOOT(("done.\n"));
 
+	DEBUGBOOT(("pt_init_mem()..."));
 	/* Architecture-dependent memory initialization. */
 	pt_init_mem();
+	DEBUGBOOT(("done.\n"));
 
 	/* Give these processes their own page table. */
 	for (ip = &image[0]; ip < &image[NR_BOOT_PROCS]; ip++) {
@@ -280,6 +299,7 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 
                if(!(ip->flags & PROC_FULLVM))
                        continue;
+		DEBUGBOOT(("relocate vm_proc%02d(%s):", ip->proc_nr, ip->proc_name));
 
         	if(pt_new(&vmp->vm_pt) != OK)
 			panic("VM: no new pagetable");
@@ -325,6 +345,7 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 			    VM_STACKTOP, 0, is_elf) != OK) {
 			panic("failed proc_new for boot process");
 		}
+		DEBUGBOOT(("done!\n"));
 	}
 
 	/* Set up table of calls. */
@@ -378,6 +399,7 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 	CALLMAP(VM_YIELDBLOCKGETBLOCK, do_yieldblockgetblock);
 
 	/* Sanity checks */
+if(vm_verbose)printf("find_kernel_top()=%lX, VM_PROCSTART=%X\n", find_kernel_top(), VM_PROCSTART);
 	if(find_kernel_top() >= VM_PROCSTART)
 		panic("kernel loaded too high");
 

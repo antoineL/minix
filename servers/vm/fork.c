@@ -108,6 +108,8 @@ PUBLIC int do_fork(message *msg)
 	vir_bytes text_addr, data_addr;
 	int is_elf = 0;
 
+if(vm_verbose)printf("fork non-pag'd proc %d->%d T@%x+%x D@%x+%x \n", vmp-vmproc, vmc-vmproc,
+vmc->vm_arch.vm_seg[T].mem_phys, vmc->vm_arch.vm_seg[T].mem_len, vmc->vm_arch.vm_seg[D].mem_phys, vmc->vm_arch.vm_seg[D].mem_len);
 	/* Get SP of new process (using parent). */
 	if(get_stack_ptr(vmp->vm_endpoint, &sp) != OK) {
 		printf("VM: fork: get_stack_ptr failed for %d\n",

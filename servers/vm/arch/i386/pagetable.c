@@ -907,9 +907,11 @@ PUBLIC void pt_init(phys_bytes usedlimit)
         ptr += I386_PAGE_SIZE - (ptr % I386_PAGE_SIZE);
         if(!(sparepages_mem = ptr))
 		panic("pt_init: aalloc for spare failed");
+if(vm_verbose)printf("sys_umap( sparepages )...");
         if((r=sys_umap(SELF, VM_D, (vir_bytes) sparepages_mem,
                 I386_PAGE_SIZE*SPAREPAGES, &sparepages_ph)) != OK)
                 panic("pt_init: sys_umap failed: %d", r);
+if(vm_verbose)printf("done\n");
 
         missing_spares = 0;
         assert(STATIC_SPAREPAGES < SPAREPAGES);
@@ -945,6 +947,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
         lo = CLICK2ABS(vmprocess->vm_arch.vm_seg[T].mem_phys);
         hi = CLICK2ABS(vmprocess->vm_arch.vm_seg[S].mem_phys +
                 vmprocess->vm_arch.vm_seg[S].mem_len);
+if(vm_verbose)printf("our address map: base=%lx, lo=%lx, hi=%lx, v=%lx\n", lo-v, lo,hi, v);
                   
 	assert(!(v % I386_PAGE_SIZE)); 
         assert(!(lo % I386_PAGE_SIZE)); 
@@ -961,6 +964,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 	else
 		moveup = 0;
 	assert(!(moveup % I386_PAGE_SIZE));
+if(vm_verbose)printf("Moveup=%x... lo(lin)=>%lx", moveup, lo+moveup);
         
         /* Make new page table for ourselves, partly copied
          * from the current one.
@@ -977,6 +981,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
                         I386_VM_PRESENT|I386_VM_WRITE|I386_VM_USER, 0) != OK)
                         panic("pt_init: pt_writemap failed");
         }
+if(vm_verbose)printf(", hi=>%lx", hi+moveup);
        
         /* Move segments up too. */
         vmprocess->vm_arch.vm_seg[T].mem_phys += ABS2CLICK(moveup);
@@ -998,6 +1003,8 @@ PUBLIC void pt_init(phys_bytes usedlimit)
          */
         extra_clicks = ABS2CLICK(VM_DATATOP - (hi+moveup));
         vmprocess->vm_arch.vm_seg[S].mem_len += extra_clicks;
+if(vm_verbose)printf(", extra+%ld(%lx) up to %x\n", extra_clicks, CLICK2ABS(extra_clicks),
+vmprocess->vm_arch.vm_seg[S].mem_phys+vmprocess->vm_arch.vm_seg[S].mem_len);
        
         /* We pretend to the kernel we have a huge stack segment to
          * increase our data segment.
@@ -1014,6 +1021,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
         /* Let other functions know VM now has a private page table. */
         vmprocess->vm_flags |= VMF_HASPT;
 
+if(vm_verbose)printf("Now reserve kernel mappings, at free_pde=%x (%x)\n", free_pde, free_pde<<22);
 	/* Now reserve another pde for kernel's own mappings. */
 	{
 		int kernmap_pde;
@@ -1050,7 +1058,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 			kernmappings++;
 		}
 	}
-
+if(vm_verbose)printf("pagedir_pde=%x (%x)", free_pde, free_pde<<22);
 	/* Find a PDE below processes available for mapping in the
 	 * page directories (readonly).
 	 */
@@ -1071,9 +1079,12 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 
 	/* first pde in use by process. */
 	proc_pde = free_pde;
+if(vm_verbose)printf(", first proc_pde=%x (%x)\n", proc_pde, proc_pde<<22);
 
         /* Give our process the new, copied, private page table. */
+if(vm_verbose)printf("pt_mapkernel...");
 	pt_mapkernel(newpt);	/* didn't know about vm_dir pages earlier */
+if(vm_verbose)printf(", pt_bind...");
         pt_bind(newpt, vmprocess);
        
 	/* new segment limit for the kernel after paging is enabled */
@@ -1082,6 +1093,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 	ep_data.mem_map = vmprocess->vm_arch.vm_seg;
 
 	/* Now actually enable paging. */
+if(vm_verbose)printf(", enable_paging(ep_data=%p, dataseg=%lx)...", (void*)&ep_data, ep_data.data_seg_limit);
 	if(sys_vmctl_enable_paging(&ep_data) != OK)
         	panic("pt_init: enable paging failed");
 
@@ -1094,6 +1106,7 @@ PUBLIC void pt_init(phys_bytes usedlimit)
         vmprocess->vm_stacktop = VM_STACKTOP;
 
         /* All OK. */
+if(vm_verbose)printf("all done OK\n");
         return;
 }
 
