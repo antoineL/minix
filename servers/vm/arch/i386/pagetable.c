@@ -950,14 +950,17 @@ PUBLIC void pt_init(phys_bytes usedlimit)
         assert(!(lo % I386_PAGE_SIZE)); 
         assert(!(hi % I386_PAGE_SIZE));
  
-	if (v < VM_PROCSTART) {
+	assert(!(VM_PROCSTART % I386_BIG_PAGE_SIZE)); 
+	/* Check we will not spill over... */
+	assert(free_pde*I386_BIG_PAGE_SIZE <= VM_PROCSTART);
+
+	if (v < VM_PROCSTART)
 		moveup = VM_PROCSTART - (lo-v);
-                assert(!(VM_PROCSTART % I386_PAGE_SIZE));
-                assert(!(lo % I386_PAGE_SIZE));
-                assert(!(moveup % I386_PAGE_SIZE));
-        }
+	else if (v > free_pde * I386_BIG_PAGE_SIZE)
+		moveup = v - lo;
 	else
 		moveup = 0;
+	assert(!(moveup % I386_PAGE_SIZE));
         
         /* Make new page table for ourselves, partly copied
          * from the current one.
@@ -1054,6 +1057,8 @@ PUBLIC void pt_init(phys_bytes usedlimit)
 	pagedir_pde = free_pde++;
 	pagedir_pde_val = (page_directories_phys & I386_VM_ADDR_MASK) |
 			I386_VM_PRESENT | I386_VM_USER | I386_VM_WRITE;
+	/* Check again we will not spill over... */
+	assert(free_pde*I386_BIG_PAGE_SIZE <= VM_PROCSTART);
 
 	/* Tell kernel about free pde's. */
 	first_free_pde = free_pde;

@@ -175,6 +175,7 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 	struct boot_image *ip;
 	struct rprocpub rprocpub[NR_BOOT_PROCS];
 	phys_bytes limit = 0;
+	vir_bytes vm_offset;
 	int is_elf = 0;
 
 #if SANITYCHECKS
@@ -303,9 +304,13 @@ PRIVATE int sef_cb_init_fresh(int type, sef_init_info_t *info)
 #if defined(__ELF__)
 		is_elf = 1;
 #endif
+		if(CLICK2ABS(vmp->vm_arch.vm_seg[T].mem_vir) >= VM_PROCSTART)
+			vm_offset = 0;
+		else
+			vm_offset = VM_PROCSTART;
 
 		if(proc_new(vmp,
-			VM_PROCSTART,
+			vm_offset,
 			CLICK2ABS(vmp->vm_arch.vm_seg[T].mem_vir),
 			CLICK2ABS(vmp->vm_arch.vm_seg[T].mem_len),
 			CLICK2ABS(vmp->vm_arch.vm_seg[D].mem_vir),
