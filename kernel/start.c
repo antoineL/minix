@@ -56,7 +56,9 @@ PUBLIC void cstart(
   system_hz = DEFAULT_HZ;
 #endif
 
+#if DEAD_CODE /* Cannot use the terminal before intr_init... */
   DEBUGEXTRA(("cstart\n"));
+#endif
 
   /* Record miscellaneous information for user-space servers. */
   kinfo.nr_procs = NR_PROCS;
@@ -116,8 +118,8 @@ PUBLIC void cstart(
    * reload selectors and call main().
    */
 
-  DEBUGEXTRA(("intr_init(%d, 0)\n", INTS_MINIX));
   intr_init(INTS_MINIX, 0);
+  DEBUGEXTRA(("intr_init(%d, 0) done\n", INTS_MINIX));
 }
 
 /*===========================================================================*
