@@ -414,6 +414,18 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 	    }
 
 	    stack_bytes = round_page(image[NR_TASKS+i].stack_kbytes * 1024);
+#ifdef MULTIBOOT_VERBOSE
+	    mb_print("\n");
+	    mb_print_hex(i);
+	    mb_print(": ");
+	    mb_print_hex(trunc_page(text_vaddr));
+	    mb_print("-");
+	    mb_print_hex(trunc_page(data_vaddr) + data_membytes + stack_bytes);
+	    mb_print(" Entry: ");
+	    mb_print_hex(pc);
+	    mb_print(" Stack: ");
+	    mb_print_hex(stack_bytes);
+#endif
 
 	    /* Load text segment */
 	    phys_copy(module->mod_start+text_offset, text_paddr,
@@ -441,15 +453,11 @@ PRIVATE void mb_extract_image(multiboot_info_t mbi)
 
 #ifdef MULTIBOOT_VERBOSE
 	    mb_print("\n");
-	    mb_print_hex(i);
-	    mb_print(": ");
+	    mb_print_hex(module->mod_start+text_offset);
+	    mb_print("=>");
 	    mb_print_hex(trunc_page(text_paddr));
 	    mb_print("-");
 	    mb_print_hex(trunc_page(data_paddr) + data_membytes + stack_bytes);
-	    mb_print(" Entry: ");
-	    mb_print_hex(pc);
-	    mb_print(" Stack: ");
-	    mb_print_hex(stack_bytes);
 	    mb_print(" ");
 	    mb_print((char *)module->cmdline);
 #endif
