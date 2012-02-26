@@ -97,6 +97,8 @@ u32_t *page_directories = NULL;
 
 PRIVATE char static_sparepages[I386_PAGE_SIZE*STATIC_SPAREPAGES + I386_PAGE_SIZE];
 
+FORWARD void pt_mapidentity(pt_t *pt);
+
 #if SANITYCHECKS
 /*===========================================================================*
  *				pt_sanitycheck		     		     *
@@ -971,6 +973,8 @@ if(vm_verbose)printf("Moveup=%x... lo(lin)=>%lx", moveup, lo+moveup);
          */     
         if(pt_new(newpt) != OK)
                 panic("pt_init: pt_new failed"); 
+	/* Also map all the boot processes. */
+	pt_mapidentity(newpt);
 
         /* Set up mappings for VM process. */
 	if (moveup != 0) {
@@ -1084,6 +1088,7 @@ if(vm_verbose)printf(", first proc_pde=%x (%x)\n", proc_pde, proc_pde<<22);
         /* Give our process the new, copied, private page table. */
 if(vm_verbose)printf("pt_mapkernel...");
 	pt_mapkernel(newpt);	/* didn't know about vm_dir pages earlier */
+	pt_mapidentity(newpt);
 if(vm_verbose)printf(", pt_bind...");
         pt_bind(newpt, vmprocess);
        
@@ -1159,6 +1164,7 @@ PUBLIC void pt_init_mem()
 
 	/* Remap in kernel. */
 	pt_mapkernel(vmpt);
+	pt_mapidentity(vmpt);
 
 	/* Reallocate VM's page directory. */
 	if((vir_bytes) vmpt->pt_dir < vmprocess->vm_stacktop) {
@@ -1264,12 +1270,12 @@ PUBLIC int pt_mapkernel(pt_t *pt)
 
 	if(bigpage_ok) {
 		int pde;
-		for(pde = 0; pde <= id_map_high_pde; pde++) {
+		for(pde=0; pde<=find_kernel_top()/I386_BIG_PAGE_SIZE; pde++) {
 			phys_bytes addr;
 			addr = pde * I386_BIG_PAGE_SIZE;
 			assert((addr & I386_VM_ADDR_MASK) == addr);
 			pt->pt_dir[pde] = addr | I386_VM_PRESENT |
-				I386_VM_BIGPAGE | I386_VM_USER |
+				I386_VM_BIGPAGE |
 				I386_VM_WRITE | global_bit;
 		}
 	} else {
@@ -1292,6 +1298,25 @@ PUBLIC int pt_mapkernel(pt_t *pt)
 	}
 
 	return OK;
+}
+
+/*===========================================================================*
+ *				pt_mapidentity		     		     *
+ *===========================================================================*/
+PRIVATE void pt_mapidentity(pt_t *pt)
+{
+/* Map in all the boot processes. */
+	int pde;
+
+	assert(bigpage_ok);
+	for(pde = 0; pde <= id_map_high_pde; pde++) {
+		phys_bytes addr;
+		addr = pde * I386_BIG_PAGE_SIZE;
+		assert((addr & I386_VM_ADDR_MASK) == addr);
+		pt->pt_dir[pde] = addr | I386_VM_PRESENT |
+			I386_VM_BIGPAGE | I386_VM_USER |
+			I386_VM_WRITE | global_bit;
+	}
 }
 
 /*===========================================================================*

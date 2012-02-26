@@ -20,7 +20,9 @@
 #define SS_INDEX             5	/* kernel SS (386: monitor SS at startup) */
 #define CS_INDEX             6	/* kernel CS */
 #define MON_CS_INDEX         7	/* temp for BIOS (386: monitor CS at startup) */
-#define TSS_INDEX_FIRST      8	/* first kernel TSS */
+#define USER_DS_INDEX        8	/* user-level DS */
+#define USER_CS_INDEX        9	/* user-level CS */
+#define TSS_INDEX_FIRST     10	/* first kernel TSS */
 #define TSS_INDEX_BOOT	    TSS_INDEX_FIRST
 #define TSS_INDEX(cpu)      (TSS_INDEX_FIRST + (cpu)) /* per cpu kernel tss */
 #define FIRST_LDT_INDEX     TSS_INDEX(CONFIG_MAX_CPUS)	/* rest of descriptors are LDT's */

@@ -313,6 +313,17 @@ assert(data_addr>=(text_addr+text_bytes) || (text_addr==0&&data_addr==0));
 	assert(!(data_start % VM_PAGE_SIZE));
 	assert((!text_start && !data_start) || (text_start && data_start));
 
+	/* For a.out A_SEP, the address spaces for T and D+S are disjoint. */
+	if (text_addr==0 && data_addr==0 && text_bytes>0) {
+		map_data_addr = vstart + /*text_addr+*/ text_bytes;
+	}
+	else {
+		if (text_addr >= vstart)
+			/* Can be mapped without segment relocation */
+			vstart = 0;
+		map_data_addr = vstart + data_addr;
+	}
+
 	/* Place text at start of process. */
 	map_text_addr = vstart + text_addr;
 	vmp->vm_arch.vm_seg[T].mem_phys = ABS2CLICK(map_text_addr);
@@ -344,20 +355,7 @@ assert(data_addr>=(text_addr+text_bytes) || (text_addr==0&&data_addr==0));
 	 * or stack), make sure it's cleared, and map it in after text
 	 * (if any).
 	 */
-#if 0
-	if (is_elf) {
-	    map_data_addr = vstart + data_addr;
-	} else {
-	    map_data_addr = vstart + text_bytes;
-	}
-#else
-	/* For a.out A_SEP, the address spaces for T and D+S are disjoint. */
-	if (text_addr==0 && data_addr==0 && text_bytes>0)
-		map_data_addr = vstart + /*text_addr+*/ text_bytes;
-	else
-		map_data_addr = vstart + data_addr;
 	assert(map_data_addr >= (map_text_addr+text_bytes));
-#endif
 
 	if(!(vmp->vm_heap = map_page_region(vmp, map_data_addr, 0,
 	  data_bytes, data_start ? data_start : MAP_NONE, VR_ANON | VR_WRITABLE,

@@ -34,6 +34,8 @@ PUBLIC struct segdesc_s gdt[GDT_SIZE]=		/* used in klib.s and mpx.s */
 	{0xffff,0,0,0x93,0xcf,0},	/* kernel SS (386: monitor SS at startup) */
 	{0xffff,0,0,0x9b,0xcf,0},	/* kernel CS */
 	{0xffff,0,0,0x9b,0xcf,0},	/* temp for BIOS (386: monitor CS at startup) */
+	{0xffff,0,0,0xF3,0xCb,0}, 	/* user-level DS */
+	{0xffff,0,0,0xFB,0xCb,0},	/* user-level CS */
 };
 PRIVATE struct gatedesc_s idt[IDT_SIZE];	/* zero-init so none present */
 PUBLIC struct tss_s tss[CONFIG_MAX_CPUS];			/* zero init */
@@ -175,6 +177,8 @@ PUBLIC void prot_init(void)
   init_dataseg(&gdt[DS_INDEX],
   	 kinfo.data_base, kinfo.data_size, INTR_PRIVILEGE);
   init_dataseg(&gdt[ES_INDEX], 0L, 0, INTR_PRIVILEGE);
+  init_dataseg(&gdt[USER_DS_INDEX], 0L, 0, USER_PRIVILEGE);
+  init_codeseg(&gdt[USER_CS_INDEX], 0L, 0, USER_PRIVILEGE);
 
   /* Build local descriptors in GDT for LDT's in process table.
    * The LDT's are allocated at compile time in the process table, and
@@ -309,6 +313,17 @@ PUBLIC void alloc_segments(register struct proc *rp)
       data_segbase = (rp->p_memmap[D].mem_phys -
 		      rp->p_memmap[D].mem_vir) << CLICK_SHIFT;
 
+    if (text_segbase==0 && data_segbase==0) {
+	init_codeseg(&rp->p_seg.p_ldt[CS_LDT_INDEX], 0, 0, privilege);
+	init_dataseg(&rp->p_seg.p_ldt[DS_LDT_INDEX], 0, 0, privilege);
+	rp->p_reg.cs = (USER_CS_INDEX * DESC_SIZE) | privilege;
+	rp->p_reg.gs =
+	rp->p_reg.fs =
+	rp->p_reg.ss =
+	rp->p_reg.es =
+	rp->p_reg.ds = (USER_DS_INDEX * DESC_SIZE) | privilege;
+    }
+    else {
       init_codeseg(&rp->p_seg.p_ldt[CS_LDT_INDEX],
 		   text_segbase,
 		   text_vaddr + code_bytes, privilege);
@@ -321,6 +336,7 @@ PUBLIC void alloc_segments(register struct proc *rp)
       rp->p_reg.ss =
       rp->p_reg.es =
       rp->p_reg.ds = (DS_LDT_INDEX*DESC_SIZE) | TI | privilege;
+    }
 }
 
 #if 0

@@ -9,7 +9,7 @@
  * mode? Some data for kernel and stack are subtracted from this, the
  * final results stored in bytes in arch.vm_data_top.
  */
-#define VM_DATATOP	0xFFFFF000
+#define VM_DATATOP	0xBFFFF000
 
 #define SLAB_PAGESIZE	I386_PAGE_SIZE
 #define VM_PAGE_SIZE	I386_PAGE_SIZE
