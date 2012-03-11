@@ -71,7 +71,7 @@ kernel: includes
 servers: includes
 	$(MAKE) -C ../servers all install
 
-drivers: includes servers
+drivers: #includes servers
 	$(MAKE) -C ../drivers all install
 
 # make bootable and place system images
@@ -104,7 +104,8 @@ fdboot:	image
 	exec su root mkboot $@
 	@sync
 
-install: includes services hdboot
+#install: includes services hdboot
+install: drivers hdboot
 
 # download and update NetBSD reference sources.
 nbsd_fetch:
