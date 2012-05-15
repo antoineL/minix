@@ -262,7 +262,7 @@ static int load_elf(struct exec_info *execi)
       return(r);
   }
 
-  if(elf_has_interpreter(execi->image, execi->image_len, NULL, 0)) {
+  if(elf_has_interpreter(execi->image, execi->image_len, NULL, 0) > 0) {
   	printf("RS: can't execute dynamically linked executables\n");
 	return ENOEXEC;
   }

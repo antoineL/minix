@@ -270,7 +270,7 @@ int pm_exec(endpoint_t proc_e, vir_bytes path, size_t path_len,
    * fd for the current process.
    */
   if(elf_has_interpreter(execi.hdr, execi.hdr_len,
-	elf_interpreter, sizeof(elf_interpreter))) {
+	elf_interpreter, sizeof(elf_interpreter)) > 0) {
 	/* Switch the executable vnode to the interpreter */
 	execi.is_dyn = 1;
 
