@@ -108,7 +108,9 @@
 #define GCOV_FLUSH	112	/* flush gcov data from server to gcov files */
 
 #define PM_GETSID	113	/* PM getsid() */
-/* #define SETPGID	114	* to PM: setpgid() - to be implemented */
+/* #define SETPGID	11x	* to PM: setpgid() - to be implemented */
+
+#define VFS_VMCALL	114
 #define UTIMENS		115	/* to FS: [f]utimens(); also [fl]utimes */
 
 #define TASK_REPLY	121	/* to VFS: reply code from drivers, not 

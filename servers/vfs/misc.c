@@ -139,9 +139,11 @@ int do_dup()
 	} else if (rfd == rfd2) {	/* ignore the call: dup2(x, x) */
 		r = rfd2;
 	} else {
+		int clr;
 		/* All is fine, close new_fd if necessary */
 		unlock_filp(f);		/* or it might deadlock on do_close */
-		(void) close_fd(fp, rfd2);	/* cannot fail */
+		clr = close_fd(fp, rfd2, 1);	/* cannot fail */
+		if(clr != OK) return clr;
 		f = get_filp(rfd, VNODE_READ); /* lock old_fd again */
 		if (f == NULL) return(err_code);
 	}
@@ -351,6 +353,161 @@ int do_fsync()
 }
 
 /*===========================================================================*
+ *				do_vm_call				     *
+ *===========================================================================*/
+int do_vm_call(void)
+{
+/* A call that VM does to VFS.
+ * We must reply with the fixed type VM_VFS_REPLY (and put our result info
+ * in the rest of the message) so VM can tell the difference between a
+ * request from VFS and a reply to this call.
+ */
+	int req = job_m_in.VFS_VMCALL_REQ;
+	int req_fd = job_m_in.VFS_VMCALL_FD;
+	u32_t req_id = job_m_in.VFS_VMCALL_REQID;
+	endpoint_t ep = job_m_in.VFS_VMCALL_ENDPOINT;
+	u64_t offset = make64(job_m_in.VFS_VMCALL_OFFSET_LO,
+		job_m_in.VFS_VMCALL_OFFSET_HI);
+	u32_t length = job_m_in.VFS_VMCALL_LENGTH;
+	int result = OK;
+	int slot;
+	struct fproc *fdsrc, *vmf;
+	struct filp *f = NULL;
+
+	if(job_m_in.m_source != VM_PROC_NR)
+		return ENOSYS;
+
+#if 0
+	printf("VFS: VM call %d fd %d about ep %d offset 0x%llx len 0x%x\n",
+		req, req_fd, ep, offset, length);
+#endif
+
+	okendpt(ep, &slot);
+
+	fdsrc = &fproc[slot];
+	vmf = &fproc[VM_PROC_NR];
+	assert(fp == vmf);
+
+	/* We do everything on behalf of the target process. */
+	fp = fdsrc;
+	
+	if(fp == vmf) {
+		printf("VFS: huh, performing request for VM?\n");
+	}
+
+	memset(&m_out, 0, sizeof(m_out));
+
+	switch(req) {
+		case VMVFSREQ_FDLOOKUP:
+		{
+			int procfd;
+
+			/* Lookup fd in referenced process. */
+			if ((f = get_filp(req_fd, VNODE_READ)) == NULL) {
+				result = err_code;
+				goto reqdone;
+			}
+
+			assert(f->filp_vno);
+			assert(f->filp_vno->v_vmnt);
+
+			if(!f->filp_vno->v_vmnt->m_haspeek) {
+#if 0
+				printf("VFS: mmap on FS (%s) that doesn't support it\n", 
+					f->filp_vno->v_vmnt->m_label);
+#endif
+				result = EINVAL;
+				goto reqdone;
+			}
+
+			if (!S_ISREG(f->filp_vno->v_mode) &&
+				!S_ISBLK(f->filp_vno->v_mode)) {
+				printf("VFS: mmap regular/blockdev only\n");
+				result = EINVAL;
+				goto reqdone;
+			}
+
+			if((result=get_fd(OPEN_MAX/2, 0, &procfd, NULL)) != OK)
+				goto reqdone;
+
+			if(S_ISBLK(f->filp_vno->v_mode)) {
+				assert(f->filp_vno->v_sdev != NO_DEV);
+				m_out.VMV_DEV = f->filp_vno->v_sdev;
+				m_out.VMV_INO = VMC_NO_INODE;
+			} else {
+				m_out.VMV_DEV = f->filp_vno->v_dev;
+				m_out.VMV_INO = f->filp_vno->v_inode_nr;
+			}
+			m_out.VMV_FD  = procfd;
+
+			f->filp_count++;
+			fp->fp_filp[procfd] = f;
+			/* mmap FD's are inuse, system-owned (user can't
+			 * close it), and close-on-exec
+			 */
+			FD_SET(procfd, &fp->fp_filp_inuse);
+			FD_SET(procfd, &fp->fp_filp_system);
+			FD_SET(procfd, &fp->fp_cloexec_set);
+#if 0
+			printf("%d: fd %d is system now\n", fp->fp_endpoint, procfd);
+#endif
+			result = OK;
+
+#if 0
+			printf("VFS: FDLOOKUP: result %d dev 0x%x ino %ld; procfd %d\n",
+				result, m_out.VMV_DEV, m_out.VMV_INO, procfd);
+#endif
+			break;
+		}
+		case VMVFSREQ_FDCLOSE:
+		{
+			int procfd = req_fd;
+			scratch(fp).file.fd_nr = procfd;
+			result = close_fd(fp, scratch(fp).file.fd_nr, 0);
+			break;
+		}
+		case VMVFSREQ_FDIO:
+		{
+			result = actual_llseek(req_fd, SEEK_SET, offset);
+
+#if 0
+			printf("llseek fd %d to 0x%llx done, result %d\n", req_fd, offset, result);
+#endif
+
+			if(result != OK) {
+				printf("VFS: llseek for %d (%llu) failed (%d)\n",
+					fp->fp_endpoint, offset, result);
+			} else {
+				fp = fdsrc;
+				result = do_read_write_peek(PEEKING,
+					req_fd, NULL, length);
+#if 0
+				printf("VFS: lseek to 0x%llx OK, i/o 0x%x result of i/o %d\n",
+					offset, length, result);
+#endif
+			}
+
+			break;
+		}
+		default:
+			panic("VFS: bad request code from VM\n");
+			break;
+	}
+
+reqdone:
+	if(f)
+		unlock_filp(f);
+
+	/* We're VM now. */
+	fp = vmf;
+	m_out.VMV_ENDPOINT = ep;
+	m_out.VMV_RESULT = result;
+	m_out.VMV_REQID = req_id;
+
+	return VM_VFS_REPLY;
+}
+
+/*===========================================================================*
  *				pm_reboot				     *
  *===========================================================================*/
 void pm_reboot()
@@ -481,7 +638,7 @@ static void free_proc(struct fproc *exiter, int flags)
 
   /* Loop on file descriptors, closing any that are open. */
   for (i = 0; i < OPEN_MAX; i++) {
-	(void) close_fd(exiter, i);
+	(void) close_fd(exiter, i, 0);
   }
 
   /* Release root and working directories. */
@@ -724,6 +881,8 @@ int pm_dumpcore(endpoint_t proc_e, int csig, vir_bytes exe_name)
   struct filp *f;
   char core_path[PATH_MAX];
   char proc_name[PROC_NAME_LEN];
+  static int seq = 0;
+  seq++;
 
   okendpt(proc_e, &slot);
   fp = &fproc[slot];
@@ -735,20 +894,25 @@ int pm_dumpcore(endpoint_t proc_e, int csig, vir_bytes exe_name)
           unpause(fp->fp_endpoint);
 
   /* open core file */
-  snprintf(core_path, PATH_MAX, "%s.%d", CORE_NAME, fp->fp_pid);
+  snprintf(core_path, PATH_MAX, "%s.%d.%d", CORE_NAME, fp->fp_pid, seq);
   core_fd = common_open(core_path, O_WRONLY | O_CREAT | O_TRUNC, CORE_MODE);
   if (core_fd < 0) { r = core_fd; goto core_exit; }
 
   /* get process' name */
+#if 0
   r = sys_datacopy(PM_PROC_NR, exe_name, VFS_PROC_NR, (vir_bytes) proc_name,
 			PROC_NAME_LEN);
   if (r != OK) goto core_exit;
+#else
+  exe_name = 0;
+  strcpy(proc_name, "coreprog");
+#endif
   proc_name[PROC_NAME_LEN - 1] = '\0';
 
   if ((f = get_filp(core_fd, VNODE_WRITE)) == NULL) { r=EBADF; goto core_exit; }
   write_elf_core_file(f, csig, proc_name);
   unlock_filp(f);
-  (void) close_fd(fp, core_fd);	/* ignore failure, we're exiting anyway */
+  (void) close_fd(fp, core_fd, 0); /* ignore failure, we're exiting anyway */
 
 core_exit:
   if(csig)

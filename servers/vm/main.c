@@ -91,6 +91,7 @@ int main(void)
   /* This is VM's main loop. */
   while (TRUE) {
 	int r, c;
+	u32_t type, param;
 
 	SANITYCHECK(SCL_TOP);
 	if(missing_spares > 0) {
@@ -108,7 +109,11 @@ int main(void)
 	who_e = msg.m_source;
 	if(vm_isokendpt(who_e, &caller_slot) != OK)
 		panic("invalid caller %d", who_e);
-	c = CALLNUMBER(msg.m_type);
+
+	type = param = msg.m_type;
+	type &= 0x0000FFFF;
+	param >>= 16;
+	c = CALLNUMBER(type);
 	result = ENOSYS; /* Out of range or restricted calls return this. */
 	
 	if(msg.m_type == RS_INIT && msg.m_source == RS_PROC_NR) {
@@ -119,7 +124,6 @@ int main(void)
 					"message!\n", msg.m_source);
 		}
 		do_pagefaults(&msg);
-		pt_clearmapcache();
 		/*
 		 * do not reply to this call, the caller is unblocked by
 		 * a sys_vmctl() call in do_pagefaults if success. VM panics
@@ -284,7 +288,8 @@ void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
         execi->copymem = libexec_copy_physcopy;
         execi->clearproc = NULL;
         execi->clearmem = libexec_clear_sys_memset;
-        execi->allocmem_prealloc = libexec_alloc_vm_prealloc;
+        execi->allocmem_prealloc_junk = libexec_alloc_vm_prealloc;
+        execi->allocmem_prealloc_cleared = libexec_alloc_vm_prealloc;
         execi->allocmem_ondemand = libexec_alloc_vm_ondemand;
 
 	if(libexec_load_elf(execi) != OK)
@@ -320,10 +325,6 @@ void init_vm(void)
 	/* Sanity check */
 	assert(kernel_boot_info.mmap_size > 0);
 	assert(kernel_boot_info.mods_with_kernel > 0);
-
-#if SANITYCHECKS
-	env_parse("vm_sanitychecklevel", "d", 0, &vm_sanitychecklevel, 0, SCL_MAX);
-#endif
 
 	/* Get chunks of available memory. */
 	get_mem_chunks(mem_chunks);
@@ -412,6 +413,10 @@ void init_vm(void)
 	CALLMAP(VM_WILLEXIT, do_willexit);
 	CALLMAP(VM_NOTIFY_SIG, do_notify_sig);
 
+	/* Calls from VFS. */
+	CALLMAP(VM_VFS_REPLY, do_vfs_reply);
+	CALLMAP(VM_VFS_MMAP, do_vfs_mmap);
+
 	/* Calls from RS */
 	CALLMAP(VM_RS_SET_PRIV, do_rs_set_priv);
 	CALLMAP(VM_RS_UPDATE, do_rs_update);
@@ -429,6 +434,10 @@ void init_vm(void)
 	CALLMAP(VM_INFO, do_info);
 	CALLMAP(VM_QUERY_EXIT, do_query_exit);
 	CALLMAP(VM_WATCH_EXIT, do_watch_exit);
+
+	/* Cache blocks. */
+	CALLMAP(VM_MAPCACHEPAGE, do_mapcache);
+	CALLMAP(VM_SETCACHEPAGE, do_setcache);
 
 	/* Initialize the structures for queryexit */
 	init_query_exit();

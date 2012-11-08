@@ -32,6 +32,205 @@
 #include "util.h"
 #include "region.h"
 
+
+static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
+	u32_t vmm_flags, size_t len, u32_t vrflags,
+	mem_type_t *mt, int execpriv)
+{
+	u32_t mfflags = 0;
+	struct vir_region *vr = NULL;
+
+	if(vmm_flags & MAP_LOWER16M) vrflags |= VR_LOWER16MB;
+	if(vmm_flags & MAP_LOWER1M)  vrflags |= VR_LOWER1MB;
+	if(vmm_flags & MAP_ALIGN64K) vrflags |= VR_PHYS64K;
+	if(vmm_flags & MAP_PREALLOC) mfflags |= MF_PREALLOC;
+	if(vmm_flags & MAP_UNINITIALIZED) {
+		if(!execpriv) return NULL;
+		vrflags |= VR_UNINITIALIZED;
+	}
+
+	if(len <= 0) {
+#if 0
+		printf("VM: zero length mmap by %d\n", vmp->vm_endpoint);
+		sys_sysctl_stacktrace(vmp->vm_endpoint);
+#endif
+		return NULL;
+	}
+
+	if(len % VM_PAGE_SIZE)
+		len += VM_PAGE_SIZE - (len % VM_PAGE_SIZE);
+
+	if (addr && (vmm_flags & MAP_FIXED)) {
+		int r = map_unmap_range(vmp, addr, len);
+		if(r != OK) {
+			printf("mmap_region: map_unmap_range failed (%d)\n", r);
+			return NULL;
+		}
+	}
+
+	if (addr || (vmm_flags & MAP_FIXED)) {
+		/* An address is given, first try at that address. */
+		vr = map_page_region(vmp, addr, 0, len,
+			vrflags, mfflags, mt);
+		if(!vr && (vmm_flags & MAP_FIXED))
+			return NULL;
+	}
+
+	if (!vr) {
+		/* No address given or address already in use. */
+		vr = map_page_region(vmp, VM_PAGE_SIZE, VM_DATATOP, len,
+			vrflags, mfflags, mt);
+	}
+
+#if 0
+	printf("%d: mmap %s 0x%lx-0x%lx\n",
+		vmp->vm_endpoint,
+		mt->name, vr->vaddr, vr->vaddr+vr->length);
+#endif
+
+	return vr;
+}
+
+int mmap_file(struct vmproc *vmp,
+	int vmfd, u32_t off_lo, u32_t off_hi, int flags,
+	ino_t ino, dev_t dev, vir_bytes addr, vir_bytes len,
+	vir_bytes *retaddr, u16_t clearend, int writable)
+{
+/* VFS has replied to a VMVFSREQ_FDLOOKUP request. */
+	struct vir_region *vr;
+	u64_t file_offset, page_offset;
+	int result = OK;
+	u32_t vrflags = 0;
+
+	if(writable) vrflags |= VR_WRITABLE;
+
+#if 0
+	printf("mmap_file: addr 0x%lx-0x%lx, writable %d\n",
+		addr, addr+len, writable);
+#endif
+
+#if 0
+	printf("mmap_file: fd %d addr 0x%lx len 0x%lx clearend 0x%x\n",
+		vmfd, addr, len, clearend);
+#endif
+
+	if(flags & MAP_THIRDPARTY) {
+		file_offset = off_lo;
+	} else {
+		file_offset = make64(off_lo, off_hi);
+#if 0
+		printf("file_offset: %u, %u -> %llu\n",
+			off_lo, off_hi, file_offset);
+		sys_sysctl_stacktrace(vmp->vm_endpoint);
+#endif
+		if(off_hi && !off_lo) {
+#if 0
+			printf("VM: that is weird, setting offset to 0.\n");
+#endif
+			off_hi = file_offset = 0;
+#if 0
+			printf(".");
+#endif
+		}
+	}
+
+	if(!(vr = mmap_region(vmp, addr, flags, len,
+		vrflags, &mem_type_mappedfile, 0))) {
+		result = ENOMEM;
+#if 0
+		vfs_request(VMVFSREQ_FDCLOSE, vmfd, &vmproc[VM_PROC_NR],
+			0, 0, NULL, NULL, NULL, 0);
+#endif
+		result = ENOMEM;
+	} else {
+		*retaddr = vr->vaddr;
+		result = OK;
+
+		if((page_offset = (file_offset % VM_PAGE_SIZE))) {
+			*retaddr += page_offset;
+			file_offset -= page_offset;
+		}
+
+		mappedfile_setfile(vr, vmfd, file_offset, dev, ino, clearend, 1);
+
+#if 0
+		printf("setting mmap ep %d ino %u offset 0x%llx vmfd %d\n",
+			vmp->vm_endpoint, ino, file_offset, vmfd);
+#endif
+	}
+
+	return result;
+}
+
+int do_vfs_mmap(message *m)
+{
+	vir_bytes v;
+	struct vmproc *vmp;
+	int r, n;
+	u16_t clearend, flags = 0;
+
+	clearend = (m->m_u.m_vm_vfs.clearend_and_flags & MVM_LENMASK);
+	flags = (m->m_u.m_vm_vfs.clearend_and_flags & MVM_FLAGSMASK);
+
+	if((r=vm_isokendpt(m->m_u.m_vm_vfs.who, &n)) != OK)
+		panic("bad ep %d from vfs", m->m_u.m_vm_vfs.who);
+	vmp = &vmproc[n];
+
+	return mmap_file(vmp, m->m_u.m_vm_vfs.fd, m->m_u.m_vm_vfs.offset, 0,
+		MAP_PRIVATE | MAP_FIXED,
+		m->m_u.m_vm_vfs.ino, m->m_u.m_vm_vfs.dev,
+		m->m_u.m_vm_vfs.vaddr, m->m_u.m_vm_vfs.len, &v,
+		clearend, flags);
+}
+
+static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
+	void *origmsg_v)
+{
+	message *origmsg = (message *) origmsg_v;
+	message mmap_reply;
+	int result;
+	int writable = 0;
+	vir_bytes v = (vir_bytes) MAP_FAILED;
+
+	if(origmsg->VMM_PROT & PROT_WRITE)
+		writable = 1;
+
+#if 0
+	printf("VM: VMVFSREQ_FDLOOKUP reply: result %d\n",
+		replymsg->VMV_RESULT);
+#endif
+
+	if(replymsg->VMV_RESULT != OK) {
+#if 0
+		printf("VM: VMVFSREQ_FDLOOKUP reply: VFS error %d\n", origmsg->VMV_RESULT);
+#endif
+		result = origmsg->VMV_RESULT;
+	} else {
+		/* Finish mmap */
+		result = mmap_file(vmp, replymsg->VMV_FD, origmsg->VMM_OFFSET_LO,
+			origmsg->VMM_OFFSET_HI, origmsg->VMM_FLAGS, 
+			replymsg->VMV_INO, replymsg->VMV_DEV, origmsg->VMM_ADDR,
+			origmsg->VMM_LEN, &v, 0, writable);
+	}
+
+	/* Unblock requesting process. */
+	memset(&mmap_reply, 0, sizeof(mmap_reply));
+	mmap_reply.m_type = result;
+	mmap_reply.VMM_ADDR = v;
+
+#if 0
+	printf("mmap_file_cont: sending reply %d to %d\n",
+		mmap_reply.m_type, vmp->vm_endpoint);
+#endif
+
+	if(send(vmp->vm_endpoint, &mmap_reply) != OK)
+		panic("VM: mmap_file_cont: send() failed");
+#if 0
+	printf("mmap_file_cont: sending reply %d to %d done, ino %ld dev 0x%x\n",
+		mmap_reply.m_type, vmp->vm_endpoint, replymsg->VMV_INO, replymsg->VMV_DEV);
+#endif
+}
+
 /*===========================================================================*
  *				do_mmap			     		     *
  *===========================================================================*/
@@ -39,10 +238,10 @@ int do_mmap(message *m)
 {
 	int r, n;
 	struct vmproc *vmp;
-	int mfflags = 0;
-	vir_bytes addr;
+	vir_bytes addr = m->VMM_ADDR;
 	struct vir_region *vr = NULL;
 	int execpriv = 0;
+	size_t len = (vir_bytes) m->VMM_LEN;
 
 	/* RS and VFS can do slightly more special mmap() things */
 	if(m->m_source == VFS_PROC_NR || m->m_source == RS_PROC_NR)
@@ -63,11 +262,11 @@ int do_mmap(message *m)
 	vmp = &vmproc[n];
 
 	if(m->VMM_FD == -1 || (m->VMM_FLAGS & MAP_ANON)) {
-		mem_type_t *mt;
-		u32_t vrflags = VR_ANON | VR_WRITABLE;
-		size_t len = (vir_bytes) m->VMM_LEN;
+		/* actual memory in some form */
+		mem_type_t *mt = NULL;
 
 		if(m->VMM_FD != -1 || len <= 0) {
+			printf("VM: mmap: fd %d, len 0x%x\n", m->VMM_FD, len);
 			return EINVAL;
 		}
 
@@ -76,47 +275,33 @@ int do_mmap(message *m)
 			return EINVAL;
 		}
 
-		if(m->VMM_FLAGS & MAP_PREALLOC) mfflags |= MF_PREALLOC;
-		if(m->VMM_FLAGS & MAP_LOWER16M) vrflags |= VR_LOWER16MB;
-		if(m->VMM_FLAGS & MAP_LOWER1M)  vrflags |= VR_LOWER1MB;
-		if(m->VMM_FLAGS & MAP_ALIGN64K) vrflags |= VR_PHYS64K;
-		if(m->VMM_FLAGS & MAP_UNINITIALIZED) {
-			if(!execpriv) return EPERM;
-			vrflags |= VR_UNINITIALIZED;
-		}
 		if(m->VMM_FLAGS & MAP_CONTIG) {
-			vrflags |= VR_CONTIG;
 			mt = &mem_type_anon_contig;
 		} else	mt = &mem_type_anon;
 
-		if(len % VM_PAGE_SIZE)
-			len += VM_PAGE_SIZE - (len % VM_PAGE_SIZE);
-
-		vr = NULL;
-		if (m->VMM_ADDR || (m->VMM_FLAGS & MAP_FIXED)) {
-			/* An address is given, first try at that address. */
-			addr = m->VMM_ADDR;
-			vr = map_page_region(vmp, addr, 0, len,
-				vrflags, mfflags, mt);
-			if(!vr && (m->VMM_FLAGS & MAP_FIXED))
-				return ENOMEM;
-		}
-		if (!vr) {
-			/* No address given or address already in use. */
-			vr = map_page_region(vmp, 0, VM_DATATOP, len,
-				vrflags, mfflags, mt);
-		}
-		if (!vr) {
+		if(!(vr = mmap_region(vmp, addr, m->VMM_FLAGS, len,
+			VR_WRITABLE | VR_ANON, mt, execpriv))) {
 			return ENOMEM;
 		}
 	} else {
-		return ENOSYS;
+		/* files get private copies of pages on writes. */
+		if(!(m->VMM_FLAGS & MAP_PRIVATE)) {
+			printf("VM: mmap file must MAP_PRIVATE\n");
+			return ENXIO;
+		}
+
+		if(vfs_request(VMVFSREQ_FDLOOKUP, m->VMM_FD, vmp, 0, 0,
+			mmap_file_cont, NULL, m, sizeof(*m)) != OK) {
+			printf("VM: vfs_request for mmap failed\n");
+			return ENXIO;
+		}
+
+		/* request queued; don't reply. */
+		return SUSPEND;
 	}
 
 	/* Return mapping, as seen from process. */
-	assert(vr);
 	m->VMM_RETADDR = vr->vaddr;
-
 
 	return OK;
 }
@@ -334,8 +519,7 @@ int do_munmap(message *m)
 {
         int r, n;
         struct vmproc *vmp;
-        vir_bytes addr, len, offset;
-	struct vir_region *vr;
+        vir_bytes addr, len;
 	endpoint_t target = SELF;
 
 	if(m->m_type == VM_UNMAP_PHYS) {
@@ -359,30 +543,20 @@ int do_munmap(message *m)
 		addr = (vir_bytes) m->VMUN_ADDR;
 	} else	addr = (vir_bytes) m->VMUM_ADDR;
 
-        if(!(vr = map_lookup(vmp, addr, NULL))) {
-                printf("VM: unmap: virtual address 0x%lx not found in %d\n",
-                        addr, target);
-                return EFAULT;
-        }
-
 	if(addr % VM_PAGE_SIZE)
 		return EFAULT;
  
 	if(m->m_type == VM_UNMAP_PHYS || m->m_type == VM_SHM_UNMAP) {
+		struct vir_region *vr;
+	        if(!(vr = map_lookup(vmp, addr, NULL))) {
+			printf("VM: unmap: address 0x%lx not found in %d\n",
+	                       addr, target);
+			sys_sysctl_stacktrace(target);
+	                return EFAULT;
+		}
 		len = vr->length;
 	} else len = roundup(m->VMUM_LEN, VM_PAGE_SIZE);
 
-	offset = addr - vr->vaddr;
-
-	if(offset + len > vr->length) {
-		printf("munmap: addr 0x%lx len 0x%lx spills out of region\n",
-			addr, len);
-		return EFAULT;
-	}
-
-	if(map_unmap_region(vmp, vr, offset, len) != OK)
-		panic("do_munmap: map_unmap_region failed");
-
-	return OK;
+	return map_unmap_range(vmp, addr, len);
 }
 

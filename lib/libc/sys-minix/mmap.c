@@ -2,6 +2,8 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
 #include <lib.h>
+#include <minix/u64.h>
+#include <minix/vm.h>
 
 /* INCLUDES HERE */
 
@@ -21,7 +23,7 @@ __weak_alias(minix_munmap, _minix_munmap)
 #include <errno.h>
 
 void *minix_mmap_for(endpoint_t forwhom,
-	void *addr, size_t len, int prot, int flags, int fd, off_t offset)
+	void *addr, size_t len, int prot, int flags, int fd, u64_t offset)
 {
 	message m;
 	int r;
@@ -31,11 +33,13 @@ void *minix_mmap_for(endpoint_t forwhom,
 	m.VMM_PROT = prot;
 	m.VMM_FLAGS = flags;
 	m.VMM_FD = fd;
-	m.VMM_OFFSET = offset;
-	m.VMM_FORWHOM = forwhom;
+	m.VMM_OFFSET_LO = ex64lo(offset);
 
 	if(forwhom != SELF) {
 		m.VMM_FLAGS |= MAP_THIRDPARTY;
+		m.VMM_FORWHOM = forwhom;
+	} else {
+		m.VMM_OFFSET_HI = ex64hi(offset);
 	}
 
 	r = _syscall(VM_PROC_NR, VM_MMAP, &m);
@@ -47,8 +51,34 @@ void *minix_mmap_for(endpoint_t forwhom,
 	return (void *) m.VMM_RETADDR;
 }
 
+int minix_vfs_mmap(endpoint_t who, u32_t offset, u32_t len,
+	u32_t dev, u32_t ino, u16_t fd, u32_t vaddr, u16_t clearend,
+	u16_t flags)
+{
+	message m;
+
+	memset(&m, 0, sizeof(message));
+
+	m.m_u.m_vm_vfs.who = who;
+	m.m_u.m_vm_vfs.offset = offset;
+	m.m_u.m_vm_vfs.dev = dev;
+	m.m_u.m_vm_vfs.ino = ino;
+	m.m_u.m_vm_vfs.vaddr = vaddr;
+	m.m_u.m_vm_vfs.len = len;
+	m.m_u.m_vm_vfs.fd = fd;
+	m.m_u.m_vm_vfs.clearend_and_flags = clearend | flags;
+
+	return _syscall(VM_PROC_NR, VM_VFS_MMAP, &m);
+}
+
 void *minix_mmap(void *addr, size_t len, int prot, int flags,
 	int fd, off_t offset)
+{
+	return minix_mmap_for(SELF, addr, len, prot, flags, fd, offset);
+}
+
+void *minix_mmap64(void *addr, size_t len, int prot, int flags,
+	int fd, u64_t offset)
 {
 	return minix_mmap_for(SELF, addr, len, prot, flags, fd, offset);
 }

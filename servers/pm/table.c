@@ -125,7 +125,7 @@ int (*call_vec[])(void) = {
 	do_srv_kill,	/* 111 = srv_kill */
  	no_sys, 	/* 112 = gcov_flush */
 	do_get,		/* 113 = getsid	*/
-	no_sys,		/* 114 = (setpgid) */
+	no_sys,		/* 114 = (vmcall) */
 	no_sys,		/* 115 = (utimensat) */
 };
 /* This should not fail with "array size is negative": */

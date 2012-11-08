@@ -92,6 +92,7 @@ typedef	__off_t		off_t;		/* file offset */
 #define MAP_FIXED      0x0200  /* require mapping to happen at hint */
 #define MAP_THIRDPARTY	0x0400		/* perform on behalf of any process */
 #define MAP_UNINITIALIZED 0x0800	/* do not clear memory */
+#define MAP_FILE      0x1000  /* it's a file */
 
 /*
  * Error indicator returned by mmap(2)
@@ -106,7 +107,8 @@ void *	mmap(void *, size_t, int, int, int, off_t);
 int	munmap(void *, size_t);
 #else
 void *	minix_mmap(void *, size_t, int, int, int, off_t);
-void *	minix_mmap_for(endpoint_t, void *, size_t, int, int, int, off_t);
+void *	minix_mmap64(void *, size_t, int, int, int, u64_t);
+void *	minix_mmap_for(endpoint_t, void *, size_t, int, int, int, u64_t);
 int	minix_munmap(void *, size_t);
 void *		vm_remap(int d, int s, void *da, void *sa, size_t si);
 void *		vm_remap_ro(int d, int s, void *da, void *sa, size_t si);

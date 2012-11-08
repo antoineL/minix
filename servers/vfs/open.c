@@ -125,7 +125,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode)
   if (!bits) return(EINVAL);
 
   /* See if file descriptor and filp slots are available. */
-  if ((r = get_fd(0, bits, &(scratch(fp).file.fd_nr), &filp)) != OK) return(r);
+  if ((r = get_fd(fp->fp_fdscan, bits, &(scratch(fp).file.fd_nr), &filp)) != OK) return(r);
 
   lookup_init(&resolve, path, PATH_NOFLAGS, &vmp, &vp);
 
@@ -615,20 +615,12 @@ int do_mkdir()
   return(r);
 }
 
-/*===========================================================================*
- *				do_lseek				     *
- *===========================================================================*/
-int do_lseek()
+int actual_lseek(int seekfd, int seekwhence, off_t offset)
 {
 /* Perform the lseek(ls_fd, offset, whence) system call. */
   register struct filp *rfilp;
-  int r = OK, seekfd, seekwhence;
-  off_t offset;
+  int r = OK;
   u64_t pos, newpos;
-
-  seekfd = job_m_in.ls_fd;
-  seekwhence = job_m_in.whence;
-  offset = (off_t) job_m_in.offset_lo;
 
   /* Check to see if the file descriptor is valid. */
   if ( (rfilp = get_filp(seekfd, VNODE_READ)) == NULL) return(err_code);
@@ -675,20 +667,24 @@ int do_lseek()
 }
 
 /*===========================================================================*
- *				do_llseek				     *
+ *				do_lseek				     *
  *===========================================================================*/
-int do_llseek()
+int do_lseek()
+{
+	return actual_lseek(job_m_in.ls_fd, job_m_in.whence,
+		(off_t) job_m_in.offset_lo);
+}
+
+/*===========================================================================*
+ *				actual_llseek				     *
+ *===========================================================================*/
+int actual_llseek(int seekfd, int seekwhence, u64_t offset)
 {
 /* Perform the llseek(ls_fd, offset, whence) system call. */
   register struct filp *rfilp;
   u64_t pos, newpos;
-  int r = OK, seekfd, seekwhence;
-  long off_hi, off_lo;
-
-  seekfd = job_m_in.ls_fd;
-  seekwhence = job_m_in.whence;
-  off_hi = job_m_in.offset_high;
-  off_lo = job_m_in.offset_lo;
+  int r = OK;
+  long off_hi = ex64hi(offset);
 
   /* Check to see if the file descriptor is valid. */
   if ( (rfilp = get_filp(seekfd, VNODE_READ)) == NULL) return(err_code);
@@ -707,7 +703,7 @@ int do_llseek()
     default: unlock_filp(rfilp); return(EINVAL);
   }
 
-  newpos = add64(pos, make64(off_lo, off_hi));
+  newpos = pos + offset;
 
   /* Check for overflow. */
   if ((off_hi > 0) && cmp64(newpos, pos) < 0)
@@ -732,24 +728,31 @@ int do_llseek()
   return(r);
 }
 
+int do_llseek()
+{
+	return actual_llseek(job_m_in.ls_fd, job_m_in.whence,
+		make64(job_m_in.offset_lo, job_m_in.offset_high));
+}
+
 /*===========================================================================*
  *				do_close				     *
  *===========================================================================*/
 int do_close()
 {
 /* Perform the close(fd) system call. */
-
-  scratch(fp).file.fd_nr = job_m_in.fd;
-  return close_fd(fp, scratch(fp).file.fd_nr);
+  int thefd = job_m_in.fd;
+  scratch(fp).file.fd_nr = thefd;
+  return close_fd(fp, scratch(fp).file.fd_nr, 1);
 }
 
 
 /*===========================================================================*
  *				close_fd				     *
  *===========================================================================*/
-int close_fd(rfp, fd_nr)
+int close_fd(rfp, fd_nr, user_request)
 struct fproc *rfp;
 int fd_nr;
+int user_request;
 {
 /* Perform the close(fd) system call. */
   register struct filp *rfilp;
@@ -757,8 +760,18 @@ int fd_nr;
   struct file_lock *flp;
   int lock_count;
 
+  if(user_request &&
+   fd_nr >= 0 && fd_nr < OPEN_MAX && FD_ISSET(fd_nr, &fp->fp_filp_system)) {
+#if 0
+        printf("VFS: close_fd: closing system FD %d from %d, not doing it\n",
+		fd_nr, rfp->fp_endpoint);
+#endif
+        return EBADF;
+  }
+
   /* First locate the vnode that belongs to the file descriptor. */
   if ( (rfilp = get_filp2(rfp, fd_nr, VNODE_OPCL)) == NULL) return(err_code);
+
   vp = rfilp->filp_vno;
 
   close_filp(rfilp);

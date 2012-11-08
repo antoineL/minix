@@ -780,6 +780,18 @@ void pt_clearmapcache(void)
 		panic("VMCTL_CLEARMAPCACHE failed");
 }
 
+int pt_writable(struct vmproc *vmp, vir_bytes v)
+{
+	pt_t *pt = &vmp->vm_pt;
+	assert(!(v % VM_PAGE_SIZE));
+	int pde = I386_VM_PDE(v);
+	int pte = I386_VM_PTE(v);
+
+	assert(pt->pt_dir[pde] & ARCH_VM_PDE_PRESENT);
+	assert(pt->pt_pt[pde]);
+	return (pt->pt_pt[pde][pte] & PTF_WRITE) ? 1 : 0;
+}
+
 /*===========================================================================*
  *				pt_writemap		     		     *
  *===========================================================================*/
