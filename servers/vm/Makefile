@@ -1,6 +1,8 @@
 # Makefile for VM server
 .include <bsd.own.mk>
 
+DBG=-g
+
 PROG=	vm
 SRCS=	main.c alloc.c utility.c exit.c fork.c break.c \
 	mmap.c slaballoc.c region.c pagefaults.c \
