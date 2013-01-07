@@ -1,78 +1,82 @@
 #!/bin/sh
 #
-#	mkboot 2.0 - make root device bootable, etc.
+#	mkboot 2.0 - Install a new revision
 #							Author: Kees J. Bot
 
+# This script could be run in cross-compilation builds:
+: ${HOST_SH:=sh}
+# It assumes $(dirname $0)/.. is the root of the source tree.
+
 usage() {
-	echo "Usage: $0 [bootable | hdboot] [DESTDIR]" >&2
+	echo "Usage: $0 hdboot [DESTDIR]" >&2
 	exit 1
+}
+
+find_real_root()
+{
+	[ `uname -s` = Minix ] || ( echo "Use DESTDIR if not under MINIX" >&2 ; usage )
+	# We need the root device.
+	root=`awk '$3=="/" { print $1; }' /etc/mtab`
+	if [ -z "$root" ]
+	then
+		echo Root file system not found in /etc/mtab!
+		exit 1
+	fi
+	if test "x$root" = "x/dev/ram"
+	then # The root device is the ramdisk; try to find the original file system.
+		ramimagename=$(sysenv ramimagename)
+		if test -n "$ramimagename" -a -b "/dev/$ramimagename"
+		then # Found! Now try to find the mounting point.
+			root="/dev/$ramimagename"
+			ramdisk_dir=`awk "\$1=\"$root\" {print \$3;}" /etc/mtab`
+			if test -z "$ramdisk_dir"
+			then # Not yet mounted; mount it temporarily to /mnt.
+				umount /mnt 2>/dev/null || true
+				mount $root /mnt
+				DESTDIR=/mnt
+			else # Already mounted; just redirect the script.
+				DESTDIR=$ramdisk_dir
+			fi
+		fi
+	fi
 }
 
 rotate_oldest() {
 	base_dir="$1"
-	set -- `ls -t "$base_dir"`
+	set -- `ls -t "$DESTDIR/$base_dir"`
 
+	[ "x$1" != "x.temp" ] || shift # do not consider recently added .temp
 	case $# in
 	0|1|2|3)
 		# Not much there, do not remove a thing.
 		;;
 	*)
-		# Remove the third-newest image in /boot/$hdboot_t, but
+		# Remove the third-newest image in /boot/minix/, but
 		# only if there's an older one (which is kept). 
 		echo "rm $root:$base_dir/$3"
-		rm -rf "$base_dir/$3"
+		rm -rf "$DESTDIR/$base_dir/$3"
 	esac
 }
 
-
-mdec=/usr/mdec	# bootstraps
 # If no DESTDIR specified, then act on / or on the current chroot
 DESTDIR=
 # Check arguments.
 case "$#:$1" in
-1:bootable | 1:hdboot )
-	# LSC Broken, if $# == 1, then $2,$3 are not set...
-	action=$1 
+1:hdboot )
+	action=$1
+	rootfs=1
+	find_real_root
 	;;
-2:bootable | 2:hdboot )
+2:hdboot )
 	action=$1 DESTDIR=$2
+	rootfs=0 # Do not try to guess where the real root FS is...
 	;;
 *)	usage
 esac
 
-# Get the device table.
-FSTAB=/etc/fstab
-touch $FSTAB
-if grep -q "Poor man" $FSTAB
-then	. $FSTAB
-else	root="`awk <$FSTAB '{ if($2=="/") { print $1 } }'`"
-fi
-
-# The real root device may be the RAM disk.
-realroot=`printroot -r`
-
-# If it's an initial fstab, pretend root is real root
-if [ "$root" = "/dev/ROOT" -o -z "$root" ]
-then	root=$realroot
-fi
-
-case $action in
-bootable | hdboot)
-	# We need the root device.
-
-	if [ $realroot = $root ]
-	then
-		rootdir=
-	else
-		umount $root 2>/dev/null
-		mount $root /mnt || exit
-		rootdir=/mnt
-	fi
-esac
-
 case $action in
 hdboot)
-	version=`sh ../sys/conf/osrelease.sh`
+	version=`${HOST_SH} $(dirname $0)/../sys/conf/osrelease.sh`
 
 	# Retrieve the git revision; this only succeeds
 	# if git is available, it's a git checkout, *and*
@@ -97,12 +101,13 @@ hdboot)
 
 	target="${version}${rrevision}${gitrev}"
 
-	rotate_oldest "$DESTDIR/boot/minix"
+	# Rotate system processes. We assume latest ones are in
+	# /boot/minix/.temp and we maintain /boot/minix/ by ourselves.
+	rotate_oldest "/boot/minix"
 
-	# rotate system processes. We assume latest ones are in
-	# /boot/modules/.temp and we maintain /boot/modules/ by ourselves.
 	[ -d $DESTDIR/boot/minix/.temp ] || exit 1
 	rm -rf $DESTDIR/boot/minix/"$target"/
+	echo "New system image at " $root:/boot/minix/"$target"/
 	mv $DESTDIR/boot/minix/.temp $DESTDIR/boot/minix/"$target"
 	rm -f $DESTDIR/boot/minix_latest
 	ln -s minix/"$target" $DESTDIR/boot/minix_latest 
@@ -110,7 +115,8 @@ hdboot)
 	# Save the revision number.
 	test "$revision" != "$oldrev" && echo $revision >revision
 
-	test $realroot != $root && umount $root
+	[ $rootfs -a -n "$DESTDIR" ] && umount $root
+
 	echo "Done."
 	;;
 esac
