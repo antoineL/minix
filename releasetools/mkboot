@@ -1,81 +1,86 @@
 #!/bin/sh
 #
-#	mkboot 2.0 - make root device bootable, etc.
+#	mkboot 2.0 - Install a new revision and make it bootable
 #							Author: Kees J. Bot
 
+# This script could be run in cross-compilation builds
+: ${HOST_SH:=sh}
+: ${AWK:=awk}
+
 usage() {
-	echo "Usage: $0 [bootable | hdboot] [DESTDIR]" >&2
+	echo "Usage: $0 hdboot [DESTDIR]" >&2
 	exit 1
+}
+
+find_real_root() {
+	# Get the device table.
+	FSTAB=/etc/fstab
+	touch $FSTAB
+	if grep -q "Poor man" $FSTAB
+	then	. $FSTAB
+	else	root=$( ${AWK} <$FSTAB '($2=="/") { print $1 }' )
+	fi
+	
+	# The real root device may be the RAM disk.
+	realroot=`printroot -r`
+	
+	# If it's an initial fstab, pretend root is real root
+	if [ "$root" = "/dev/ROOT" -o -z "$root" ]
+	then	root=$realroot
+	fi
+	
+	# We need the root device.
+	if [ $realroot = $root ]
+	then
+		DESTDIR=
+	else
+		umount $root 2>/dev/null
+		mount $root /mnt || exit
+		DESTDIR=/mnt
+	fi
 }
 
 rotate_oldest() {
 	base_dir="$1"
-	set -- `ls -t "$base_dir"`
+	set -- `ls -t "$DESTDIR/$base_dir"`
 
+	[ "x$1" != "x.temp" ] || shift # do not consider recently added .temp
 	case $# in
 	0|1|2|3)
 		# Not much there, do not remove a thing.
 		;;
 	*)
-		# Remove the third-newest image in /boot/$hdboot_t, but
+		# Remove the third-newest image in /boot/minix/, but
 		# only if there's an older one (which is kept). 
 		echo "rm $root:$base_dir/$3"
-		rm -rf "$base_dir/$3"
+		rm -rf "$DESTDIR/$base_dir/$3"
 	esac
 }
 
 
-trap 'e=$?; rm -f /tmp/mkb.$$; exit $e' 0 2
-
-mdec=/usr/mdec	# bootstraps
 # If no DESTDIR specified, then act on / or on the current chroot
 DESTDIR=
 # Check arguments.
 case "$#:$1" in
-1:bootable | 1:hdboot )
-	# LSC Broken, if $# == 1, then $2,$3 are not set...
-	action=$1 
+1:hdboot )
+	action=$1
+	rootfs=1
 	;;
-2:bootable | 2:hdboot )
+2:hdboot )
 	action=$1 DESTDIR=$2
+	rootfs=0 # Do not try to guess where the real root FS is...
 	;;
 *)	usage
 esac
 
-# Get the device table.
-FSTAB=/etc/fstab
-touch $FSTAB
-if grep -q "Poor man" $FSTAB
-then	. $FSTAB
-else	root="`awk <$FSTAB '{ if($2=="/") { print $1 } }'`"
+if [ $rootfs != 0 ]
+then
+	find_real_root
 fi
-
-# The real root device may be the RAM disk.
-realroot=`printroot -r`
-
-# If it's an initial fstab, pretend root is real root
-if [ "$root" = "/dev/ROOT" -o -z "$root" ]
-then	root=$realroot
-fi
-
-case $action in
-bootable | hdboot)
-	# We need the root device.
-
-	if [ $realroot = $root ]
-	then
-		rootdir=
-	else
-		umount $root 2>/dev/null
-		mount $root /mnt || exit
-		rootdir=/mnt
-	fi
-esac
 
 case $action in
 hdboot)
-	sh tell_config OS_RELEASE . OS_VERSION >/tmp/mkb.$$
-	version=`sed 's/[" 	]//g;/^$/d' </tmp/mkb.$$`
+	version=`${HOST_SH} ../sys/conf/osrelease.sh`
 
 	# Retrieve the git revision; this only succeeds
 	# if git is available, it's a git checkout, *and*
@@ -86,18 +91,13 @@ hdboot)
 
 	revision=`cat revision 2>/dev/null`
 
-	if [ -z "$revision" ]
-	then	rrevision=""
-		gitrev=""
-	else	rrevision=r$revision
-	fi
-
 	oldrev=$revision
 
 	if [ -z "$revision" ]
 	then
 		revision=0
 		rrevision=""
+		gitrev=""
 	else
 		revision=`expr $revision + 1`
 		rrevision=r$revision
@@ -105,12 +105,13 @@ hdboot)
 
 	target="${version}${rrevision}${gitrev}"
 
-	rotate_oldest "$DESTDIR/boot/minix"
+	# Rotate system processes. We assume latest ones are in
+	# /boot/minix/.temp and we maintain /boot/minix/ by ourselves.
+	rotate_oldest "/boot/minix"
 
-	# rotate system processes. We assume latest ones are in
-	# /boot/modules/.temp and we maintain /boot/modules/ by ourselves.
 	[ -d $DESTDIR/boot/minix/.temp ] || exit 1
 	rm -rf $DESTDIR/boot/minix/"$target"/
+	echo "New system image at " $root:/boot/minix/"$target"/
 	mv $DESTDIR/boot/minix/.temp $DESTDIR/boot/minix/"$target"
 	rm -f $DESTDIR/boot/minix_latest
 	ln -s minix/"$target" $DESTDIR/boot/minix_latest 
@@ -118,7 +119,14 @@ hdboot)
 	# Save the revision number.
 	test "$revision" != "$oldrev" && echo $revision >revision
 
-	test $realroot != $root && umount $root
+	# XXX
+	# Consider calling update_bootcfg at this point,
+	# since the real rootfs (not the RAM disk) is mounted...
+	#
+	# However that script needs to be updated for $DESTDIR
+
+	test $rootfs != 0 -a $realroot != $root && umount $root
+
 	echo "Done."
 	;;
 esac

@@ -5,32 +5,24 @@
 .include <bsd.own.mk>
 .include <bsd.sys.mk>
 
-u=/usr
-MDEC=	/usr/mdec
 GEN_FILES=	*.bak image kernel *.iso *.iso.gz cdfdimage rootimage src
 
-# LSC detect where were built the objects files
-PROGROOT:= ..
-.if "${MAKEOBJDIR:S,${.CURDIR},,}" != ""
-PROGROOT:= ${MAKEOBJDIR:S,releasetools,,}
-.endif
-
 # Specify the programs that are part of the system image.
-KERNEL= ${PROGROOT}/kernel/kernel
+KERNEL= kernel	${NETBSDSRCDIR}/kernel
 # PROGRAMS are in the order they should be loaded by boot
 PROGRAMS= \
-	${PROGROOT}/servers/ds/ds \
-	${PROGROOT}/servers/rs/rs \
-	${PROGROOT}/servers/pm/pm \
-	${PROGROOT}/servers/sched/sched \
-	${PROGROOT}/servers/vfs/vfs \
-	${PROGROOT}/drivers/memory/memory \
-	${PROGROOT}/drivers/log/log \
-	${PROGROOT}/drivers/tty/tty \
-	${PROGROOT}/servers/mfs/mfs \
-	${PROGROOT}/servers/vm/vm \
-	${PROGROOT}/servers/pfs/pfs \
-	${PROGROOT}/servers/init/init
+	ds	${NETBSDSRCDIR}/servers/ds \
+	rs	${NETBSDSRCDIR}/servers/rs \
+	pm	${NETBSDSRCDIR}/servers/pm \
+	sched	${NETBSDSRCDIR}/servers/sched \
+	vfs	${NETBSDSRCDIR}/servers/vfs \
+	memory	${NETBSDSRCDIR}/drivers/memory \
+	log	${NETBSDSRCDIR}/drivers/log \
+	tty	${NETBSDSRCDIR}/drivers/tty \
+	mfs	${NETBSDSRCDIR}/servers/mfs \
+	vm	${NETBSDSRCDIR}/servers/vm \
+	pfs	${NETBSDSRCDIR}/servers/pfs \
+	init	${NETBSDSRCDIR}/servers/init
 
 usage:	
 	@echo " " >&2
@@ -43,14 +35,12 @@ usage:
 	@echo "	make services   # Compile and install all services" >&2
 	@echo "	make install    # Make image, and install to hard disk" >&2
 	@echo "	make hdboot     # Make image, and install to hard disk" >&2
-	@echo "	make bootable   # Make hard disk bootable" >&2
 	@echo "	make nbsd_fetch	# Download current NetBSD reference sources" >&2
 	@echo "	make nbsd_diff	# Update minix-port.patch in NetBSD sources" >&2
 	@echo "	make clean      # Remove all compiler results, except libs" >&2
 	@echo " " >&2
 	@echo "To create a fresh MINIX configuration, try:" >&2
 	@echo "	make clean install      # new boot image" >&2
-	@echo "	make fresh install      # new everything" >&2
 	@echo " " >&2
 
 all: services
@@ -77,33 +67,50 @@ drivers: includes servers
 	$(MAKE) -C ../drivers all install
 
 # make bootable and place system images
-bootable:
-	exec su root mkboot bootable ${DESTDIR}
-
 hdboot: services .WAIT do-hdboot
 
-do-hdboot: 
-	@rm -rf ${DESTDIR}/boot/minix/.temp/
-	${INSTALL_DIR} ${DESTDIR}/boot/minix/.temp
-# mod_0 is used to make alphabetical order equal to the boot order
-	@n=0;							\
-	for i in ${PROGRAMS};					\
-	do							\
-	n=`expr $$n + 1`;					\
-	[ "$$n" -ge 10 ] && prefix="mod" || prefix="mod0";	\
-	newname="${DESTDIR}/boot/minix/.temp/$${prefix}$${n}_`basename $$i`"; \
-	${INSTALL} $$i $$newname;				\
-	done
-	@cp ${PROGROOT}/kernel/kernel ${DESTDIR}/boot/minix/.temp/
-	@if [ "${MKINSTALLBOOT:Uno}" != "no" ] ; then		\
-	${STRIP} -s ${DESTDIR}/boot/minix/.temp/* ;		\
-	gzip ${DESTDIR}/boot/minix/.temp/mod* ;			\
-	${HOST_SH} mkboot hdboot ${DESTDIR};			\
-	${HOST_SH} ../commands/update_bootcfg/update_bootcfg.sh;\
-	else							\
-	${INSTALL_DIR} ${DESTDIR}/multiboot;			\
-	${INSTALL} ${DESTDIR}/boot/minix/.temp/* ${DESTDIR}/multiboot;	\
-	fi
+# Where to put the new image
+# should be in the same file system as final destination
+_tempDIR=	${DESTDIR}/boot/minix/.temp
+
+##### Detect where are built the services
+.for _bin _dir in ${KERNEL} ${PROGRAMS}
+.if !defined(_OBJD.${_bin})
+_OBJD.${_bin}!=	cd ${_dir} && ${PRINTOBJDIR}
+.endif
+.endfor
+
+##### Names of the programs as they appear in the system image
+# "mod%.2d" is used to make alphabetical order equal to the boot order
+n:=	0
+.for _bin _dir in ${PROGRAMS}
+n!=	expr $n + 1
+_pfx!=	printf "mod%.2d" $n
+_MODNAME.${_bin}:=	${_tempDIR}/${_pfx}_${_bin}
+system-modules: install-module-${_bin}
+install-module-${_bin}:
+	@${INSTALL} ${_OBJD.${_bin}}/${_bin} ${_MODNAME.${_bin}}
+.endfor
+
+do-hdboot: boot-dir .WAIT system-modules .WAIT make-bootable
+
+boot-dir:
+	@rm -rf ${_tempDIR}/
+	${INSTALL_DIR} ${_tempDIR}
+
+system-modules:
+	@${INSTALL} ${_OBJD.kernel}/kernel ${_tempDIR}/
+
+make-bootable:
+.if ${MKINSTALLBOOT:Uno} != "no"
+	${STRIP} -s ${_tempDIR}/*
+	${TOOL_GZIP} ${_tempDIR}/mod*
+	${HOST_SH} mkboot hdboot ${DESTDIR}
+	${HOST_SH} ../commands/update_bootcfg/update_bootcfg.sh
+.else
+	${INSTALL_DIR} ${DESTDIR}/multiboot
+	${INSTALL} ${_tempDIR}/* ${DESTDIR}/multiboot
+.endif
 
 install:
 	${MAKE} includes services hdboot
