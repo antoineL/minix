@@ -8,6 +8,7 @@ PROG=	makewhatis
 SRCS=	makewhatis.c manconf.c
 .PATH:	${NETBSDSRCDIR}/usr.bin/man
 CPPFLAGS+=-I${NETBSDSRCDIR}/usr.bin
+BINMODE=4750
 
 MAN=	${PROG}.8
 
