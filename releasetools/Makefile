@@ -5,31 +5,23 @@
 .include <bsd.own.mk>
 .include <bsd.sys.mk>
 
-u=/usr
-MDEC=	/usr/mdec
-GEN_FILES=	*.bak image kernel *.iso *.iso.gz cdfdimage rootimage src
+GEN_FILES=	*.bak kernel *.iso *.iso.gz src
 
-# LSC detect where were built the objects files
-PROGROOT:= ..
-.if "${MAKEOBJDIR:S,${.CURDIR},,}" != ""
-PROGROOT:= ${MAKEOBJDIR:S,releasetools,,}
-.endif
-
-# Specify the programs that are part of the system image.
-KERNEL= ${PROGROOT}/kernel/kernel
+# Specify the programs that are part of the system image, and its source.
+KERNEL=		kernel	${NETBSDSRCDIR}/kernel
 # PROGRAMS are in the order they should be loaded by boot
-PROGRAMS+= ${PROGROOT}/servers/ds/ds
-PROGRAMS+= ${PROGROOT}/servers/rs/rs
-PROGRAMS+= ${PROGROOT}/servers/pm/pm
-PROGRAMS+= ${PROGROOT}/servers/sched/sched
-PROGRAMS+= ${PROGROOT}/servers/vfs/vfs
-PROGRAMS+= ${PROGROOT}/drivers/memory/memory
-PROGRAMS+= ${PROGROOT}/drivers/log/log
-PROGRAMS+= ${PROGROOT}/drivers/tty/tty
-PROGRAMS+= ${PROGROOT}/servers/mfs/mfs
-PROGRAMS+= ${PROGROOT}/servers/vm/vm
-PROGRAMS+= ${PROGROOT}/servers/pfs/pfs
-PROGRAMS+= ${PROGROOT}/servers/init/init
+PROGRAMS:=	ds	${NETBSDSRCDIR}/servers/ds
+PROGRAMS+=	rs	${NETBSDSRCDIR}/servers/rs
+PROGRAMS+=	pm	${NETBSDSRCDIR}/servers/pm
+PROGRAMS+=	sched	${NETBSDSRCDIR}/servers/sched
+PROGRAMS+=	vfs	${NETBSDSRCDIR}/servers/vfs
+PROGRAMS+=	memory	${NETBSDSRCDIR}/drivers/memory
+PROGRAMS+=	log	${NETBSDSRCDIR}/drivers/log
+PROGRAMS+=	tty	${NETBSDSRCDIR}/drivers/tty
+PROGRAMS+=	mfs	${NETBSDSRCDIR}/servers/mfs
+PROGRAMS+=	vm	${NETBSDSRCDIR}/servers/vm
+PROGRAMS+=	pfs	${NETBSDSRCDIR}/servers/pfs
+PROGRAMS+=	init	${NETBSDSRCDIR}/servers/init
 
 usage:	
 	@echo " " >&2
@@ -42,7 +34,6 @@ usage:
 	@echo "	make services   # Compile and install all services" >&2
 	@echo "	make install    # Make image, and install to hard disk" >&2
 	@echo "	make hdboot     # Make image, and install to hard disk" >&2
-	@echo "	make bootable   # Make hard disk bootable" >&2
 	@echo "	make nbsd_fetch	# Download current NetBSD reference sources" >&2
 	@echo "	make nbsd_diff	# Update minix-port.patch in NetBSD sources" >&2
 	@echo "	make clean      # Remove all compiler results, except libs" >&2
@@ -78,33 +69,65 @@ services: kernel servers drivers
 	echo ${GEN_FILES} | tr ' ' '\n' >.gitignore
 
 # make bootable and place system images
-bootable:
-	exec su root mkboot bootable ${DESTDIR}
-
 hdboot install: services .WAIT do-hdboot
 
-do-hdboot: 
-	@rm -rf ${DESTDIR}/boot/minix/.temp/
-	${INSTALL_DIR} ${DESTDIR}/boot/minix/.temp
-# mod_0 is used to make alphabetical order equal to the boot order
-	@n=0;							\
-	for i in ${PROGRAMS};					\
-	do							\
-	n=`expr $$n + 1`;					\
-	[ "$$n" -ge 10 ] && prefix="mod" || prefix="mod0";	\
-	newname="${DESTDIR}/boot/minix/.temp/$${prefix}$${n}_`basename $$i`"; \
-	${INSTALL} $$i $$newname;				\
-	done
-	@cp ${PROGROOT}/kernel/kernel ${DESTDIR}/boot/minix/.temp/
-	@if [ "${MKINSTALLBOOT:Uno}" != "no" ] ; then		\
-	${STRIP} -s ${DESTDIR}/boot/minix/.temp/* ;		\
-	gzip ${DESTDIR}/boot/minix/.temp/mod* ;			\
-	${HOST_SH} mkboot hdboot ${DESTDIR};			\
-	${HOST_SH} ../commands/update_bootcfg/update_bootcfg.sh;\
-	else							\
-	${INSTALL_DIR} ${DESTDIR}/multiboot;			\
-	${INSTALL} ${DESTDIR}/boot/minix/.temp/* ${DESTDIR}/multiboot;	\
-	fi
+# Where to put the new image
+.if ${MKINSTALLBOOT:Uno} != "no" && \
+   (!defined(DESTDIR) || ${DESTDIR} == "" || ${DESTDIR} == "/")
+# should be in the same file system as final destination
+_tempDIR=	${DESTDIR}/boot/minix/.temp
+
+# XXX This stuff does not work with MKUNPRIVED=yes, with wrong writes to
+# METALOG because of gzip and the rename done as part of mkboot below.
+MINIX_INSTALL_FILE= ${INSTALL_FILE} -o ${BINOWN} -g ${BINGRP} -m 640 -s
+
+.else # cross-compilation case:
+
+_tempDIR=	${DESTDIR}/multiboot
+MINIX_INSTALL_FILE= ${INSTALL_FILE} -o ${BINOWN} -g ${BINGRP} \
+		-m ${NONBINMODE} ${STRIPFLAG}
+.endif
+
+##### Detect where are built the services
+.for _bin _dir in ${KERNEL} ${PROGRAMS}
+.if !defined(_OBJD.${_bin})
+_OBJD.${_bin}!=	cd ${_dir} && ${PRINTOBJDIR}
+.endif
+.endfor
+
+##### Names of the programs as they appear in the system image
+# "mod%.2d" is used to make alphabetical order equal to the boot order
+n:=	0
+.for _bin _dir in ${PROGRAMS}
+n!=	expr $n + 1
+_pfx!=	printf "mod%.2d" $n
+_MODNAME.${_bin}:=	${_tempDIR}/${_pfx}_${_bin}
+system-modules: install-module-${_bin}
+install-module-${_bin}:
+	#${_MKMSG_INSTALL} ${_bin}
+	@${MINIX_INSTALL_FILE} ${_OBJD.${_bin}}/${_bin} ${_MODNAME.${_bin}}
+.endfor
+
+do-hdboot: boot-dir .WAIT system-modules .WAIT make-bootable
+
+boot-dir:
+	@rm -rf ${_tempDIR}/
+	${INSTALL_DIR} ${_tempDIR}
+
+system-modules:
+	#${_MKMSG_INSTALL} kernel
+	@${MINIX_INSTALL_FILE} ${_OBJD.kernel}/kernel ${_tempDIR}/
+
+make-bootable:
+# XXX Should we invent a MKBOOTABLE knob?!
+.if ${MKINSTALLBOOT:Uno} != "no" && \
+   (!defined(DESTDIR) || ${DESTDIR} == "" || ${DESTDIR} == "/")
+	# XXX stripping is already done as part of MINIX_INSTALL_FILE above
+	${STRIP} -s ${_tempDIR}/*
+	${TOOL_GZIP} ${_tempDIR}/mod*
+	${HOST_SH} ${.CURDIR}/mkboot hdboot ${DESTDIR}
+	${HOST_SH} ${.CURDIR}/../commands/update_bootcfg/update_bootcfg.sh
+.endif
 
 # download and update NetBSD reference sources.
 nbsd_fetch:
