@@ -106,10 +106,15 @@ system-modules:
 # Invent a MKBOOTABLE knob!
 make-bootable:
 .if ${MKINSTALLBOOT:Uno} != "no"
-	${STRIP} -s ${_tempDIR}/*
-	${TOOL_GZIP} ${_tempDIR}/mod*
+	[ ! -w ${_tempDIR}/kernel ] || ${STRIP} -s ${_tempDIR}/*
+	[ ! -w ${_tempDIR}/kernel ] || ${TOOL_GZIP} ${_tempDIR}/mod*
 	${HOST_SH} ${.CURDIR}/mkboot hdboot ${DESTDIR}
+.  if !defined(DESTDIR) || ${DESTDIR} == "" || ${DESTDIR} == "/"
 	${HOST_SH} ${.CURDIR}/../commands/update_bootcfg/update_bootcfg.sh
+.  else
+	${HOST_SH} ${.CURDIR}/../commands/update_bootcfg/update_bootcfg.sh \
+		-t ${.CURDIR}/../etc/boot.cfg.default -i "" ${DESTDIR}
+.  endif
 .else
 	${INSTALL_DIR} ${DESTDIR}/multiboot
 	${INSTALL} ${_tempDIR}/* ${DESTDIR}/multiboot
