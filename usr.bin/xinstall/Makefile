@@ -6,6 +6,7 @@
 PROG=	xinstall
 SRCS=	xinstall.c getid.c
 MAN=	install.1
+BINMODE=4750
 
 .PATH:		${NETBSDSRCDIR}/usr.sbin/mtree
 CPPFLAGS+=	-I${NETBSDSRCDIR}/usr.sbin/mtree
