@@ -9,10 +9,14 @@
 _BSD_OWN_MK_=1
 
 .if defined(__MINIX)
-
 # LSC FIXME: Useless difference, Should use the mk.conf
 MAKECONF?=	/etc/make.conf
+.else
+MAKECONF?=	/etc/mk.conf
+.endif
+.-include "${MAKECONF}"
 
+.if defined(__MINIX)
 # Some Minix deviations from NetBSD
 LDSTATIC?=	-static
 MKDYNAMICROOT?=	no
@@ -39,7 +43,6 @@ SMP_FLAGS += -DCONFIG_SMP
 SMP_FLAGS += -DCONFIG_MAX_CPUS=${CONFIG_MAX_CPUS}
 .endif
 .endif
-
 CPPFLAGS+= ${SMP_FLAGS}
 
 __uname_s!= uname -s
@@ -57,10 +60,7 @@ MACHINE:= i386
 .  endif # !defined(HOSTPROG) && !defined(HOSTLIB)
 .endif # __uname_s == "Minix"
 
-.else
-MAKECONF?=	/etc/mk.conf
 .endif # defined(__MINIX)
-.-include "${MAKECONF}"
 
 #
 # CPU model, derived from MACHINE_ARCH
