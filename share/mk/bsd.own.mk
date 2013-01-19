@@ -8,6 +8,9 @@
 .if !defined(_BSD_OWN_MK_)
 _BSD_OWN_MK_=1
 
+MAKECONF?=	/etc/mk.conf
+.-include "${MAKECONF}"
+
 .if defined(__MINIX)
 
 # Some Minix deviations from NetBSD
@@ -54,9 +57,6 @@ MACHINE:= i386
 .  endif # !defined(HOSTPROG) && !defined(HOSTLIB)
 .endif # __uname_s == "Minix"
 .endif # defined(__MINIX)
-
-MAKECONF?=	/etc/mk.conf
-.-include "${MAKECONF}"
 
 #
 # CPU model, derived from MACHINE_ARCH
