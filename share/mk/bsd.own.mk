@@ -8,6 +8,9 @@
 .if !defined(_BSD_OWN_MK_)
 _BSD_OWN_MK_=1
 
+MAKECONF?=	/etc/mk.conf
+.-include "${MAKECONF}"
+
 .if defined(__MINIX)
 
 # Some Minix deviations from NetBSD
@@ -102,9 +105,6 @@ MKKYUA?=	yes
 CPUFLAGS+=	-march=i586
 .endif
 .endif # defined(__MINIX)
-
-MAKECONF?=	/etc/mk.conf
-.-include "${MAKECONF}"
 
 #
 # CPU model, derived from MACHINE_ARCH
