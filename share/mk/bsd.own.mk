@@ -46,7 +46,10 @@ __uname_s!= uname -s
 .if ${__uname_s:Uunknown} == "Minix" 
 USETOOLS?=	never
 .  if ${USETOOLS:Uno} != "yes"
-.    if ${_HAVE_LLVM:U} == ""
+.    if defined(UNSUPPORTED_COMPILER.clang)
+# Do not even try to launch clang if problems are expected down the road
+       _HAVE_LLVM:= 0.0 # hoping a bad enough version will deter potential use
+.    elif ${_HAVE_LLVM:U} == ""
        _HAVE_LLVM!= (exec 2>&1; clang --version || echo "")
        _HAVE_LLVM:= ${_HAVE_LLVM:M[0-9]\.[0-9]}
 .      if ${_HAVE_LLVM} != ""
