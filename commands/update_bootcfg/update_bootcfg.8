@@ -1,0 +1,133 @@
+.\" Written by Antoine Leca
+.Dd February 8, 2013
+.Dt UPDATE_BOOTCFG 8
+.Os MINIX
+.Sh NAME
+.Nm update_bootcfg
+.Nd Create or udpate the configuration for the boot monitor
+.Sh SYNOPSIS
+.Nm
+.Op Fl lx
+.Op Fl r Ar rootdev
+.Op Fl t Ar target
+.Op Fl a Ar supps_args
+.Sh DESCRIPTION
+The
+.Nm
+command recreates the configuration file used by
+MINIX boot monitor. It is created from two templates,
+.Pa /etc/boot.cfg.default
+and
+.Pa /etc/boot.cfg.local ;
+the former is updated when the system changes,
+while the latter holds the local modifications.
+The templates obey the syntax for
+.Xr boot.cfg 5 .
+.Pp
+The
+.Fl t
+option specifies the name of the new configuration file;
+the default value is to update
+.Pa /boot.cfg .
+.Pp
+The
+.Pa /etc/boot.cfg.default
+template expects the system images to reside in the
+.Pa /boot/minix
+directory, and that
+.Pa /boot/minix_latest
+points to last image, selected by the
+.Cm default=
+command. The
+.Fl x
+option will cause the lastest image to be dropped,
+and the
+.Fl d
+option will reset
+.Pa /boot/minix_latest
+points to most recent image (measured with the time stamp of the
+.Va kernel
+file.) Besides the directory to which points
+.Pa /boot/minix_latest ,
+all the directory entries within 
+.Pa /boot/minix
+are expected to be alternative system releases, and are given additional
+.Em menu=
+entries, with the basic parameters
+.Va $rootdevname
+and
+.Va $args .
+Template
+.Cm menu=
+entries for inexistant directories, or directories without
+.Va kernel
+file, are skipped; the
+.Cm default=
+option is adjusted to point to the same relative menu entry.
+.Pp
+Within the templates, some variables can be used and will be
+substituted by
+.Nm
+at run time. They are preceded by the dollar sign.
+.Sy $rootdevname
+is replaced with the name of the device holding the (current)
+root file system; this can be overriden with the
+.Fl r
+option.
+.Sy $args ,
+which is intended to be at the end of the menu lines, is replaced
+by the system environement values; the
+.Nm
+utility carries over automatically the
+.Va ahci , acpi ,
+and
+.Va no_apic
+from the current system environment (see
+.Xr sysenv 1 .)
+The
+.Fl a
+option allows to append
+.Ar supps_args
+as arbitrary options in addition to the inherited ones.
+.Pp
+The
+.Nm
+command updates the root file system; to act upon another
+file system, use
+.Bd -unfilled -option indent -compact
+.Cm chroot \fIdestdir\fB update_bootcfg
+.Ed
+.Sh FILES
+.Bl -tag -width /etc/boot.cfg.default -compact
+.It Pa /boot.cfg
+Location of the configuration file; previous content is lost
+.It Pa /boot/minix/*
+Directories with the various releases
+.It Pa /boot/minix_default
+Directory with the base release of MINIX, installed at
+.Xr setup 8
+time.
+.It Pa /boot/minix_latest
+Symbolic link to the directory with the latest release, usually
+taken by default
+.It Pa /etc/boot.cfg.default
+Default template
+.It Pa /etc/boot.cfg.local
+Locally-defined additional boot commands
+.El
+.Sh BUGS
+.Pp
+The presence of
+.Pa /boot/minix_latest
+as a
+.Cm menu=
+entry is not checked; it is assumed than one or several entries refer to it.
+.Pp
+The naming conventions, particularly the use of
+.Em "default" ,
+are not consistent.
+.Sh SEE ALSO
+.Xr boot 8 ,
+.Xr boot.cfg 5 ,
+.Xr setup 8 ,
+.Xr sysenv 1
