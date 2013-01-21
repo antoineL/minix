@@ -400,6 +400,12 @@ then
 		cp -pf /etc/boot.cfg.default /mnt/etc/ && \
 		cp -pf /boot_monitor /mnt/ || exit
 
+	echo "# System environment variables, used by update_bootcfg(8)">/mnt/etc/boot.cfg.args
+	echo ROOT=/dev/$root>>/mnt/etc/boot.cfg.args
+	sysenv | sed -e "/^bootcd=/d" -e "/^cdproberoot=/d" \
+		-e "/^rootdevname=/d" -e "/^ramimagename=/d" \
+		-e "/^disable=/d" >> /mnt/etc/boot.cfg.args
+
 	if [ ! -d /mnt/boot/minix_default -o ! -r /mnt/boot/minix_default/kernel ]
 	then
 		if [ -r /mnt/boot.cfg ]

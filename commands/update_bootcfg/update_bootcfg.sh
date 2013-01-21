@@ -1,12 +1,20 @@
 #!/bin/sh
 set -e
 
-ROOT=`printroot -r`
-DEFAULTCFG=/etc/boot.cfg.default
-LOCALCFG=/etc/boot.cfg.local
-TMP=/boot.cfg.temp
-DIRSBASE=/boot/minix
-INHERIT="acpi ahci debug_fkeys nobeep no_apic"
+# Default values can be overriden from environment
+: ${d:=} # where are currently the boot monitor files?
+# Filepaths as seen from the boot monitor, or from $d here:
+: ${BOOTCFG:=/boot.cfg}
+: ${DIRSBASE:=/boot/minix} # Without final /, please!
+: ${LATEST:=/boot/minix_latest}
+# Files used by this utility:
+: ${ARGSCFG:=/etc/boot.cfg.args}
+: ${DEFAULTCFG:=/etc/boot.cfg.default}
+: ${LOCALCFG:=/etc/boot.cfg.local}
+
+# This script aims at being portable among any POSIX shell, in order to be
+# run in cross-building cases (with chroot or jails.)
+# XXX Currently makes use of readlink(1) and stat(1)
 
 filter_entries()
 {
@@ -28,8 +36,8 @@ filter_entries()
 		fi
 
 		# Check if the referenced kernel is present
-		kernel=`echo "$line" | sed -n 's/.*multiboot[[:space:]]*\(\/[^[:space:]]*\).*/\1/p'`
-		if [ ! -r "$kernel" ]
+		kernel=`echo "$line" | sed -n 's/.*multiboot[[:space:]]*\(\/[^[:space:];]*\).*/\1/p'`
+		if [ ! -r "$d$kernel" ]
 		then
 			echo "Warning: config contains entry for \"$kernel\" which is missing! Entry skipped." 1>&2
 			echo "menu=SKIP"
@@ -84,8 +92,65 @@ filter_entries()
 
 count_entries()
 {
-	echo -n "BASE="; grep -cs '^menu=' "$1"
+	printf "BASE="; grep -cs '^menu=' "$1"
 }
+
+usage()
+{
+	cat >&2 <<'EOF'
+Usage:
+  update_bootcfg [-lx] [-r rootdev] [-b bootdir] [-t dest]
+
+  Recreates the configuration file used by MINIX boot monitor.
+
+  Options:
+     -x Remove "minix_latest/*", for example if broken; then fix the link
+     -l Restore "minix_latest" to point to lastest kernel
+     -r Root device name; default is current device for /
+     -b Boot directory (where boot_monitor is); default is /
+     -t New configuration file to create; default is $BOOTCFG (in bootdir)
+EOF
+	exit 1
+}
+
+while getopts "b:lr:t:x" c
+do
+	case "$c" in
+	b)	d="$OPTARG" ;;
+	l)	do_restore_latest=1 ;;
+	r)	ROOT="$OPTARG" ;;
+	t)	keepexist=1; BOOTCFGTMP="$OPTARG" ;;
+	x)	do_remove_latest=1 ;;
+	*)	usage ;;
+	esac
+done
+shift `expr $OPTIND - 1`
+
+# Sanity check
+if test -n "$d" -a ! -d "$d$DIRSBASE"
+then
+	echo -b$d option used but does not seem to point at some MINIX system!?
+	usage
+fi
+
+# Let see if ROOT was initialized by setup:
+if test -z "$ROOT" -a -r "$ARGSCFG"
+then
+	if grep -q "^ROOT=" $ARGSCFG
+	then
+		: ${ROOT:-$(sed -n "s/^ROOT=//p" $ARGSCFG)}
+	fi
+fi
+# Last chance: search which device holds the current / file system:
+if test -z "$ROOT"
+then
+	ROOT=$(awk '$3=="/" { print $1; }' /etc/mtab)
+	if test "x$ROOT" = "x/dev/ram"
+	then # The root device is the ramdisk!
+		# Avoid $(sysenv ramimagename) as being MINIX-specific
+		echo Warning: \$ROOT is a ramdisk; consider -r option
+	fi
+fi
 
 if [ ! -b "$ROOT" ]
 then
@@ -95,45 +160,94 @@ fi
 
 rootdevname=`echo $ROOT | sed 's/\/dev\///'`
 
-# Construct a list of inherited arguments for boot options to use. Note that
-# rootdevname must not be passed on this way, as it is changed during setup.
+# Construct a list of additional arguments for boot options to use, based
+# on a user-editable file /etc/boot.cfg.args initialized during setup.
+# Note that rootdevname is not be passed on this way, as it is handled
+# manually by this script to allow menu lines like
+#   menu=Root FS in RAM: [...] ;multiboot /boot/minix_latest/kernel \
+#           rootdevname=ram ramimagename=$rootdevname $args
+# Also, avoid passing the ROOT variable which is handled above.
 args=""
-for k in $INHERIT; do
-	if sysenv | grep -sq "^$k="; then
-		kv=$(sysenv | grep "^$k=")
-		args="$args $kv"
-	fi
+[ -r "$ARGSCFG" ] && egrep -v "^ROOT=|^#" $ARGSCFG | while read k
+do
+	args="$args $k"
 done
+args="${args# }"
 
-if [ -r $DEFAULTCFG ]
+# Remove the directory pointed to as /boot/minix_latest
+# Useful when one realizes the last release does not work...
+if test -n "$do_remove_latest"
 then
-	filter_entries < $DEFAULTCFG >> $TMP
+	rm -rf $(readlink -f $d$LATEST)
+	[ ! -h $d$LATEST ] || rm $d$LATEST
+
+	do_restore_latest=1
 fi
 
-if [ -d /boot/minix_latest -o -h /boot/minix_latest ]
+# Restore /boot/minix_latest pointing at the directory with the lastest kernel
+if test -n "$do_restore_latest"
 then
-	latest=`basename \`stat -f "%Y" /boot/minix_latest\``
+	[ ! -h $d$LATEST ] || rm $d$LATEST
+
+	target=$(ls -t $d$DIRSBASE/*/kernel 2>/dev/null \
+		| sed -ne '1s|.*/\([^/]*\)/kernel$|\1|p')
+	if test -z "$target" -o ! -d $d$DIRSBASE/"$target"
+	then
+		echo Warning! No MINIX kernels found at $d$DIRSBASE, cannot set $LATEST>&2
+		return
+	fi
+	# XXX Consider a warning if test "$target" = ".temp"
+
+	# XXX Blindly assume $DIRSBASE and $LATEST are sharing the same base
+	ln -s $(basename $DIRSBASE)/"$target" $d$LATEST
 fi
 
-[ -d $DIRSBASE ] && for i in `ls $DIRSBASE/`
+# All is in place; let's proceed
+[ -n "$keepexist" ] || BOOTCFGTMP=$d$BOOTCFG.temp
+
+echo "# Generated file. Edit $LOCALCFG and run $0 !" > $BOOTCFGTMP
+
+if test -r "$DEFAULTCFG"
+then
+	echo \# Template is "$DEFAULTCFG" >> $BOOTCFGTMP
+	filter_entries < $DEFAULTCFG >> $BOOTCFGTMP
+fi
+
+if [ -d $d$LATEST -o -h $d$LATEST ]
+then
+	latest=$(basename $(stat -f "%Y" $d$LATEST))
+fi
+
+[ -d $d$DIRSBASE ] && for i in `ls $d$DIRSBASE/`
 do
 	build_name="`basename $i`"
 	if [ "$build_name" != "$latest" ]
 	then
-		echo "menu=Start MINIX 3 ($build_name):load_mods $DIRSBASE/$i/mod*;multiboot $DIRSBASE/$i/kernel rootdevname=$rootdevname $args" >> $TMP
+	# Avoid inserting space before commands, boot monitor dislikes it
+		echo "menu=Start MINIX 3 ($build_name):load_mods" \
+			"$DIRSBASE/$i/mod*;multiboot $DIRSBASE/$i/kernel" \
+				"rootdevname=$rootdevname $args" >> $BOOTCFGTMP
 	fi
 done
 
-if [ -r $LOCALCFG ]
+if test -r "$LOCALCFG"
 then
+	echo \# Local options from "$LOCALCFG" >> $BOOTCFGTMP
+
 	# If the local config supplies a "default" option, we assume that this
 	# refers to one of the options in the local config itself. Therefore,
 	# we increase this default by the number of options already present in
 	# the output so far. To this end, count_entries() inserts a special
 	# token that is recognized and filtered out by filter_entries().
-	(count_entries $TMP; cat $LOCALCFG) | filter_entries >> $TMP
+	(count_entries $BOOTCFGTMP; cat $LOCALCFG) | filter_entries >> $BOOTCFGTMP
 fi
 
-mv $TMP /boot.cfg
+if test -z "$keepexist"
+then
+	mv $BOOTCFGTMP $d$BOOTCFG
+	# Be nice and also update the / file system
+	[ -z "$d" ] || cp -p $d$BOOTCFG $BOOTCFG
+fi
 
-sync
+sync || true
+[ -z "$mounted_ramdisk" ] || umount $mounted_ramdisk
