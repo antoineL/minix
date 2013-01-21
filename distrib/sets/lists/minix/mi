@@ -3706,6 +3706,7 @@
 ./usr/man/man8/tcpd.8					minix-sys
 ./usr/man/man8/unix.8					minix-sys
 ./usr/man/man8/update.8					minix-sys
+./usr/man/man8/update_bootcfg.8					minix-sys
 ./usr/man/man8/usage.8					minix-sys
 ./usr/man/man8/user.8					minix-sys
 ./usr/man/man8/useradd.8					minix-sys
