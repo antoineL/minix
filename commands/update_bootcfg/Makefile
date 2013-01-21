@@ -1,5 +1,5 @@
 SCRIPTS= update_bootcfg.sh
 BINDIR= /bin
-MAN=
+MAN=	update_bootcfg.8
 
 .include <bsd.prog.mk>
