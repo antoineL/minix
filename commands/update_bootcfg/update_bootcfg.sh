@@ -1,11 +1,14 @@
 #!/bin/sh
 set -e
 
-ROOT=`printroot -r`
-DEFAULTCFG=/etc/boot.cfg.default
-LOCALCFG=/etc/boot.cfg.local
-TMP=/boot.cfg.temp
+# This script could be run in cross-compilation builds
+: ${AWK:=awk}
+
+BOOTCFG=/boot.cfg
+DEFAULTCFG=$DESTDIR/etc/boot.cfg.default
+LOCALCFG=$DESTDIR/etc/boot.cfg.local
 DIRSBASE=/boot/minix
+LATEST=/boot/minix_latest
 INHERIT="ahci acpi no_apic"
 
 filter_entries()
@@ -28,7 +31,7 @@ filter_entries()
 		fi
 
 		# Check if the referenced kernel is present
-		kernel=`echo "$line" | sed -n 's/.*multiboot[[:space:]]*\(\/[^[:space:]]*\).*/\1/p'`
+		kernel=`echo "$line" | sed -n 's/.*multiboot[[:space:]]*\(\/[^[:space:];]*\).*/\1/p'`
 		if [ ! -r "$kernel" ]
 		then
 			echo "Warning: config contains entry for \"$kernel\" which is missing! Entry skipped." 1>&2
@@ -36,7 +39,7 @@ filter_entries()
 		else
 			echo "$line"
 		fi
-	done | awk '
+	done | $AWK '
 		BEGIN {
 			count=1
 			base=0
@@ -84,20 +87,110 @@ filter_entries()
 
 count_entries()
 {
-	echo -n "BASE="; grep -cs '^menu=' "$1"
+	printf "BASE="; grep -cs '^menu=' "$1"
 }
+
+# Which device holds the root file system?
+find_real_root()
+{
+	[ `uname -s` = Minix ] || ( echo "Use destdir if not under MINIX" >&2 ; usage )
+	ROOT=`awk '$3=="/" { print $1; }' /etc/mtab`
+	if test "x$ROOT" = "x/dev/ram"
+	then # The root device is the ramdisk; try to find the original file system
+		ramimagename=$(sysenv ramimagename)
+		if test -n "$ramimagename" -a -b "/dev/$ramimagename"
+		then # Found! Now try to find the mounting point
+			ROOT="/dev/$ramimagename"
+			ramdisk_dir=`awk "\$1=\"\$ROOT\" {print \$3;}" /etc/mtab`
+			if test -z "$ramdisk_dir"
+			then # Not yet mounted; mount it temporarily to /mnt
+				umount /mnt 2>/dev/null || true
+				mount $ROOT /mnt
+				mounted_ramdisk=/mnt
+				DESTDIR=$mounted_ramdisk
+			else # Already mounted; redirect the script
+				DESTDIR=$ramdisk_dir
+			fi
+		fi
+	fi
+}
+
+# Which device holds the root file system to be mounted on DESTDIR?
+find_target_root()
+{
+	if test -r $DESTDIR/etc/fstab
+	then
+		ROOT=`awk '$2=="/" { print $1; }' $DESTDIR/etc/fstab`
+	# else	# ... do nothing, and hope the caller knows what it does;
+		# at any rate a warning will be issued later
+	fi
+}
+
+usage()
+{
+	cat >&2 <<'EOF'
+Usage:
+  update_bootcfg [-dx] [-c filename] [-t default_cfg] [-l local_cfg]
+                 [-r rootdev] [-i inherited_env] [-a supps_args]
+                 [-B basedir] [-D minix_latest_dirname] [destdir]
+
+  Recreates the configuration file used by MINIX boot monitor.
+
+  Specifying "destdir" allows for alteration of other systems.
+  Flags, with the default values between brackets:
+     -d Restore "minix_latest" (not implemented yet)
+     -x Remove "minix_latest" (not implemented yet)
+     -c Configuration file [/boot.cfg]
+     -t Template [/etc/boot.cfg.default]
+     -l Local additions [/etc/boot.cfg.local]
+     -r Root device name [current device for /]
+     -i Inherited system variables ["ahci acpi no_apic"]
+     -a Additional arguments to menu lines
+     -B Where are MINIX releases [/boot/minix/]
+     -D Default release [/boot/minix_latest]
+EOF
+	exit 1
+}
+
+args=""
+
+while getopts "B:D:a:c:di:l:r:t:x" c
+do
+	case "$c" in
+	B)	DIRSBASE=$OPTARG ;;
+	D)	LATEST=$OPTARG ;;
+	a)	args=$OPTARG ;;
+	c)	BOOTCFG=$OPTARG ;;
+	d)	;;	# XXX restore minix_latest
+	l)	LOCALCFG=$OPTARG ;;
+	i)	INHERIT=$OPTARG ;;
+	r)	ROOT=$OPTARG ;;
+	t)	DEFAULTCFG=$OPTARG ;;
+	x)	;;	# XXX remove minix_latest
+	*)	usage ;;
+	esac
+done
+
+shift `expr $OPTIND - 1`
+
+case $# in
+0)	DESTDIR=   ; [ -n "$ROOT" ] || find_real_root ;;
+1)	DESTDIR=$1 ; [ -n "$ROOT" ] || find_target_root ;;
+*)	usage ;;
+esac
+
+BOOTCFGTMP=$BOOTCFG.temp
 
 if [ ! -b "$ROOT" ]
 then
 	echo root device $ROOT not found
-	exit 1
+	[ -z "$DESTDIR" ] && exit 1
 fi
 
 rootdevname=`echo $ROOT | sed 's/\/dev\///'`
 
 # Construct a list of inherited arguments for boot options to use. Note that
 # rootdevname must not be passed on this way, as it is changed during setup.
-args=""
 for k in $INHERIT; do
 	if sysenv | grep -sq "^$k="; then
 		kv=$(sysenv | grep "^$k=")
@@ -105,35 +198,45 @@ for k in $INHERIT; do
 	fi
 done
 
+echo \# Generated file. Edit $LOCALCFG ! > $DESTDIR$BOOTCFGTMP
+
 if [ -r $DEFAULTCFG ]
 then
-	filter_entries < $DEFAULTCFG >> $TMP
+	echo \# Template is "$DEFAULTCFG" >> $DESTDIR$BOOTCFGTMP
+	filter_entries < $DEFAULTCFG >> $DESTDIR$BOOTCFGTMP
 fi
 
-if [ -d /boot/minix_latest -o -h /boot/minix_latest ]
+if [ -d $DESTDIR$LATEST -o -h $DESTDIR$LATEST ]
 then
-	latest=`basename \`stat -f "%Y" /boot/minix_latest\``
+	latest=$(basename $(stat -f "%Y" $DESTDIR$LATEST))
 fi
 
-[ -d $DIRSBASE ] && for i in `ls $DIRSBASE/`
+[ -d $DESTDIR$DIRSBASE ] && for i in `ls $DESTDIR$DIRSBASE/`
 do
 	build_name="`basename $i`"
 	if [ "$build_name" != "$latest" ]
 	then
-		echo "menu=Start MINIX 3 ($build_name):load_mods $DIRSBASE/$i/mod*;multiboot $DIRSBASE/$i/kernel rootdevname=$rootdevname $args" >> $TMP
+	# Avoid inserting space before commands, boot monitor dislikes it
+		echo "menu=Start MINIX 3 ($build_name):load_mods" \
+			"$DIRSBASE/$i/mod*;multiboot $DIRSBASE/$i/kernel" \
+				"rootdevname=$rootdevname $args" >> $DESTDIR$BOOTCFGTMP
 	fi
 done
 
 if [ -r $LOCALCFG ]
 then
+	echo \# Local options from "$LOCALCFG" >> $DESTDIR$BOOTCFGTMP
+
 	# If the local config supplies a "default" option, we assume that this
 	# refers to one of the options in the local config itself. Therefore,
 	# we increase this default by the number of options already present in
 	# the output so far. To this end, count_entries() inserts a special
 	# token that is recognized and filtered out by filter_entries().
-	(count_entries $TMP; cat $LOCALCFG) | filter_entries >> $TMP
+	(count_entries $DESTDIR$BOOTCFGTMP; cat $LOCALCFG) | filter_entries >> $DESTDIR$BOOTCFGTMP
 fi
 
-mv $TMP /boot.cfg
+mv $DESTDIR$BOOTCFGTMP $DESTDIR$BOOTCFG
 
-sync
+sync || true
+
+[ -z "$mounted_ramdisk" ] || umount $mounted_ramdisk
