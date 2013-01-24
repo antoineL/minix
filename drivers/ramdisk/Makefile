@@ -31,7 +31,8 @@ PROTO_FILES=	proto.common.etc proto.common.dynamic proto.dev
 PROG_DRIVERS=
 PROG_COMMANDS=	mount fsck.mfs sh service
 PROG_SERVERS=	mfs
-PROG_USRSBIN=
+PROG_USR.SBIN=
+PROG_USR.BIN=
 PROG_BIN=
 
 .if ${MACHINE_ARCH} == "i386"
@@ -39,7 +40,6 @@ ETC+=		rs.single
 PROG_DRIVERS+=	at_wini floppy pci
 PROG_COMMANDS+=	cdprobe loadramdisk sysenv
 PROG_SERVERS+=	procfs
-PROG_USRSBIN+=	pwd_mkdb
 
 .if ${MKSMALL} != "yes"
 RAMDISK_SMALL=	1
@@ -69,7 +69,7 @@ PROG_LIBS+=	libc libminlib libcompat_minix libterminfo
 .endif
 
 PROGRAMS=${PROG_DRIVERS} ${PROG_COMMANDS} ${PROG_SERVERS} \
-	 ${PROG_USRSBIN} ${PROG_BIN} ${PROG_LIBEXEC}
+	 ${PROG_USR.SBIN} ${PROG_USR.BIN} ${PROG_BIN} ${PROG_LIBEXEC}
 
 CPPFLAGS+= -I${NETBSDSRCDIR}/servers
 
@@ -85,7 +85,7 @@ CLEANFILES += ${.OBJDIR}/etc/*
 #############################################################
 
 # Tool to bootstrap the password db
-TOOL_PWD_MKDB?= ${NETBSDSRCDIR}/usr.sbin/pwd_mkdb/pwd_mkdb
+TOOL_PWD_MKDB?= ${_SRC_OBJ_TOP_}/usr.sbin/pwd_mkdb/pwd_mkdb
 
 # Remove "drivers/ramdisk" component from path
 PROGROOT:= ${.OBJDIR:S,drivers/ramdisk,,}
@@ -93,7 +93,7 @@ PROGROOT:= ${.OBJDIR:S,drivers/ramdisk,,}
 # Generate dependencies rules for config files
 .for etc in ${ETC}
 ${etc}: ${NETBSDSRCDIR}/etc/${etc}
-	${INSTALL} $> $@
+	cp -p $> $@
 .endfor
 
 # LSC Force the regeneration of the proto file as it seems sometimes 
@@ -107,7 +107,7 @@ ${etc}: ${NETBSDSRCDIR}/etc/${etc}
 CLEANFILES += ${EXTRA} ${PROTO} ${PROTO_FILES}
 .for file in ${EXTRA} ${PROTO} ${PROTO_FILES}
 ${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file} .PHONY
-	${INSTALL} $> $@
+	cp -p $> $@
 .endfor
 .endif
 
@@ -116,7 +116,7 @@ ${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file} .PHONY
 PROGRAMS+= ${lib}.so.0
 CLEANFILES += ${lib}.so.0
 ${lib}.so.0:${PROGROOT}/lib/${lib}/${lib}.so.0
-	${INSTALL} $> $@
+	cp -p $> $@
 
 ${PROGROOT}/lib/${lib}/${lib}.so.0:
 	${MAKE} -C ${NETBSDSRCDIR}/lib/${lib} all
@@ -124,10 +124,10 @@ ${PROGROOT}/lib/${lib}/${lib}.so.0:
 
 # Generate dependencies rules for binaries
 dir.sh:= ash
-.for srcdir in bin commands drivers libexec servers
+.for srcdir in bin commands drivers libexec servers usr.bin usr.sbin
 .for prog in ${PROG_${srcdir:tu}}
 ${prog}: ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}
-	${INSTALL} $> $@
+	cp -p $> $@
 
 ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}:
 	${MAKE} -C ${NETBSDSRCDIR}/${srcdir}/${dir.${prog}:U${prog}} all
@@ -138,13 +138,13 @@ ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}:
 # make variable name.
 .for prog in ${PROG_USRSBIN}
 ${prog}: ${PROGROOT}/usr.sbin/${dir.${prog}:U${prog}}/${prog}
-	${INSTALL} $> $@
+	cp -p $> $@
 
 ${PROGROOT}/usr.sbin/${dir.${prog}:U${prog}}/${prog}:
 	${MAKE} -C ${NETBSDSRCDIR}/usr.sbin/${dir.${prog}:U${prog}} all
 .endfor
 
-image:	proto.gen ${ETC} ${EXTRA} pwd.db spwd.db passwd
+image:	proto.gen ${ETC} ${EXTRA} etc/pwd.db etc/spwd.db etc/passwd
 	${_MKMSG_CREATE} "Generating ramdisk image"
 	${TOOL_MKFSMFS} image proto.gen || { rm -f image; false; }
 #	if fsck.mfs -s image | grep -q CLEAN;	\
@@ -154,10 +154,13 @@ image:	proto.gen ${ETC} ${EXTRA} pwd.db spwd.db passwd
 #		rm -f image; false;             \
 #	fi
 
+# AL The password database needs to be built in some etc/ directory;
 etc/master.passwd: ${NETBSDSRCDIR}/etc/master.passwd
 	rm -rf ${.OBJDIR}/etc/
 	mkdir -p ${.OBJDIR}/etc
-	${INSTALL} $> $@
+	cp -p $> $@
+
+etc/pwd.db etc/spwd.db etc/passwd: etc/master.passwd
 	${TOOL_PWD_MKDB} -V 0 -p -d . etc/master.passwd
 
 # LSC We use @F because some version of make still output a full path for @,
@@ -169,8 +172,7 @@ proto.gen: ${PROTO} ${PROTO_FILES} ${PROGRAMS}
 	${STRIP} ${PROGRAMS}
 	# We are using the c preprocessor to generate proto.gen
 	# used in the mkfs tool.
-	${TOOL_CAT} ${PROTO} | ${HOST_CC} \
-	    	${RAMDISK_DEFINES} \
-		-E - | grep -v "^$$" | grep -v "#" >${.OBJDIR}/${.TARGET}
+	${HOST_CPP} ${RAMDISK_DEFINES} ${PROTO} | \
+		grep -v "^$$" | grep -v "#" >${.OBJDIR}/${.TARGET}
 
 .include <minix.service.mk>
