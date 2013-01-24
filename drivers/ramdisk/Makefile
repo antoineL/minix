@@ -88,7 +88,7 @@ CLEANFILES += ${.OBJDIR}/etc/*
 #############################################################
 
 # Tool to bootstrap the password db
-TOOL_PWD_MKDB?= ${NETBSDSRCDIR}/usr.sbin/pwd_mkdb/pwd_mkdb
+TOOL_PWD_MKDB?= ${_SRC_OBJ_TOP_}/usr.sbin/pwd_mkdb/pwd_mkdb
 
 # Remove "drivers/ramdisk" component from path
 PROGROOT:= ${.OBJDIR:S,drivers/ramdisk,,}
@@ -96,7 +96,7 @@ PROGROOT:= ${.OBJDIR:S,drivers/ramdisk,,}
 # Generate dependencies rules for config files
 .for etc in ${ETC}
 ${etc}: ${NETBSDSRCDIR}/etc/${etc}
-	${INSTALL} $> $@
+	cp -p $> $@
 .endfor
 
 # LSC Force the regeneration of the proto file as it seems sometimes 
@@ -110,7 +110,7 @@ ${etc}: ${NETBSDSRCDIR}/etc/${etc}
 .for file in ${EXTRA} ${PROTO} ${PROTO_FILES}
 CLEANFILES += ${.OBJDIR}/${file}
 ${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file} .PHONY
-	${INSTALL} $> $@
+	cp -p $> $@
 .endfor
 .endif
 
@@ -119,7 +119,7 @@ ${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file} .PHONY
 PROGRAMS+= ${lib}.so.0
 CLEANFILES += ${lib}.so.0
 ${lib}.so.0:${PROGROOT}/lib/${lib}/${lib}.so.0
-	${INSTALL} $> $@
+	cp -p $> $@
 
 ${PROGROOT}/lib/${lib}/${lib}.so.0:
 	${MAKE} -C ${NETBSDSRCDIR}/lib/${lib} all
@@ -130,14 +130,14 @@ dir.sh:= ash
 .for srcdir in bin sbin commands drivers libexec servers usr.bin usr.sbin
 .for prog in ${PROG_${srcdir:tu}}
 ${prog}: ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}
-	${INSTALL} $> $@
+	cp -p $> $@
 
 ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}:
 	${MAKE} -C ${NETBSDSRCDIR}/${srcdir}/${dir.${prog}:U${prog}} all
 .endfor # prog
 .endfor # srcdir
 
-image:	proto.gen ${ETC} ${EXTRA} pwd.db spwd.db passwd
+image:	proto.gen ${ETC} ${EXTRA} etc/pwd.db etc/spwd.db etc/passwd
 	${_MKMSG_CREATE} "Generating ramdisk image"
 	${TOOL_MKFSMFS} image proto.gen || { rm -f image; false; }
 #	if fsck.mfs -s image | grep -q CLEAN;	\
@@ -147,10 +147,13 @@ image:	proto.gen ${ETC} ${EXTRA} pwd.db spwd.db passwd
 #		rm -f image; false;             \
 #	fi
 
+# AL The password database needs to be built in some etc/ directory;
 etc/master.passwd: ${NETBSDSRCDIR}/etc/master.passwd
 	rm -rf ${.OBJDIR}/etc/
 	mkdir -p ${.OBJDIR}/etc
-	${INSTALL} $> $@
+	cp -p $> $@
+
+etc/pwd.db etc/spwd.db etc/passwd: etc/master.passwd
 	${TOOL_PWD_MKDB} -V 0 -p -d . etc/master.passwd
 
 # LSC We use @F because some version of make still output a full path for @,
@@ -162,8 +165,7 @@ proto.gen: ${PROTO} ${PROTO_FILES} ${PROGRAMS}
 	${STRIP} ${PROGRAMS}
 	# We are using the c preprocessor to generate proto.gen
 	# used in the mkfs tool.
-	${TOOL_CAT} ${PROTO} | ${CC} \
-	    	${RAMDISK_DEFINES} \
-		-E - | grep -v "^$$" | grep -v "#" >${.OBJDIR}/${.TARGET}
+	${HOST_CPP} ${RAMDISK_DEFINES} ${PROTO} | \
+		grep -v "^$$" | grep -v "#" >${.OBJDIR}/${.TARGET}
 
 .include <minix.service.mk>
