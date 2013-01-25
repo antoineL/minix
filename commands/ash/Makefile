@@ -32,8 +32,8 @@ SRCS+= ${GENSRCS}
 
 CLEANFILES+=${GENSRCS} ${GENHDRS}
 
-DPADD+= ${LIBL} ${LIBEDIT}
-LDADD+= -ll -ledit
+DPADD+= ${LIBL} # not defined ${LIBEDITLINE}, temporary workaround
+LDADD+= -ll -leditline
 
 CPPFLAGS+= -DSHELL -D__NBSD_LIBC
 CPPFLAGS+=${EDIT} ${NO_PATHS_H} ${NO_JOBS}

@@ -38,7 +38,7 @@ SUBDIR+=	.WAIT
 #SUBDIR+=	i18n_module
 
 SUBDIR+= libcompat_minix libblockdriver libchardriver     \
-       libnetdriver libm libtimers libutil \
+       libeditline libnetdriver libm libtimers libutil \
        libz libfetch libvtreefs libaudiodriver libmthread   \
        libexec libdevman libusb libasyn librmt \
        libddekit libminixfs libbdev libelf libminc libcrypt libterminfo \
