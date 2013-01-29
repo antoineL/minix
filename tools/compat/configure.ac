@@ -32,12 +32,12 @@ AH_TOP([/*      $][NetBSD$    */
 AH_BOTTOM([#include "compat_defs.h"
 #endif /* !__NETBSD_NBTOOL_CONFIG_H__ */])
 
-AC_DEFUN([AC_NETBSD],
+AC_DEFUN([AC_NETBSD_or_MINIX3],
 [AC_BEFORE([$0], [AC_COMPILE_IFELSE])dnl
       AC_BEFORE([$0], [AC_RUN_IFELSE])dnl
-      AC_MSG_CHECKING([for NetBSD])
+      AC_MSG_CHECKING([for NetBSD or MINIX3])
       AC_EGREP_CPP(yes,
-      [#ifdef __NetBSD__
+      [#if defined(__NetBSD__) | defined(__minix)
 	yes
 	#endif
 	],
@@ -46,9 +46,9 @@ AC_DEFUN([AC_NETBSD],
 	 AC_DEFINE([_POSIX_C_SOURCE], 200112L, [Define for NetBSD headers.])
 	 AC_DEFINE([_XOPEN_SOURCE], 600, [Define for NetBSD headers.])],
 	[AC_MSG_RESULT([no])])
-])# AC_NETBSD
+])# AC_NETBSD_or_MINIX3
 
-AC_NETBSD
+AC_NETBSD_or_MINIX3
 AC_PATH_PROG(BSHELL, sh, )
 if test x"$BSHELL" = x; then
 	AC_MSG_ERROR([sh must be somewhere on \$PATH])
