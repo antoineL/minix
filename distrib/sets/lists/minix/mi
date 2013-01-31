@@ -1145,10 +1145,10 @@
 ./usr/lib/libsffs.a			minix-sys
 ./usr/lib/libsffs_pic.a			minix-sys
 ./usr/lib/libsys.a			minix-sys
-./usr/lib/libsys_pic.a			minix-sys
-./usr/lib/libsys.so.0.0			minix-sys
-./usr/lib/libsys.so.0			minix-sys
-./usr/lib/libsys.so			minix-sys
+./usr/lib/libsys_pic.a			minix-sys	obsolete
+./usr/lib/libsys.so.0.0			minix-sys	obsolete
+./usr/lib/libsys.so.0			minix-sys	obsolete
+./usr/lib/libsys.so			minix-sys	obsolete
 ./usr/lib/libtermcap.a			minix-sys
 ./usr/lib/libtermcap_pic.a		minix-sys
 ./usr/lib/libtermcap.so.0.6		minix-sys
