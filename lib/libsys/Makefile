@@ -125,8 +125,15 @@ CPPFLAGS+= -DUSE_SYSDEBUG
 
 CPPFLAGS.sched_start.c+=	-I${NETBSDSRCDIR}
 
-.if (${CC} == "gcc") || (${CC} == "clang")
-LDADD+=	-lminc
+.if ${MKPIC} != "no"
+# When built as a shared object, libsys.so must use some libc facilities;
+# during the build, libc.so has been build yet, so cannot be referenced:
+LDFLAGS+= -nostdlib
+# Libminc has all the needed pieces; it is not built as a shared object
+# however; so we use the PIC version of it, and expose it completely:
+LDADD+=	-Wl,--whole-archive -lminc_pic -Wl,--no-whole-archive 
+# If/when libminc is made an independant shared object instead,
+# replace with LIBDPLIBS+=	minc	${.CURDIR}/../libminc
 .endif
 
 .include <bsd.lib.mk>
