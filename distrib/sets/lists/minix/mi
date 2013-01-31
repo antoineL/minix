@@ -1697,10 +1697,10 @@
 ./usr/lib/libstdc++.so.7.1		minix-sys	gcccmds
 ./usr/lib/libsupc++.a			minix-sys	gcccmds
 ./usr/lib/libsys.a			minix-sys
-./usr/lib/libsys_pic.a			minix-sys
-./usr/lib/libsys.so.0.0			minix-sys
-./usr/lib/libsys.so.0			minix-sys
-./usr/lib/libsys.so			minix-sys
+./usr/lib/libsys_pic.a			minix-sys	obsolete
+./usr/lib/libsys.so.0.0			minix-sys	obsolete
+./usr/lib/libsys.so.0			minix-sys	obsolete
+./usr/lib/libsys.so			minix-sys	obsolete
 ./usr/lib/libtermcap.a			minix-sys
 ./usr/lib/libtermcap_pic.a		minix-sys
 ./usr/lib/libtermcap.so.0		minix-sys
