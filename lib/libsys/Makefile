@@ -126,8 +126,27 @@ CPPFLAGS+= -DUSE_SYSDEBUG
 
 CPPFLAGS.sched_start.c+=	-I${NETBSDSRCDIR}
 
-.if (${CC} == "gcc") || (${CC} == "clang")
-LDADD+=	-lminc
-.endif
+.if ${MKPIC} != "no"
+# XXX AL20130407 Check whether that whole issue makes any sense.
+# Right now RS is unable to start dynamically-linked services, so
+# libsys.so should not be used much if at all. Since it creates
+# dependency cycle which is complex to solve, avoid problems:
+.ifdef notyet
+# When built as a shared object, libsys.so must use some libc facilities;
+# during the build, libc.so has not been build yet, so cannot be referenced:
+LDFLAGS+= -nostdlib
+# Libminc has all the needed pieces; it is not built as a shared object
+# however; so we use it, in its position-independant variant:
+DPADD+= ${LIBMINC}
+LDADD+=	-lminc_pic
+# If/when libminc is made an independant shared object instead,
+# replace with LIBDPLIBS+=	minc	${.CURDIR}/../libminc
+
+# We also use MINIX timers, for clock_*; since libtimers is not build
+# as a shared library, link the position-independant variant:
+DPADD+= ${LIBTIMERS}
+LDADD+= -ltimers_pic
+.endif #notyet
+.endif # MKPIC!=no
 
 .include <bsd.lib.mk>
