@@ -30,7 +30,6 @@
 ./usr/bin/dosdir			minix-sys
 ./usr/bin/dosread			minix-sys
 ./usr/bin/doswrite			minix-sys
-./usr/bin/fdisk				minix-sys
 ./usr/bin/loadfont			minix-sys
 ./usr/bin/partition			minix-sys
 ./usr/bin/part				minix-sys
