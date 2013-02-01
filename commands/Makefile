@@ -34,7 +34,7 @@ SUBDIR=	add_route arp ash at backup banner basename btrace \
 	worldstone updateboot update_bootcfg
 
 .if ${MACHINE_ARCH} == "i386"
-SUBDIR+=	atnormalize dosread fdisk loadfont \
+SUBDIR+=	atnormalize dosread loadfont \
 	autopart part partition playwave  \
 	recwave repartition screendump
 .endif

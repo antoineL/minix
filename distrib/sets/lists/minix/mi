@@ -138,6 +138,7 @@
 ./root/.profile				minix-sys
 ./sbin/devman				minix-sys
 ./sbin/ext2				minix-sys
+./sbin/fdisk				minix-sys
 ./sbin/fsck_ext2fs			minix-sys
 ./sbin/fsck.ext2			minix-sys
 ./sbin/fsck.mfs				minix-sys
