@@ -8,7 +8,7 @@
 
 SUBDIR= \
 	\
-	fsck \
+	fdisk fsck \
 	mknod
 
 # support for various file systems
