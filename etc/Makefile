@@ -440,14 +440,12 @@ install-etc-files-safe: .PHONY .MAKE check_DESTDIR MAKEDEV
     			${sdir}${file} ${tdir}${file}; \
 	else true; fi
 .endfor
-.for subdir in . defaults mtree
+# AL Last two directories are MINIX-specific
+.for subdir in . defaults mtree   ast fonts 
 	${MAKEDIRTARGET} ${subdir} configinstall
 .endfor
-	${_MKMSG_INSTALL} ${DESTDIR}/usr/ast and ${DESTDIR}/root
-	for u in ${DESTDIR}/usr/ast ${DESTDIR}/root; do  ${INSTALL_DIR} $$u; cp ${NETBSDSRCDIR}/etc/ast/.[aepv]* $$u; done
-	${_MKMSG_INSTALL} ${DESTDIR}/usr/lib/fonts
-	${INSTALL_DIR} ${DESTDIR}/usr/lib/fonts
-	${INSTALL_FILE} -m ${BINMODE} -o ${BINOWN} -g ${BINGRP} ${NETBSDSRCDIR}/etc/fonts/*.fnt ${DESTDIR}/usr/lib/fonts/
+	${_MKMSG_INSTALL} ${DESTDIR}/root profile
+	${MAKEDIRTARGET} ast configinstall FILESDIR=/root
 .endif # LSC Minix Specific
 
 
