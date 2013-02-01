@@ -489,7 +489,11 @@ static const struct mbr_ptype {
 	{ MBR_PTYPE_M2FS_M2CS,	"M2FS/M2CS partition" },
 	{ MBR_PTYPE_XOSL_FS, "XOSL boot loader filesystem" },
 	{ MBR_PTYPE_MINIX_14A, "MINIX until 1.4a" },
+#ifndef __minix
 	{ MBR_PTYPE_MINIX_14B, "MINIX since 1.4b, early Linux, Mitac dmgr" },
+#else /* be nice to our users, looking through fdisk(8) */
+	{ MBR_PTYPE_MINIX_14B, "MINIX" },
+#endif
 	{ MBR_PTYPE_LNXSWAP, "Linux swap or Prime or Solaris" },
 	{ MBR_PTYPE_LNXEXT2, "Linux native" },
 	{ MBR_PTYPE_OS2_C, "OS/2 hidden C: drive" },
