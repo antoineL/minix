@@ -62,6 +62,7 @@ skip(char const *msg)
 {
 	system("umount " RAMDISK SILENT);
 	printf("%s\n", msg);
+	++errct;
 	quit();
 }
 
