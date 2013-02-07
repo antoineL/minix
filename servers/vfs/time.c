@@ -88,7 +88,7 @@ int do_utimens(void)
 /* Perform the utimensat(name, times, flag) system call, and its friends. */
   int r, kind, lookup_flags;
   struct vnode *vp;
-  struct filp *filp;
+  struct filp *filp = NULL; /* initialization required by clueless GCC */
   struct vmnt *vmp;
   struct timespec actim, modtim, now, newactim, newmodtim;
   char fullpath[PATH_MAX];
