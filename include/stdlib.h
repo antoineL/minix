@@ -160,7 +160,12 @@ unsigned short *
 void	 srand48(long);
 
 #ifndef __LIBC12_SOURCE__
+/* AL 20130207: Special handling for the benefit of our zlib,
+ * when compiled with _STANDALONE as part of the boot monitor.
+ */
+#  ifndef _STANDALONE
 int	 putenv(char *) __RENAME(__putenv50);
+#  endif
 #endif
 #endif
 
@@ -229,7 +234,12 @@ long double	strtold(const char * __restrict, char ** __restrict);
     defined(_NETBSD_SOURCE)
 int	 setenv(const char *, const char *, int);
 #ifndef __LIBC12_SOURCE__
+/* AL 20130207: Special handling for the benefit of our zlib,
+ * when compiled with _STANDALONE as part of the boot monitor.
+ */
+#  ifndef _STANDALONE
 int	 unsetenv(const char *) __RENAME(__unsetenv13);
+#  endif
 #endif
 
 int	 posix_openpt(int);
