@@ -4,10 +4,6 @@
 
 #include <sys/stat.h>
 
-#ifdef __weak_alias
-__weak_alias(futimens, _futimens)
-#endif
-
 int futimens(int fd, const struct timespec tv[2])
 {
   message m;
