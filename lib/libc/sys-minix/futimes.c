@@ -6,7 +6,7 @@
 #include <sys/time.h>
 
 #ifdef __weak_alias
-__weak_alias(futimes, _futimes)
+__weak_alias(futimes, __futimes50)
 #endif
 
 int futimes(int fd, const struct timeval tv[2])

@@ -1,20 +1,20 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
 #include <lib.h>
- 
+
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <string.h>
 #include <errno.h>
- 
+
 #ifdef __weak_alias
-__weak_alias(utimes, _utimes)
+__weak_alias(utimes, __utimes50)
 #endif
- 
+
 int utimes(const char *name, const struct timeval tv[2])
 {
   message m;
- 
+
   if (name == NULL) return EINVAL;
   m.m2_i1 = strlen(name) + 1;
   m.m2_p1 = (char *) __UNCONST(name);

@@ -8,10 +8,6 @@
 #include <limits.h>
 #include <errno.h>
 
-#ifdef __weak_alias
-__weak_alias(utimensat, _utimensat)
-#endif
-
 int utimensat(int fd, const char *name, const struct timespec tv[2],
     int flags)
 {

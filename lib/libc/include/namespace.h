@@ -931,8 +931,6 @@
 #define minix_mmap _minix_mmap
 #define minix_munmap _minix_munmap
 #define vfork __vfork14
-#define utimensat _utimensat
-#define futimens _futimens
 #endif /* __minix */
 
 #endif /* __weak_alias */
