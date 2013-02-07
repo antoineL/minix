@@ -123,7 +123,7 @@ configure_cleanup=configure_cleanup
 .endif
 
 # AL For MINIX, fetch the source if not there
-.configure_done: ${_gnu_get_src} .WAIT ${_GNU_CFGSRC} ${.CURDIR}/Makefile ${configure_cleanup}
+.configure_done: ${_gnu_get_src} ${_GNU_CFGSRC} ${.CURDIR}/Makefile ${configure_cleanup}
 	@mkdir build 2>/dev/null || true
 	@(cd build && ${CONFIGURE_ENV} ${HOST_SH} ${GNUHOSTDIST}/configure ${CONFIGURE_ARGS})
 	@echo ${BUILD_PLATFORM} > $@
@@ -137,7 +137,7 @@ configure_cleanup=configure_cleanup
 	@if [ ! -f $@ ] || [ -n "$$(find build -type f -newer .build_done -print)" ]; \
 		then touch $@; fi
 
-.install_done! ${BUILD:D.build_done}
+.install_done: ${BUILD:D.build_done}
 	@(cd ${.OBJDIR}/build && ${BUILD_COMMAND} ${INSTALL_TARGET})
 	@touch $@
 
