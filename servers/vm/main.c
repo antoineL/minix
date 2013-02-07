@@ -17,7 +17,6 @@
 #include <minix/syslib.h>
 #include <minix/const.h>
 #include <minix/bitmap.h>
-#include <minix/crtso.h>
 #include <minix/rs.h>
 
 #include <libexec.h>
