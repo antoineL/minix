@@ -50,9 +50,12 @@ __RCSID("$NetBSD: putenv.c,v 1.19 2010/11/14 18:11:43 tron Exp $");
 #include "local.h"
 
 #ifdef __weak_alias
+#ifndef __minix
 __weak_alias(putenv,_putenv)
-#if defined(__minix)
-__weak_alias(__putenv50,_putenv)
+#else
+/* The symbol is __RENAMEd in MINIX */
+__weak_alias(putenv,__putenv50)
+__weak_alias(_putenv,__putenv50)
 #endif /* defined(__minix) */
 #endif
 
