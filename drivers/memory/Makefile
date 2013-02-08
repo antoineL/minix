@@ -29,7 +29,7 @@ touch-genfiles:
 	${OBJCOPY} -Ibinary -B${MACHINE_CPU} -O${MACHINE_GNU_PLATFORM} $< $@
 
 CLEANFILES+=	../ramdisk/image
-../ramdisk/image: .PHONY
+../ramdisk/image:
 	${MAKE} -C ${RAMDISK_PATH} image
 
 CLEANFILES+=	imgrd.mfs
