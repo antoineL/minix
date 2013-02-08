@@ -17,10 +17,6 @@ BINDIR?= /usr/sbin
 
 CPPFLAGS.memory.c+=	-I${NETBSDSRCDIR}
 
-imgrd.d: touch-genfiles
-touch-genfiles:
-	[ -e ../ramdisk/image ] || touch -t 197001020000.00 ../ramdisk/image
-
 
 .SUFFIXES:      .mfs .c .o
 
