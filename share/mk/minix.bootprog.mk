@@ -1,6 +1,9 @@
 # MINIX-specific boot program options
 .include <bsd.own.mk>
 
+# Boot-time programs SHOULD really be linked statically
+LDSTATIC=-static
+
 # LSC Static linking, order matters! 
 # We can't use --start-group/--end-group as they are not supported by our
 # version of clang.
