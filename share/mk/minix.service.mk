@@ -1,6 +1,9 @@
 # MINIX-specific servers/drivers options
 .include <bsd.own.mk>
 
+# AL Currently RS is not able to launch a dynamically-linked binary
+LDSTATIC=-static
+
 # LSC Static linking, order matters!
 # We can't use --start-group/--end-group as they are not supported by our
 # version of clang.
@@ -19,3 +22,4 @@ LDADD+= -L/usr/pkg/compiler-rt/lib -lCompilerRT-Generic -lsys -lCompilerRT-Gener
 LDADD+= -lminc
 
 .include <bsd.prog.mk>
+
