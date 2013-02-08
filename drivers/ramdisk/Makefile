@@ -111,7 +111,7 @@ ${etc}: ${NETBSDSRCDIR}/etc/${etc}
 .if ${.CURDIR} != ${.OBJDIR}
 .for file in ${EXTRA} ${PROTO} ${PROTO_FILES}
 CLEANFILES += ${.OBJDIR}/${file}
-${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file} .PHONY
+${file}: ${NETBSDSRCDIR}/drivers/ramdisk/${file}
 	cp -p $> $@
 .endfor
 .endif
