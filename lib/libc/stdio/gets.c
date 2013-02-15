@@ -50,7 +50,12 @@ __RCSID("$NetBSD: gets.c,v 1.17 2012/03/15 18:22:30 christos Exp $");
 #undef gets
 #endif
 
+/* AL 2013-02-15: when building PIC libc.so, __gets_chk() calls gets(),
+ * which force this module in; avoid this to result in a fatal warning.
+ */
+#if !defined(__minix) || !defined(PIC)
 __warn_references(gets, "warning: this program uses gets(), which is unsafe.")
+#endif
 
 char *
 gets(char *buf)
