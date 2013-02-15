@@ -1001,7 +1001,7 @@ void kb_init_once(void)
   u8_t ccb;
 
   env_parse("sticky_alt", "d", 0, &sticky_alt_mode, 0, 1);
-  env_parse("debug_fkeys", "d", 0, &debug_fkeys, 0, 1);
+  env_parse("debug_fkeys", "d", 0, &debug_fkeys, 0, NR_CONS);
 
   set_leds();			/* turn off numlock led */
   scan_keyboard(NULL, NULL);	/* discard leftover keystroke */
