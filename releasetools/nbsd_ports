@@ -47,6 +47,7 @@
 2012/10/17 12:00:00,external/bsd/libarchive
 2012/10/17 12:00:00,external/bsd/Makefile
 2011/01/12 23:02:22,external/bsd/mdocml
+2012/10/17 12:00:00,external/bsd/pcc
 2012/10/17 12:00:00,external/gpl3/binutils
 2012/10/17 12:00:00,external/gpl3/gcc
 2012/10/17 12:00:00,external/gpl3/Makefile
@@ -118,6 +119,7 @@
 2012/10/17 12:00:00,tools/mpfr
 2012/10/17 12:00:00,tools/mtree
 2012/10/17 12:00:00,tools/nbperf
+2012/10/17 12:00:00,tools/pcc
 2012/10/17 12:00:00,tools/sed
 2012/10/17 12:00:00,tools/tic
 2012/10/17 12:00:00,tools/tsort
