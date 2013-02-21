@@ -43,7 +43,7 @@ __RCSID("$NetBSD: fixunstfsi_ieee754.c,v 1.2 2012/08/05 04:28:58 matt Exp $");
 #include "softfloat/softfloat-for-gcc.h"
 #endif
 
-#if defined(__x86_64__) || defined(__i486__)
+#if defined(__x86_64__) || defined(__i486__) || defined(__i386__)
 #define	FIXUNS	__fixunsxfsi
 #else
 #define	FIXUNS	__fixunstfsi
