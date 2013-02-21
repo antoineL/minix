@@ -35,6 +35,10 @@ SRCS+=	fpclassifyl.c isfinitel.c isinfl.c isnanl.c signbitl.c
 # "internal" objects (don't provide part of the user-visible API)
 SRCS+=	divsi3.S fixdfsi.S fixunsdfsi.S udivsi3.S
 
+# Supplementary ieee754 "internal" functions for 80-bit long double
+SRCS+=	fixunstfsi_ieee754.c fixunstfdi_ieee754.c
+SRCS+=	fixunsgen_ieee754.c fixunsgen64_ieee754.c
+
 LSRCS.i386.gen=\
 	Lint__setjmp.c Lint_alloca.c Lint_bswap16.c Lint_bswap32.c \
 	Lint_fabs.c \
