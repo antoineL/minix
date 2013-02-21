@@ -39,7 +39,7 @@ __RCSID("$NetBSD: fixunstfdi_ieee754.c,v 1.1 2011/07/09 02:30:27 matt Exp $");
 #include <float.h>
 #include <machine/ieee.h>
 
-#if defined(__x86_64__) || defined(__i486__)
+#if defined(__x86_64__) || defined(__i486__) || defined(__i386__)
 #define	FIXUNS	__fixunsxfdi
 #else
 #define	FIXUNS	__fixunstfdi
