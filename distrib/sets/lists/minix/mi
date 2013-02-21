@@ -469,6 +469,8 @@
 ./usr/bin/paste				minix-sys
 ./usr/bin/patch				minix-sys
 ./usr/bin/pathchk			minix-sys
+./usr/bin/pcc				minix-sys	pcc
+./usr/bin/pcpp				minix-sys	pcc
 ./usr/bin/ping                          minix-sys	obsolete
 ./usr/bin/pkgin_all			minix-sys
 ./usr/bin/pkgin_cd			minix-sys
@@ -2309,6 +2311,8 @@
 ./usr/libdata/debug/usr/tests/lib/libpthread/dlopen	minix-sys	atf
 ./usr/libexec				minix-sys
 ./usr/libexec/atf-check			minix-sys	atf
+./usr/libexec/ccom			minix-sys	pcc
+./usr/libexec/cxxcom			minix-sys	pcc
 ./usr/libexec/fingerd			minix-sys
 ./usr/libexec/ftpd			minix-sys
 ./usr/libexec/getty			minix-sys
@@ -2316,6 +2320,7 @@
 ./usr/libexec/kyua-plain-tester		minix-sys	kyua
 ./usr/libexec/ld.elf_so			minix-sys
 ./usr/libexec/makewhatis		minix-sys
+./usr/libexec/pcpp			minix-sys	pcc
 ./usr/libexec/virecover			minix-sys
 ./usr/log				minix-sys
 ./usr/Makefile				minix-sys
@@ -2357,6 +2362,7 @@
 ./usr/man/man1/cawf.1			minix-sys
 ./usr/man/man1/cc.1			minix-sys	gcccmds
 ./usr/man/man1/cccp.1			minix-sys	gcccmds
+./usr/man/man1/ccom.1			minix-sys	pcc
 ./usr/man/man1/cd.1			minix-sys	obsolete
 ./usr/man/man1/c++filt.1		minix-sys	binutils
 ./usr/man/man1/checknr.1		minix-sys
@@ -2549,7 +2555,9 @@
 ./usr/man/man1/patch.1			minix-sys
 ./usr/man/man1/pathchk.1		minix-sys
 ./usr/man/man1/pax.1			minix-sys
-./usr/man/man1/ping.1                   minix-sys	obsolete
+./usr/man/man1/pcc.1			minix-sys	pcc
+./usr/man/man1/pcpp.1			minix-sys	pcc
+./usr/man/man1/ping.1			minix-sys
 ./usr/man/man1/pkg_view.1		minix-sys
 ./usr/man/man1/playwave.1		minix-sys
 ./usr/man/man1/pr.1			minix-sys
