@@ -35,7 +35,7 @@ extern char *pos_string;	/* Absolute cursor positioning */
 #define XBREAK		(XMAX - 0)	/* Line shift at this coordinate */
 #define SHIFT_SIZE	25		/* Number of chars to shift */
 #define SHIFT_MARK	'!'		/* Char indicating line continues */
-#define MAX_CHARS	1024		/* Maximum chars on one line */
+#define MAX_CHARS	10240		/* Maximum chars on one line */
 
 /* LINE_START must be rounded up to the lowest SHIFT_SIZE */
 #define LINE_START	(((-MAX_CHARS - 1) / SHIFT_SIZE) * SHIFT_SIZE \
@@ -44,7 +44,7 @@ extern char *pos_string;	/* Absolute cursor positioning */
 
 #define LINE_LEN	(XMAX + 1)	/* Number of characters on line */
 #define SCREEN_SIZE	(XMAX * YMAX)	/* Size of I/O buffering */
-#define BLOCK_SIZE	1024
+#define BLOCK_SIZE	10240
 
 /* Return values of functions */
 #define ERRORS		-1
