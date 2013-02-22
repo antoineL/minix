@@ -1314,5 +1314,7 @@ redo:	while ((ch = inch()) == ' ' || ch == '\t')
 		}
 	}
 
-out:	error("invalid preprocessor directive");
+out:	while ((ch = inch()) != '\n' && ch != -1)
+		;
+	unch('\n');
 }

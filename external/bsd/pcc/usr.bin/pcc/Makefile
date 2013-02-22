@@ -14,8 +14,6 @@ PROG=	pcc
 SRCS=	cc.c strlist.c xalloc.c
 MAN=	pcc.1
 
-#CPPFLAGS+=	-DTARGOS=\"${TARGOS}\"
-#CPPFLAGS+=	-DTARGMACH=\"${TARGMACH}\"
 CPPFLAGS+=	-DLIBEXECDIR=\"/usr/libexec/\"
 CPPFLAGS+=	-DINCLUDEDIR=\"/usr/include/\"
 CPPFLAGS+=	-I${PCC_DIST}/cc/driver
