@@ -430,6 +430,12 @@ initdefaults()
 	unsetmakeenv MAKEFLAGS
 	setmakeenv LC_ALL C
 
+# MINIX customization:
+# LSC We are cross compiling, so do not install to root!
+	setmakeenv MKINSTALLBOOT no
+# LSC Avoid default value of 'no' in bsd.own.mk
+	setmakeenv MKGCC yes
+
 	# Find information about the build platform.  This should be
 	# kept in sync with _HOST_OSNAME, _HOST_OSREL, and _HOST_ARCH
 	# variables in share/mk/bsd.sys.mk.
@@ -1695,9 +1701,6 @@ EOF
 		eval cat <<EOF
 MAKEWRAPPERMACHINE=${makewrappermachine:-${MACHINE}}; export MAKEWRAPPERMACHINE
 USETOOLS=yes; export USETOOLS
-# LSC We are cross compiling, so do not install to root!
-MKINSTALLBOOT=no; export MKINSTALLBOOT
-MKGCC=yes; export MKGCC
 EOF
 	} | eval sort -u "${makewrapout}"
 	eval cat <<EOF "${makewrapout}"
