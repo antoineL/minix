@@ -137,5 +137,6 @@ LDADD+=	-lminc_pic
 #       replace with LIBDPLIBS+=	minc	${.CURDIR}/../libminc
 . endif
 .endif
+LDFLAGS+= -nostdlib	# force .so to not depend on libc (not yet build)
 
 .include <bsd.lib.mk>
