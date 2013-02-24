@@ -49,6 +49,7 @@ static int aborting = 0;
 void
 abort(void)
 {
+#ifndef _LIBSYS /* AL 20130226: no signal business in libminc for MINIX */
 	sigset_t mask;
 
 	sigfillset(&mask);
@@ -58,6 +59,7 @@ abort(void)
 	 */
 	sigdelset(&mask, SIGABRT);
 	(void)sigprocmask(SIG_SETMASK, &mask, (sigset_t *)NULL);
+#endif
 
 	/* 
 	 * POSIX.1 requires that stdio buffers be flushed on abort.
@@ -71,6 +73,7 @@ abort(void)
 			(*__cleanup)();
 	}
 
+#ifndef _LIBSYS /* AL 20130226: no signal business in libminc for MINIX */
 	(void)raise(SIGABRT);
 
 	/*
@@ -80,5 +83,6 @@ abort(void)
 	(void)signal(SIGABRT, SIG_DFL);
 	(void)sigprocmask(SIG_SETMASK, &mask, (sigset_t *)NULL);
 	(void)raise(SIGABRT);
+#endif
 	_exit(1);
 }
