@@ -40,9 +40,12 @@ void panic(const char *fmt, ...)
 
   /* Try exit */
   _exit(1);
+#if 0 /* the rest is skipped since _exit() is __noreturn */
 
+#if 0 /* signals are not supported here */
   /* Try to signal ourself */
   abort();
+#endif
 
   /* If exiting nicely through PM fails for some reason, try to
    * commit suicide. E.g., message to PM might fail due to deadlock.
@@ -52,5 +55,6 @@ void panic(const char *fmt, ...)
 
   /* If committing suicide fails for some reason, hang. */
   for(;;) { }
+#endif /*skipped*/
 }
 
