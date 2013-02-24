@@ -77,7 +77,7 @@ SRCS+=	${i}
 .endfor
 
 # Import from stdlib
-.for i in abort.c atexit.c atoi.c exit.c getenv.c \
+.for i in atexit.c atoi.c exit.c getenv.c \
 	getopt.c ldiv.c malloc.c
 .PATH.c: ${LIBCSRCDIR}/stdlib
 SRCS+= ${i}
@@ -104,6 +104,7 @@ CLEANFILES+=	errlist.c
 	${LIBCSRCDIR}/gen ${LIBCSRCDIR}
 SRCS+= ${i}
 .endfor
+CPPFLAGS.assert.c+= -DABORT_IS_PANIC
 CPPFLAGS.ctype_.c+= -I${LIBCSRCDIR}/locale
 CPPFLAGS.isctype.c+= -I${LIBCSRCDIR}/locale
 CPPFLAGS.tolower_.c+= -I${LIBCSRCDIR}/locale
