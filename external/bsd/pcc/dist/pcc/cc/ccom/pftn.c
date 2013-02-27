@@ -103,9 +103,9 @@ struct rstack {
  * Linked list for parameter (and struct elements) declaration.
  */
 static struct params {
-	struct params *next, *prev;
+	struct params *prev;
 	struct symtab *sym;
-} *lpole, *lparam;
+} *lparam;
 static int nparams;
 
 /* defines used for getting things off of the initialization stack */
@@ -130,6 +130,12 @@ static void lcommadd(struct symtab *sp);
 static NODE *mkcmplx(NODE *p, TWORD dt);
 extern int fun_inline;
 
+void
+defid(NODE *q, int class)
+{
+	defid2(q, class, 0);
+}
+
 /*
  * Declaration of an identifier.  Handles redeclarations, hiding,
  * incomplete types and forward declarations.
@@ -140,7 +146,7 @@ extern int fun_inline;
  */
 
 void
-defid(NODE *q, int class)
+defid2(NODE *q, int class, char *astr)
 {
 	struct attr *ap;
 	struct symtab *p;
@@ -153,6 +159,9 @@ defid(NODE *q, int class)
 	if (q == NIL)
 		return;  /* an error was detected */
 
+#ifdef GCC_COMPAT
+	gcc_modefix(q);
+#endif
 	p = q->n_sp;
 
 	if (p->sname == NULL)
@@ -160,8 +169,8 @@ defid(NODE *q, int class)
 
 #ifdef PCC_DEBUG
 	if (ddebug) {
-		printf("defid(%s (%p), ", p->sname, p);
-		tprint(stdout, q->n_type, q->n_qual);
+		printf("defid(%s '%s'(%p), ", p->sname, p->soname , p);
+		tprint(q->n_type, q->n_qual);
 		printf(", %s, (%p)), level %d\n\t", scnames(class),
 		    q->n_df, blevel);
 		dump_attr(q->n_ap);
@@ -181,10 +190,10 @@ defid(NODE *q, int class)
 #ifdef PCC_DEBUG
 	if (ddebug) {
 		printf("	modified to ");
-		tprint(stdout, type, qual);
+		tprint(type, qual);
 		printf(", %s\n", scnames(class));
 		printf("	previous def'n: ");
-		tprint(stdout, stp, stq);
+		tprint(stp, stq);
 		printf(", %s, (%p,%p)), level %d\n",
 		    scnames(p->sclass), p->sdf, p->sap, slev);
 	}
@@ -196,12 +205,13 @@ defid(NODE *q, int class)
 			if (!(class&FIELD) && !ISFTN(type))
 				uerror("declared argument %s missing",
 				    p->sname );
+			break;
 		case MOS:
 		case MOU:
 			cerror("field5");
 		case TYPEDEF:
 		case PARAM:
-			;
+			break;
 		}
 	}
 
@@ -284,9 +294,8 @@ defid(NODE *q, int class)
 	switch(class) {
 
 	case EXTERN:
-		if (pragma_renamed)
-			p->soname = pragma_renamed;
-		pragma_renamed = NULL;
+		if (astr)
+			p->soname = astr;
 		switch( scl ){
 		case STATIC:
 		case USTATIC:
@@ -353,8 +362,13 @@ defid(NODE *q, int class)
 	case REGISTER:
 		break;  /* mismatch.. */
 	case SNULL:
-		if (fun_inline && ISFTN(type))
+		if (fun_inline && ISFTN(type)) {
+			if (scl == EXTERN) {
+				p->sclass = EXTDEF;
+				inline_ref(p);
+			}
 			goto done;
+		}
 		break;
 	}
 
@@ -363,7 +377,7 @@ defid(NODE *q, int class)
 	/*
 	 * Only allowed for automatic variables.
 	 */
-	if (blevel <= slev || class == EXTERN) {
+	if ((blevel == 2 && slev == 1) || blevel <= slev || class == EXTERN) {
 		uerror("redeclaration of %s", p->sname);
 		return;
 	}
@@ -375,11 +389,6 @@ defid(NODE *q, int class)
 	if(ddebug)
 		printf("	new entry made\n");
 #endif
-	if (type < BTMASK && (ap = attr_find(q->n_ap, GCC_ATYP_MODE))) {
-		type = ENUNSIGN(ap->iarg(0));
-		if (type == XTYPE)
-			uerror("fix XTYPE basetyp");
-	}
 	p->stype = type;
 	p->squal = qual;
 	p->sclass = (char)class;
@@ -403,8 +412,10 @@ defid(NODE *q, int class)
 	} else switch (class) {
 
 	case REGISTER:
-		cerror("register var");
-
+		if (astr != NULL)
+			werror("no register assignment (yet)");
+		p->sclass = class = AUTO;
+		/* FALLTHROUGH */
 	case AUTO:
 		if (isdyn(p)) {
 			p->sflags |= SDYNARRAY;
@@ -422,9 +433,8 @@ defid(NODE *q, int class)
 	case EXTDEF:
 	case EXTERN:
 		p->soffset = getlab();
-		if (pragma_renamed)
-			p->soname = pragma_renamed;
-		pragma_renamed = NULL;
+		if (astr)
+			p->soname = astr;
 		break;
 
 	case MOU:
@@ -471,13 +481,8 @@ ssave(struct symtab *sym)
 	struct params *p;
 
 	p = tmpalloc(sizeof(struct params));
-	p->next = NULL;
+	p->prev = lparam;
 	p->sym = sym;
-
-	if ((p->prev = lparam) == NULL)
-		lpole = p;
-	else
-		lparam->next = p;
 	lparam = p;
 }
 
@@ -485,9 +490,10 @@ ssave(struct symtab *sym)
  * end of function
  */
 void
-ftnend()
+ftnend(void)
 {
 	struct attr *gc, *gd;
+	extern int *mkclabs(void);
 	extern NODE *cftnod;
 	extern struct savbc *savbc;
 	extern struct swdef *swpole;
@@ -503,7 +509,8 @@ ftnend()
 			c = addname(exname(cftnsp->sname));
 		SETOFF(maxautooff, ALCHAR);
 		send_passt(IP_EPILOG, maxautooff/SZCHAR, c,
-		    cftnsp->stype, cftnsp->sclass == EXTDEF, retlab, tvaloff);
+		    cftnsp->stype, cftnsp->sclass == EXTDEF,
+		    retlab, tvaloff, mkclabs());
 	}
 
 	cftnod = NIL;
@@ -556,7 +563,7 @@ static struct symtab nulsym = {
 };
 
 void
-dclargs()
+dclargs(void)
 {
 	union dimfun *df;
 	union arglist *al, *al2, *alb;
@@ -1547,6 +1554,12 @@ commchk(struct symtab *sp)
 	}
 }
 
+void
+nidcl(NODE *p, int class)
+{
+	nidcl2(p, class, 0);
+}
+
 /*
  * handle unitialized declarations assumed to be not functions:
  * int a;
@@ -1554,7 +1567,7 @@ commchk(struct symtab *sp)
  * static int a;
  */
 void
-nidcl(NODE *p, int class)
+nidcl2(NODE *p, int class, char *astr)
 {
 	struct symtab *sp;
 	int commflag = 0;
@@ -1569,7 +1582,7 @@ nidcl(NODE *p, int class)
 			commflag = 1, class = EXTERN;
 	}
 
-	defid(p, class);
+	defid2(p, class, astr);
 
 	sp = p->n_sp;
 	/* check if forward decl */
@@ -1884,7 +1897,111 @@ struct tylnk {
 	union dimfun df;
 };
 
-static void tyreduce(NODE *p, struct tylnk **, int *);
+/*
+ * Retrieve all CM-separated argument types, sizes and dimensions and
+ * put them in an array.
+ * XXX - can only check first type level, side effects?
+ */
+static union arglist *
+arglist(NODE *n)
+{
+	union arglist *al;
+	NODE *w = n, **ap;
+	int num, cnt, i, j, k;
+	TWORD ty;
+
+#ifdef PCC_DEBUG
+	if (pdebug) {
+		printf("arglist %p\n", n);
+		fwalk(n, eprint, 0);
+	}
+#endif
+	/* First: how much to allocate */
+	for (num = cnt = 0, w = n; w->n_op == CM; w = w->n_left) {
+		cnt++;	/* Number of levels */
+		num++;	/* At least one per step */
+		if (w->n_right->n_op == ELLIPSIS)
+			continue;
+		ty = w->n_right->n_type;
+		if (ty == ENUMTY) {
+			uerror("arg %d enum undeclared", cnt);
+			ty = w->n_right->n_type = INT;
+		}
+		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+			num++;
+		while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+			ty = DECREF(ty);
+		if (ty > BTMASK)
+			num++;
+	}
+	cnt++;
+	ty = w->n_type;
+	if (ty == ENUMTY) {
+		uerror("arg %d enum undeclared", cnt);
+		ty = w->n_type = INT;
+	}
+	if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+		num++;
+	while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+		ty = DECREF(ty);
+	if (ty > BTMASK)
+		num++;
+	num += 2; /* TEND + last arg type */
+
+	/* Second: Create list to work on */
+	ap = tmpalloc(sizeof(NODE *) * cnt);
+	al = permalloc(sizeof(union arglist) * num);
+	arglistcnt += num;
+
+	for (w = n, i = 0; w->n_op == CM; w = w->n_left)
+		ap[i++] = w->n_right;
+	ap[i] = w;
+
+	/* Third: Create actual arg list */
+	for (k = 0, j = i; j >= 0; j--) {
+		if (ap[j]->n_op == ELLIPSIS) {
+			al[k++].type = TELLIPSIS;
+			ap[j]->n_op = ICON; /* for tfree() */
+			continue;
+		}
+		/* Convert arrays to pointers */
+		if (ISARY(ap[j]->n_type)) {
+			ap[j]->n_type += (PTR-ARY);
+			ap[j]->n_df++;
+		}
+		/* Convert (silently) functions to pointers */
+		if (ISFTN(ap[j]->n_type))
+			ap[j]->n_type = INCREF(ap[j]->n_type);
+		ty = ap[j]->n_type;
+#ifdef GCC_COMPAT
+		if (ty == UNIONTY &&
+		    attr_find(ap[j]->n_ap, GCC_ATYP_TRANSP_UNION)){
+			/* transparent unions must have compatible types
+			 * shortcut here: if pointers, set void *, 
+			 * otherwise btype.
+			 */
+			struct symtab *sp = strmemb(ap[j]->n_ap);
+			ty = ISPTR(sp->stype) ? PTR|VOID : sp->stype;
+		}
+#endif
+		al[k++].type = ty;
+		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+			al[k++].sap = ap[j]->n_ap;
+		while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+			ty = DECREF(ty);
+		if (ty > BTMASK)
+			al[k++].df = ap[j]->n_df;
+	}
+	al[k++].type = TNULL;
+	if (k > num)
+		cerror("arglist: k%d > num%d", k, num);
+	tfree(n);
+#ifdef PCC_DEBUG
+	if (pdebug)
+		alprint(al, 0);
+#endif
+	return al;
+}
 
 static void
 tylkadd(union dimfun dim, struct tylnk **tylkp, int *ntdim)
@@ -1894,6 +2011,70 @@ tylkadd(union dimfun dim, struct tylnk **tylkp, int *ntdim)
 	(*tylkp)->next = NULL;
 	(*tylkp)->df = dim;
 	(*ntdim)++;
+}
+
+/*
+ * build a type, and stash away dimensions,
+ * from a parse tree of the declaration
+ * the type is build top down, the dimensions bottom up
+ */
+static void
+tyreduce(NODE *p, struct tylnk **tylkp, int *ntdim)
+{
+	union dimfun dim;
+	NODE *r = NULL;
+	int o;
+	TWORD t, q;
+
+	o = p->n_op;
+	if (o == NAME) {
+		p->n_qual = DECQAL(p->n_qual);
+		return;
+	}
+
+	t = INCREF(p->n_type);
+	q = p->n_qual;
+	switch (o) {
+	case CALL:
+		t += (FTN-PTR);
+		dim.dfun = arglist(p->n_right);
+		break;
+	case UCALL:
+		t += (FTN-PTR);
+		dim.dfun = NULL;
+		break;
+	case LB:
+		t += (ARY-PTR);
+		if (p->n_right->n_op != ICON) {
+			r = p->n_right;
+			o = RB;
+		} else {
+			dim.ddim = (int)p->n_right->n_lval;
+			nfree(p->n_right);
+#ifdef notdef
+	/* XXX - check dimensions at usage time */
+			if (dim.ddim == NOOFFSET && p->n_left->n_op == LB)
+				uerror("null dimension");
+#endif
+		}
+		break;
+	}
+
+	p->n_left->n_type = t;
+	p->n_left->n_qual = INCQAL(q) | p->n_left->n_qual;
+	tyreduce(p->n_left, tylkp, ntdim);
+
+	if (o == LB || o == UCALL || o == CALL)
+		tylkadd(dim, tylkp, ntdim);
+	if (o == RB) {
+		dim.ddim = -1;
+		tylkadd(dim, tylkp, ntdim);
+		arrstk[arrstkp++] = r;
+	}
+
+	p->n_sp = p->n_left->n_sp;
+	p->n_type = p->n_left->n_type;
+	p->n_qual = p->n_left->n_qual;
 }
 
 /*
@@ -1963,176 +2144,6 @@ tymerge(NODE *typ, NODE *idp)
 	return(idp);
 }
 
-/*
- * Retrieve all CM-separated argument types, sizes and dimensions and
- * put them in an array.
- * XXX - can only check first type level, side effects?
- */
-static union arglist *
-arglist(NODE *n)
-{
-	union arglist *al;
-	NODE *w = n, **ap;
-	int num, cnt, i, j, k;
-	TWORD ty;
-
-#ifdef PCC_DEBUG
-	if (pdebug) {
-		printf("arglist %p\n", n);
-		fwalk(n, eprint, 0);
-	}
-#endif
-	/* First: how much to allocate */
-	for (num = cnt = 0, w = n; w->n_op == CM; w = w->n_left) {
-		cnt++;	/* Number of levels */
-		num++;	/* At least one per step */
-		if (w->n_right->n_op == ELLIPSIS)
-			continue;
-		ty = w->n_right->n_type;
-		if (ty == ENUMTY) {
-			uerror("arg %d enum undeclared", cnt);
-			ty = w->n_right->n_type = INT;
-		}
-		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-			num++;
-		while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-			ty = DECREF(ty);
-		if (ty > BTMASK)
-			num++;
-	}
-	cnt++;
-	ty = w->n_type;
-	if (ty == ENUMTY) {
-		uerror("arg %d enum undeclared", cnt);
-		ty = w->n_type = INT;
-	}
-	if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-		num++;
-	while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-		ty = DECREF(ty);
-	if (ty > BTMASK)
-		num++;
-	num += 2; /* TEND + last arg type */
-
-	/* Second: Create list to work on */
-	ap = tmpalloc(sizeof(NODE *) * cnt);
-	al = permalloc(sizeof(union arglist) * num);
-	arglistcnt += num;
-
-	for (w = n, i = 0; w->n_op == CM; w = w->n_left)
-		ap[i++] = w->n_right;
-	ap[i] = w;
-
-	/* Third: Create actual arg list */
-	for (k = 0, j = i; j >= 0; j--) {
-		if (ap[j]->n_op == ELLIPSIS) {
-			al[k++].type = TELLIPSIS;
-			ap[j]->n_op = ICON; /* for tfree() */
-			continue;
-		}
-		/* Convert arrays to pointers */
-		if (ISARY(ap[j]->n_type)) {
-			ap[j]->n_type += (PTR-ARY);
-			ap[j]->n_df++;
-		}
-		/* Convert (silently) functions to pointers */
-		if (ISFTN(ap[j]->n_type))
-			ap[j]->n_type = INCREF(ap[j]->n_type);
-		ty = ap[j]->n_type;
-#ifdef GCC_COMPAT
-		if (ty == UNIONTY &&
-		    attr_find(ap[j]->n_ap, GCC_ATYP_TRANSP_UNION)){
-			/* transparent unions must have compatible types
-			 * shortcut here: if pointers, set void *, 
-			 * otherwise btype.
-			 */
-			struct symtab *sp = strmemb(ap[j]->n_ap);
-			ty = ISPTR(sp->stype) ? PTR|VOID : sp->stype;
-		}
-#endif
-		al[k++].type = ty;
-		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-			al[k++].sap = ap[j]->n_ap;
-		while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-			ty = DECREF(ty);
-		if (ty > BTMASK)
-			al[k++].df = ap[j]->n_df;
-	}
-	al[k++].type = TNULL;
-	if (k > num)
-		cerror("arglist: k%d > num%d", k, num);
-	tfree(n);
-#ifdef PCC_DEBUG
-	if (pdebug)
-		alprint(al, 0);
-#endif
-	return al;
-}
-
-/*
- * build a type, and stash away dimensions,
- * from a parse tree of the declaration
- * the type is build top down, the dimensions bottom up
- */
-void
-tyreduce(NODE *p, struct tylnk **tylkp, int *ntdim)
-{
-	union dimfun dim;
-	NODE *r = NULL;
-	int o;
-	TWORD t, q;
-
-	o = p->n_op;
-	if (o == NAME) {
-		p->n_qual = DECQAL(p->n_qual);
-		return;
-	}
-
-	t = INCREF(p->n_type);
-	q = p->n_qual;
-	switch (o) {
-	case CALL:
-		t += (FTN-PTR);
-		dim.dfun = arglist(p->n_right);
-		break;
-	case UCALL:
-		t += (FTN-PTR);
-		dim.dfun = NULL;
-		break;
-	case LB:
-		t += (ARY-PTR);
-		if (p->n_right->n_op != ICON) {
-			r = p->n_right;
-			o = RB;
-		} else {
-			dim.ddim = (int)p->n_right->n_lval;
-			nfree(p->n_right);
-#ifdef notdef
-	/* XXX - check dimensions at usage time */
-			if (dim.ddim == NOOFFSET && p->n_left->n_op == LB)
-				uerror("null dimension");
-#endif
-		}
-		break;
-	}
-
-	p->n_left->n_type = t;
-	p->n_left->n_qual = INCQAL(q) | p->n_left->n_qual;
-	tyreduce(p->n_left, tylkp, ntdim);
-
-	if (o == LB || o == UCALL || o == CALL)
-		tylkadd(dim, tylkp, ntdim);
-	if (o == RB) {
-		dim.ddim = -1;
-		tylkadd(dim, tylkp, ntdim);
-		arrstk[arrstkp++] = r;
-	}
-
-	p->n_sp = p->n_left->n_sp;
-	p->n_type = p->n_left->n_type;
-	p->n_qual = p->n_left->n_qual;
-}
-
 static NODE *
 argcast(NODE *p, TWORD t, union dimfun *d, struct attr *ap)
 {
@@ -2166,7 +2177,7 @@ alprint(union arglist *al, int in)
 			printf("  ");
 		printf("arg %d: ", i++);
 		t = al->type;
-		tprint(stdout, t, 0);
+		tprint(t, 0);
 		while (t > BTMASK) {
 			if (ISARY(t)) {
 				al++;
@@ -2248,14 +2259,6 @@ doacall(struct symtab *sp, NODE *f, NODE *a)
 		goto build;
 /* XXX XXX hack */
 
-#ifndef NO_C_BUILTINS
-	/* check for builtins. function pointers are not allowed */
-	if (f->n_op == NAME &&
-	    f->n_sp->sname[0] == '_' && f->n_sp->sname[1] == '_')
-		if ((w = builtin_check(f, a)) != NIL)
-			return w;
-#endif
-
 	/* Check for undefined or late defined enums */
 	if (BTYPE(f->n_type) == ENUMTY) {
 		/* not-yet check if declared enum */
@@ -2274,7 +2277,8 @@ doacall(struct symtab *sp, NODE *f, NODE *a)
 		 * Handle non-prototype declarations.
 		 */
 		if (f->n_op == NAME && f->n_sp != NULL) {
-			if (strncmp(f->n_sp->sname, "__builtin", 9) != 0)
+			if (strncmp(f->n_sp->sname, "__builtin", 9) != 0 &&
+			    (f->n_sp->sflags & SINSYS) == 0)
 				warner(Wmissing_prototypes, f->n_sp->sname);
 		} else
 			warner(Wmissing_prototypes, "<pointer>");
@@ -2544,7 +2548,7 @@ done:		ty = BTYPE(usym->type);
 				return 1;
 		}
 
-		while (ISFTN(t2) == 0 && ISARY(t2) == 0 && t2 > BTMASK)
+		while (!ISFTN(t2) && !ISARY(t2) && t2 > BTMASK)
 			t2 = DECREF(t2);
 		if (t2 > BTMASK) {
 			usym++, udef++;
@@ -2658,7 +2662,7 @@ fixclass(int class, TWORD type)
 		if (blevel == 1)
 			return(PARAM);
 		else
-			return(AUTO);
+			return(REGISTER);
 
 	case AUTO:
 		if( blevel < 2 ) uerror( "illegal ULABEL class" );
@@ -2688,8 +2692,10 @@ gotolabel(char *name)
 {
 	struct symtab *s = lookup(name, SLBLNAME);
 
-	if (s->soffset == 0)
+	if (s->soffset == 0) {
 		s->soffset = -getlab();
+		s->sclass = STATIC;
+	}
 	branch(s->soffset < 0 ? -s->soffset : s->soffset);
 }
 
@@ -2704,8 +2710,10 @@ deflabel(char *name, NODE *p)
 	s->sap = gcc_attr_parse(p);
 	if (s->soffset > 0)
 		uerror("label '%s' redefined", name);
-	if (s->soffset == 0)
+	if (s->soffset == 0) {
 		s->soffset = getlab();
+		s->sclass = STATIC;
+	}
 	if (s->soffset < 0)
 		s->soffset = -s->soffset;
 	plabel( s->soffset);
@@ -2795,7 +2803,7 @@ static char *stack_chk_guard = "__stack_chk_guard";
 static char *stack_chk_canary = "__stack_chk_canary";
 
 void
-sspinit()
+sspinit(void)
 {
 	NODE *p;
 
@@ -2811,7 +2819,7 @@ sspinit()
 }
 
 void
-sspstart()
+sspstart(void)
 {
 	NODE *p, *q;
 
@@ -2834,7 +2842,7 @@ sspstart()
 }
 
 void
-sspend()
+sspend(void)
 {
 	NODE *p, *q;
 	TWORD t;
@@ -2979,7 +2987,7 @@ static struct symtab *cxsp[3];
  * these by hand-crafting them.
  */
 void
-complinit()
+complinit(void)
 {
 	struct attr *ap;
 	struct rstack *rp;
@@ -3046,6 +3054,9 @@ cxstore(TWORD t)
 
 #define	comop(x,y) buildtree(COMOP, x, y)
 
+/*
+ * Convert node p to complex type dt.
+ */
 static NODE *
 mkcmplx(NODE *p, TWORD dt)
 {
@@ -3327,8 +3338,6 @@ cxconj(NODE *p)
 NODE *
 cxret(NODE *p, NODE *q)
 {
-//printf("cxret\n");
-//fwalk(p, eprint, 0);
 	if (ANYCX(q)) { /* Return complex type */
 		p = mkcmplx(p, strmemb(q->n_ap)->stype);
 	} else if (ISFTY(q->n_type) || ISITY(q->n_type)) { /* real or imag */
@@ -3338,5 +3347,23 @@ cxret(NODE *p, NODE *q)
 	} else 
 		cerror("cxred failing type");
 	return p;
+}
+
+/*
+ * either p1 or p2 is complex, so fixup the remaining type accordingly.
+ */
+NODE *
+cxcast(NODE *p1, NODE *p2)
+{
+	if (ANYCX(p1) && ANYCX(p2)) {
+		if (p1->n_type != p2->n_type)
+			p2 = mkcmplx(p2, p1->n_type);
+	} else if (ANYCX(p1)) {
+		p2 = mkcmplx(p2, p1->n_type);
+	} else /* if (ANYCX(p2)) */ {
+		p2 = cast(structref(p2, DOT, real), p1->n_type, 0);
+	}
+	nfree(p1);
+	return p2;
 }
 #endif

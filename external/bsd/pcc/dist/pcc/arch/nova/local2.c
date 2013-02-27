@@ -192,37 +192,37 @@ bfasg(NODE *p)
 	}
 
 	/* put src into a temporary reg */
-	fprintf(stdout, "	mov%c ", tch);
+	printf("	mov%c ", tch);
 	adrput(stdout, getlr(p, 'R'));
-	fprintf(stdout, ",");
+	printf(",");
 	adrput(stdout, getlr(p, '1'));
-	fprintf(stdout, "\n");
+	printf("\n");
 
 	/* AND away the bits from dest */
 	andval = ~(((1 << fsz) - 1) << shift);
-	fprintf(stdout, "	and%c $%d,", tch, andval);
+	printf("	and%c $%d,", tch, andval);
 	adrput(stdout, fn->n_left);
-	fprintf(stdout, "\n");
+	printf("\n");
 
 	/* AND away unwanted bits from src */
 	andval = ((1 << fsz) - 1);
-	fprintf(stdout, "	and%c $%d,", tch, andval);
+	printf("	and%c $%d,", tch, andval);
 	adrput(stdout, getlr(p, '1'));
-	fprintf(stdout, "\n");
+	printf("\n");
 
 	/* SHIFT left src number of bits */
 	if (shift) {
-		fprintf(stdout, "	sal%c $%d,", tch, shift);
+		printf("	sal%c $%d,", tch, shift);
 		adrput(stdout, getlr(p, '1'));
-		fprintf(stdout, "\n");
+		printf("\n");
 	}
 
 	/* OR in src to dest */
-	fprintf(stdout, "	or%c ", tch);
+	printf("	or%c ", tch);
 	adrput(stdout, getlr(p, '1'));
-	fprintf(stdout, ",");
+	printf(",");
 	adrput(stdout, fn->n_left);
-	fprintf(stdout, "\n");
+	printf("\n");
 }
 #endif
 
@@ -234,15 +234,13 @@ bfasg(NODE *p)
 static void
 starg(NODE *p)
 {
-	FILE *fp = stdout;
-
-	fprintf(fp, "	subl $%d,%%esp\n", p->n_stsize);
-	fprintf(fp, "	pushl $%d\n", p->n_stsize);
+	printf("	subl $%d,%%esp\n", p->n_stsize);
+	printf("	pushl $%d\n", p->n_stsize);
 	expand(p, 0, "	pushl AL\n");
 	expand(p, 0, "	leal 8(%esp),A1\n");
 	expand(p, 0, "	pushl A1\n");
-	fprintf(fp, "	call memcpy\n");
-	fprintf(fp, "	addl $12,%%esp\n");
+	printf("	call memcpy\n");
+	printf("	addl $12,%%esp\n");
 }
 #endif
 
@@ -404,7 +402,7 @@ comperr("upput");
 	size /= SZCHAR;
 	switch (p->n_op) {
 	case REG:
-		fprintf(stdout, "%%%s", &rnames[p->n_rval][3]);
+		printf("%%%s", &rnames[p->n_rval][3]);
 		break;
 
 	case NAME:
@@ -414,7 +412,7 @@ comperr("upput");
 		p->n_lval -= size;
 		break;
 	case ICON:
-		fprintf(stdout, "$" CONFMT, p->n_lval >> 32);
+		printf("$" CONFMT, p->n_lval >> 32);
 		break;
 	default:
 		comperr("upput bad op %d size %d", p->n_op, size);

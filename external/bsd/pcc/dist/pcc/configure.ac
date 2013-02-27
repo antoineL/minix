@@ -13,6 +13,7 @@ targosver=0
 tls=no
 gcccompat=yes
 pccdebug=yes
+stripping=yes
 native=no
 useyasm=no
 stabs=no
@@ -80,6 +81,7 @@ case "$target_os" in
 	esac
 	case "$target_cpu" in
 	    i386) targmach=i386 ;;
+	    sparc64) targmach=sparc64 endian=big ;;
 	    x86_64) targmach=amd64 ;;
 	esac
 	;;
@@ -194,6 +196,14 @@ case "$target_os" in
 	esac
 	;;
 
+    sysv4*)
+	targos=sysv4
+	abi=elf
+	case "$target_cpu" in
+	    i?86) targmach=i386 ;;
+	esac
+	;;
+
     sunos*|solaris*)
         targos=sunos
         abi=elf
@@ -227,24 +237,61 @@ fi
 
 case "$host_os" in
 
-    pe*)
+    apple)
+        hostos=apple
+	;;
+    bsd)
+        hostos=bsd
+	;;
+    darwin*)
+	echo $targosver
+	if test "$targosver" -ge 10 ; then
+		targmach=amd64
+	fi
+	hostos=darwin
+	;;
+    dragonfly*)
+        hostos=dragonfly
+	;;
+    freebsd*)
+        hostos=freebsd
+	;;
+    linux*)
+        hostos=linux
+	;;
+    midnightbsd*)
+        hostos=midnightbsd
+	;;
+    mingw*)
+        hostos=win32
+	;;
+    minix*)
+        hostos=minix
+	;;
+    mirbsd*)
+        hostos=mirbsd
+	;;
+    netbsd*)
+        hostos=netbsd
+	;;
+    nextstep*)
+        hostos=nextstep
+	;;
+    openbsd*)
+        hostos=openbsd
+	;;
+    sunos*|solaris*)
+	ADD_CPPFLAGS="$ADD_CPPFLAGS -D_XOPEN_SOURCE=600"
+        hostos=sunos
+	;;
+    pe*|windows*)
 	# quick hack for cross-build to win32 host
+	hostos=win32
 	if "$prefix" = NONE; then
 		prefix="c:/pcc"
 		assembler="yasm.exe -p gnu -f win32"
 		linker="link.exe /nologo"
 		ADD_CPPFLAGS="$ADD_CPPFLAGS -DMSLINKER"
-	fi
-	;;
-
-    sunos*|solaris*)
-	ADD_CPPFLAGS="$ADD_CPPFLAGS -D_XOPEN_SOURCE=600"
-	;;
-
-    darwin*)
-	echo $targosver
-	if test "$targosver" -ge 10 ; then
-		targmach=amd64
 	fi
 	;;
 
@@ -300,6 +347,13 @@ AC_ARG_ENABLE(tls,
 if test "$tls" = "yes"; then
 	AC_DEFINE(TLS, 1, [Enable thread-local storage (TLS).])
 fi
+AC_ARG_ENABLE(Werror,
+	AC_HELP_STRING([--enable-Werror],
+		[Enable use of compiler -Werror flag]),
+	[werror=$enableval], [])
+if test "$werror" = "yes"; then
+	ADD_CFLAGS="$ADD_CFLAGS -Werror"
+fi
 AC_ARG_ENABLE(gcc-compat,
 	AC_HELP_STRING([--disable-gcc-compat],
 		[Disable GCC compatibility]),
@@ -314,6 +368,19 @@ AC_ARG_ENABLE(pcc-debug,
 if test "$pccdebug" = "yes"; then
 	ADD_CPPFLAGS="$ADD_CPPFLAGS -DPCC_DEBUG";
 fi
+
+AC_ARG_ENABLE(stripping,
+	AC_HELP_STRING([--disable-stripping],
+		[Disable stripping of symbols in installed binaries]),
+	[stripping=$enableval], [])
+if test "$stripping" = "yes"; then
+	if test -z "$INSTALL_PROGRAM"; then
+		INSTALL_PROGRAM='${INSTALL} -s'
+	else
+		AC_MSG_WARN([Installed binaries may be unstripped])
+	fi
+fi
+
 AC_ARG_WITH(yasm,
 	AC_HELP_STRING([--use-yasm], [Use yasm assembler]),
 	useyasm=$withval,
@@ -391,15 +458,21 @@ DESIRED_FLAGS="-Wall -Wmissing-prototypes -Wstrict-prototypes -Wshadow -Wsign-co
 for flag in $DESIRED_FLAGS
 do
 	AC_MSG_CHECKING([whether $CC accepts $flag])
-	AC_LANG_CONFTEST([int main() { return 0; }])
-	$CC $CFLAGS $flag -c conftest.c > /dev/null 2> /dev/null
-	if test $? = 0 ; then
-		ADD_CFLAGS="$ADD_CFLAGS $flag"
-		AC_MSG_RESULT([yes]);
-	else
-		AC_MSG_RESULT([no]);
+	cflags="$CFLAGS"
+	CFLAGS="$CFLAGS $flag"
+	AC_COMPILE_IFELSE([
+	    AC_LANG_PROGRAM([[]], [[]])
+	  ], [
+	    use_flag=yes
+	  ], [
+	    use_flag=no
+	])
+	CFLAGS="$cflags"
+
+	AC_MSG_RESULT([$use_flag])
+	if test $use_flag = yes; then
+	    ADD_CFLAGS="$ADD_CFLAGS $flag"
 	fi
-	rm -f conftest.o
 done
 
 # setup for cross-compiling mkext
@@ -413,7 +486,7 @@ else
         AC_SUBST(CC_FOR_BUILD)
 fi
 
-AC_CACHE_CHECK([for C99 printf size specifiers], ac_have_c99_format, [
+AC_CACHE_CHECK([for C99 printf size specifiers], ac_cv_have_c99_format, [
   AC_RUN_IFELSE([
     AC_LANG_PROGRAM([AC_INCLUDES_DEFAULT], [[
       char buf[64];
@@ -422,24 +495,13 @@ AC_CACHE_CHECK([for C99 printf size specifiers], ac_have_c99_format, [
       else if (strcmp(buf, "12345"))
         exit(2);
       ]])],
-    [ ac_have_c99_format=yes ],
-    [ ac_have_c99_format=no ],
-    [ ac_have_c99_format=yes ])
+    [ ac_cv_have_c99_format=yes ],
+    [ ac_cv_have_c99_format=no ],
+    [ ac_cv_have_c99_format=yes ])
 ])
-if test $ac_have_c99_format = yes; then
+if test $ac_cv_have_c99_format = yes; then
   AC_DEFINE([HAVE_C99_FORMAT], 1,
     [Define to 1 if printf supports C99 size specifiers])
-fi
-
-AC_CACHE_CHECK([for C99 variadic macro support], ac_have_variadic, [
-  AC_COMPILE_IFELSE([
-	#define macro(...) func(__VA_ARGS__)
-	int func(int a, ...);
-	int test() { return macro(1, 2, 3); }
-	], [ ac_have_variadic=yes ], [ ac_have_variadic=no ])])
-if test $ac_have_variadic = yes ; then
-  AC_DEFINE([HAVE_CPP_VARARG_MACRO_GCC], 1, 
-    [Define to 1 if your compiler supports C99 variadic macros])
 fi
 
 # Byteorder of host
@@ -447,17 +509,11 @@ AC_C_BIGENDIAN([AC_DEFINE(HOST_BIG_ENDIAN,[],[Define if host is BIG endian])],
 	[AC_DEFINE(HOST_LITTLE_ENDIAN,[],[Define if host is LITTLE endian])],
 	[],[])
 
-
 # Checks for programs.
 AC_PROG_MAKE_SET
 AC_PROG_INSTALL
 AC_PROG_YACC
-AC_CHECK_PROG(strip,strip,yes,no)
-
 AC_PROG_LEX
-if test "$LEX" = flex ; then
-	AC_DEFINE_UNQUOTED(ISFLEX, 1, [lex is flex])
-fi
 
 # Checks for libraries.
 
@@ -477,11 +533,11 @@ AC_EXEEXT
 AC_SUBST(targos)
 AC_SUBST(targosver)
 AC_SUBST(targmach)
+AC_SUBST(hostos)
 AC_SUBST(prefix)
 AC_SUBST(exec_prefix)
 AC_SUBST(libexecdir)
 AC_SUBST(includedir)
-AC_SUBST(strip)
 AC_SUBST(PACKAGE_VERSION)
 AC_SUBST(ADD_CFLAGS)
 AC_SUBST(ADD_CPPFLAGS)
@@ -489,7 +545,8 @@ AC_SUBST(ADD_CPPFLAGS)
 pcc_major=`echo $PACKAGE_VERSION | awk -F. '{print $1}'`
 pcc_minor=`echo $PACKAGE_VERSION | awk -F. '{print $2}'`
 pcc_minorminor=`echo $PACKAGE_VERSION | awk -F. '{print $3}'`
-versstr="\"$PACKAGE_STRING `cat $srcdir/DATESTAMP` for $target\""
+test -n "$MPVERSION" && MPVERSION=", $MPVERSION"
+versstr="\"$PACKAGE_STRING `cat $srcdir/DATESTAMP` for $target$MPVERSION\""
 
 AC_DEFINE_UNQUOTED(PCC_MAJOR, $pcc_major, [Major version no])
 AC_DEFINE_UNQUOTED(PCC_MINOR, $pcc_minor, [Minor version no])
