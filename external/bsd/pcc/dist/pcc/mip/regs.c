@@ -1380,6 +1380,21 @@ deldead(NODE *p, bittype *lvar)
 }
 
 /*
+ * Ensure that the su field is empty before generating instructions.
+ */
+static void
+clrsu(NODE *p)
+{
+	int o = optype(p->n_op);
+
+	p->n_su = 0;
+	if (o != LTYPE)
+		clrsu(p->n_left);
+	if (o == BITYPE)
+		clrsu(p->n_right);
+}
+
+/*
  * Do dead code elimination.
  */
 static int
@@ -1439,22 +1454,19 @@ dce(struct p2env *p2e)
 					    bbnum, ip));
 					break;
 				} else while (!DLIST_ISEMPTY(&prepole, qelem)) {
+					struct interpass *tipp;
 
 					BDEBUG(("bb %d: DCE doing ip prepend\n", bbnum));
-#ifdef notyet
-					struct interpass *tipp;
 					tipp = DLIST_NEXT(&prepole, qelem);
 					DLIST_REMOVE(tipp, qelem);
 					DLIST_INSERT_BEFORE(ip, tipp, qelem);
 					if (ip == bb->first)
 						bb->first = tipp;
 					fix++;
-#else
-					comperr("dce needs bb fixup");
-#endif
 					BDEBUG(("DCE ip prepended\n"));
 				}
 				if (ip->type == IP_NODE) {
+					clrsu(p);
 					geninsn(p, FOREFF);
 					nsucomp(p);
 					ip->ip_node = p;
@@ -1594,7 +1606,7 @@ Build(struct p2env *p2e)
 		bbfake.first = DLIST_NEXT(ipole, qelem);
 		DLIST_INIT(&p2e->bblocks, bbelem);
 		DLIST_INSERT_AFTER(&p2e->bblocks, &bbfake, bbelem);
-		bbfake.ch[0] = bbfake.ch[1] = NULL;
+		SLIST_INIT(&bbfake.child);
 	}
 
 	/* Just fetch space for the temporaries from stack */
@@ -1628,15 +1640,15 @@ livagain:
 
 	/* do liveness analysis on basic block level */
 	do {
+		struct cfgnode *cn;
 		again = 0;
 		/* XXX - loop should be in reversed execution-order */
 		DLIST_FOREACH_REVERSE(bb, &p2e->bblocks, bbelem) {
 			i = bb->bbnum;
 			SETCOPY(saved, out[i], j, xbits);
-			if (bb->ch[0])
-				SETSET(out[i], in[bb->ch[0]->bblock->bbnum], j, xbits);
-			if (bb->ch[1])
-				SETSET(out[i], in[bb->ch[1]->bblock->bbnum], j, xbits);
+			SLIST_FOREACH(cn, &bb->child, chld) {
+				SETSET(out[i], in[cn->bblock->bbnum], j, xbits);
+			}
 			SETCMP(again, saved, out[i], j, xbits);
 			SETCOPY(saved, in[i], j, xbits);
 			SETCOPY(in[i], out[i], j, xbits);
@@ -2684,29 +2696,29 @@ RewriteProgram(struct interpass *ip)
  * Print TEMP/REG contents in a node.
  */
 void
-prtreg(FILE *fp, NODE *p)
+prtreg(NODE *p)
 {
 	int i, n = p->n_su == -1 ? 0 : ncnt(table[TBLIDX(p->n_su)].needs);
 if (p->n_reg == -1) goto foo;
 	if (use_regw || p->n_reg > 0x40000000 || p->n_reg < 0) {
-		fprintf(fp, "TEMP ");
+		printf("TEMP ");
 		if (p->n_regw != NULL) {
 			for (i = 0; i < n+1; i++)
-				fprintf(fp, "%d ", p->n_regw[i].nodnum);
+				printf("%d ", p->n_regw[i].nodnum);
 		} else
-			fprintf(fp, "<undef>");
+			printf("<undef>");
 	} else {
-foo:		fprintf(fp, "REG ");
+foo:		printf("REG ");
 		if (p->n_reg != -1) {
 			for (i = 0; i < n+1; i++) {
 				int r = DECRA(p->n_reg, i);
 				if (r >= MAXREGS)
-					fprintf(fp, "<badreg> ");
+					printf("<badreg> ");
 				else
-					fprintf(fp, "%s ", rnames[r]);
+					printf("%s ", rnames[r]);
 			}
 		} else
-			fprintf(fp, "<undef>");
+			printf("<undef>");
 	}
 }
 #endif
@@ -2719,6 +2731,7 @@ foo:		fprintf(fp, "REG ");
 static void
 insgen()
 {
+	clrsu(p);
 	geninsn(); /* instruction assignment */
 	sucomp();  /* set evaluation order */
 	slong();   /* set long temp types */
@@ -2823,8 +2836,10 @@ onlyperm: /* XXX - should not have to redo all */
 			continue;
 		nodepole = ip->ip_node;
 		thisline = ip->lineno;
-		if (ip->ip_node->n_op != XASM)
+		if (ip->ip_node->n_op != XASM) {
+			clrsu(ip->ip_node);
 			geninsn(ip->ip_node, FOREFF);
+		}
 		nsucomp(ip->ip_node);
 		walkf(ip->ip_node, traclass, 0);
 	}
@@ -2926,14 +2941,14 @@ onlyperm: /* XXX - should not have to redo all */
 		    mklnode(REG, 0, nblock[i+tempmin].r_color, type),
 		    mklnode(REG, 0, permregs[i], type), type);
 		p->n_reg = p->n_left->n_reg = p->n_right->n_reg = -1;
-		p->n_left->n_su = p->n_right->n_su = 0;
+		clrsu(p);
 		geninsn(p, FOREFF);
 		ip = ipnode(p);
 		DLIST_INSERT_AFTER(ipole->qelem.q_forw, ip, qelem);
 		p = mkbinode(ASSIGN, mklnode(REG, 0, permregs[i], type),
 		    mklnode(REG, 0, nblock[i+tempmin].r_color, type), type);
 		p->n_reg = p->n_left->n_reg = p->n_right->n_reg = -1;
-		p->n_left->n_su = p->n_right->n_su = 0;
+		clrsu(p);
 		geninsn(p, FOREFF);
 		ip = ipnode(p);
 		DLIST_INSERT_BEFORE(ipole->qelem.q_back, ip, qelem);

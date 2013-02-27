@@ -246,7 +246,9 @@ inval(CONSZ off, int fsz, NODE *p)
 			printf("+");
 		if (sp != NULL) {
 			if ((sp->sclass == STATIC && sp->slevel > 0)) {
-				printf(LABFMT, sp->soffset);
+				/* fix problem with &&label not defined yet */
+				int o = sp->soffset;
+				printf(LABFMT, o < 0 ? -o : o);
 			} else
 				printf("%s", sp->soname ?
 				    sp->soname : exname(sp->sname));
@@ -444,7 +446,7 @@ stkpush(void)
 #ifdef PCC_DEBUG
 	if (idebug) {
 		printf("stkpush: '%s' %s ", sp->sname, scnames(sp->sclass));
-		tprint(stdout, t, 0);
+		tprint(t, 0);
 	}
 #endif
 
@@ -490,7 +492,7 @@ stkpush(void)
 #ifdef PCC_DEBUG
 	if (idebug) {
 		printf(" newtype ");
-		tprint(stdout, is->in_t, 0);
+		tprint(is->in_t, 0);
 		printf("\n");
 	}
 #endif
@@ -677,8 +679,10 @@ scalinit(NODE *p)
 		stkpush();
 		/* If we are doing auto struct init */
 		if (ISSOU(pstk->in_t) && ISSOU(p->n_type) &&
-		    suemeq(pstk->in_sym->sap, p->n_ap))
+		    suemeq(pstk->in_sym->sap, p->n_ap)) {
+			pstk->in_lnk = NULL; /* this elem is initialized */
 			break;
+		}
 	}
 
 	if (ISSOU(pstk->in_t) == 0) {
@@ -691,11 +695,8 @@ scalinit(NODE *p)
 		nfree(p);
 	} else
 		q = p;
-#ifndef WORD_ADDRESSED
-	if (csym->sclass != AUTO)
-		q = rmpconv(optim(rmpconv(q)));
-#endif
-	q = optim(q);
+
+	q = optloop(q);
 
 	woff = findoff();
 
@@ -819,7 +820,7 @@ endinit(int seg)
 			if (idebug > 1) {
 				printf("off %lld size %d val %lld type ",
 				    ll->begsz+il->off, il->fsz, il->n->n_lval);
-				tprint(stdout, il->n->n_type, 0);
+				tprint(il->n->n_type, 0);
 				printf("\n");
 			}
 #endif
@@ -896,9 +897,8 @@ endictx(void)
  * process an initializer's left brace
  */
 void
-ilbrace()
+ilbrace(void)
 {
-
 #ifdef PCC_DEBUG
 	if (idebug)
 		printf("ilbrace()\n");
@@ -919,7 +919,7 @@ ilbrace()
  * called when a '}' is seen
  */
 void
-irbrace()
+irbrace(void)
 {
 #ifdef PCC_DEBUG
 	if (idebug)
@@ -1122,7 +1122,7 @@ prtstk(struct instk *in)
 		for (i = 0; i < o; i++)
 			printf("  ");
 		printf("%p) '%s' ", in, in->in_sym->sname);
-		tprint(stdout, in->in_t, 0);
+		tprint(in->in_t, 0);
 		printf(" %s ", scnames(in->in_sym->sclass));
 		if (in->in_df /* && in->in_df->ddim */)
 		    printf("arydim=%d ", in->in_df->ddim);
@@ -1193,10 +1193,23 @@ simpleinit(struct symtab *sp, NODE *p)
 			break;
 		}
 #endif
-		p = optim(buildtree(ASSIGN, nt, p));
-#ifndef WORD_ADDRESSED
-		p = optim(rmpconv(p));
+#ifdef TARGET_TIMODE
+		struct attr *ap;
+		if ((ap = attr_find(sp->sap, GCC_ATYP_MODE)) &&
+		    strcmp(ap->aa[0].sarg, "TI") == 0) {
+			if (p->n_op != ICON)
+				uerror("need to handle TImode initializer ");
+			sz = (int)tsize(sp->stype, sp->sdf, sp->sap);
+			p->n_type = ctype(LONGLONG);
+			inval(0, sz/2, p);
+			p->n_lval = 0; /* XXX fix signed types */
+			inval(0, sz/2, p);
+			tfree(p);
+			tfree(q);
+			break;
+		}
 #endif
+		p = optloop(buildtree(ASSIGN, nt, p));
 		q = p->n_right;
 		t = q->n_type;
 		sz = (int)tsize(t, q->n_df, q->n_ap);
@@ -1209,6 +1222,11 @@ simpleinit(struct symtab *sp, NODE *p)
 		if (ISARY(sp->stype))
 			cerror("no array init");
 		q = nt;
+#ifdef TARGET_TIMODE
+		if ((r = gcc_eval_timode(ASSIGN, q, p)) != NULL)
+			;
+		else
+#endif
 #ifndef NO_COMPLEX
 
 		if (ANYCX(q) || ANYCX(p))

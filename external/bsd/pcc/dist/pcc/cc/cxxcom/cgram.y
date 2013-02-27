@@ -1608,7 +1608,7 @@ init_declarator(NODE *tn, NODE *p, int assign, NODE *a)
 	if (fun_inline && ISFTN(p->n_type))
 		sp->sflags |= SINLINE;
 
-	if (ISFTN(p->n_type) == 0) {
+	if (!ISFTN(p->n_type)) {
 		if (assign) {
 			defid(p, class);
 			sp = p->n_sp;
@@ -2106,7 +2106,7 @@ xasmop(char *str, NODE *p)
 {
 
 	p = biop(XARG, p, NIL);
-	p->n_name = isinlining ? newstring(str, strlen(str)+1) : str;
+	p->n_name = isinlining ? newstring(str, strlen(str)) : str;
 	return p;
 }
 
@@ -2119,7 +2119,7 @@ mkxasm(char *str, NODE *p)
 	NODE *q;
 
 	q = biop(XASM, p->n_left, p->n_right);
-	q->n_name = isinlining ? newstring(str, strlen(str)+1) : str;
+	q->n_name = isinlining ? newstring(str, strlen(str)) : str;
 	nfree(p);
 	ecomp(q);
 }
@@ -2235,14 +2235,17 @@ eve(NODE *p)
 		break;
 
 	case CALL:
-		p2 = eve(p2);
-		/* FALLTHROUGH */
 	case UCALL:
 		if (p1->n_op == NAME || p1->n_op == NMLIST) {
 			sp = cxxlookup(p1, SNORMAL);
+#ifndef NO_C_BUILTINS
+			if (sp->sflags & SBUILTIN) {
+				nfree(p1);
+				r = builtin_check(sp, p2);
+				break;
+			}
+#endif
 			if (sp->stype == UNDEF) {
-				if (!isbuiltin(sp->sname))
-					uerror("'%s' undefined", sp->sname);
 				p1->n_type = FTN|INT;
 				p1->n_sp = sp;
 				p1->n_ap = NULL;
@@ -2253,6 +2256,7 @@ eve(NODE *p)
 			if (attr_find(sp->sap, GCC_ATYP_DEPRECATED))
 				werror("`%s' is deprecated", sp->sname);
 #endif
+			p2 = p->n_op == CALL ? eve(p2) : NIL;
 			r = doacall(sp, nametree(sp), p2, 0);
 		} else if (p1->n_op == DOT || p1->n_op == STREF) {
 			/*
@@ -2261,9 +2265,8 @@ eve(NODE *p)
 			 * - add hidden arg0 as pointer to this struct
 			 */
 
+			p2 = p->n_op == CALL ? eve(p2) : NIL;
 			p1->n_left = eve(p1->n_left); /* eval rest */
-			if (p->n_op == UCALL)
-				p2 = NULL;
 			r = cxxmatchftn(p1, p2);
 			if (p1->n_op == DOT)
 				p1->n_left = buildtree(ADDROF, p1->n_left, NIL);
@@ -2271,8 +2274,10 @@ eve(NODE *p)
 			p1 = nfree(p1);
 			p2 = cxxaddhidden(p2, p1);
 			r = doacall(NULL, r, p2, 1);
-		} else
+		} else {
+			p2 = p->n_op == CALL ? eve(p2) : NIL;
 			r = doacall(NULL, eve(p1), p2, 0);
+		}
 		break;
 
 #ifndef NO_COMPLEX

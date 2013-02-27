@@ -280,7 +280,7 @@ void myreader(struct interpass *pole);
 int oregok(NODE *p, int sharp);
 void myormake(NODE *);
 int *livecall(NODE *);
-void prtreg(FILE *, NODE *);
+void prtreg(NODE *);
 char *prcook(int);
 int myxasm(struct interpass *ip, NODE *p);
 int xasmcode(char *s);
@@ -310,10 +310,7 @@ void p2tree(NODE *p);
 int flshape(NODE *p);
 int ncnt(int needs);
 
-
 extern	char *rnames[];
-extern	int rstatus[];
-extern	int roverlap[MAXREGS][MAXREGS];
 
 extern int classmask(int), tclassmask(int);
 extern void cmapinit(void);
@@ -346,22 +343,9 @@ int offset(NODE *p, int);
 #endif
 
 extern	int lineno;
-extern	int fldshf, fldsz;
 extern	int ndebug;
 extern	int b2debug, c2debug, e2debug, f2debug, g2debug, o2debug;
 extern	int r2debug, s2debug, t2debug, u2debug, x2debug;
-
-#ifdef FORT
-extern	int Oflag;
-#endif
-
-#ifndef callchk
-#define callchk(x) allchk()
-#endif
-
-#ifndef PUTCHAR
-#define PUTCHAR(x) putchar(x)
-#endif
 
 extern	int dope[];	/* a vector containing operator information */
 extern	char *opst[];	/* a vector containing names for ops */
@@ -460,8 +444,8 @@ void optimize(struct p2env *);
 
 struct basicblock {
 	DLIST_ENTRY(basicblock) bbelem;
-	SLIST_HEAD(, cfgnode) parents; /* CFG - parents to this node */
-	struct cfgnode *ch[2];		/* Child 1 (and 2) */
+	SLIST_HEAD(, cfgnode) parents;	/* CFG - parents to this node */
+	SLIST_HEAD(, cfgnode) child;	/* Children, usually max 2 of them */
 	int bbnum;	/* this basic block number */
 	unsigned int dfnum; /* DFS-number */
 	unsigned int dfparent; /* Parent in DFS */
@@ -514,6 +498,7 @@ struct varstack {
 
 struct cfgnode {
 	SLIST_ENTRY(cfgnode) cfgelem;
+	SLIST_ENTRY(cfgnode) chld;
 	struct basicblock *bblock;
 };
 

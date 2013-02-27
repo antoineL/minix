@@ -103,9 +103,9 @@ struct rstack {
  * Linked list for parameter (and struct elements) declaration.
  */
 static struct params {
-	struct params *next, *prev;
+	struct params *prev;
 	struct symtab *sym;
-} *lpole, *lparam;
+} *lparam;
 static int nparams;
 
 /* defines used for getting things off of the initialization stack */
@@ -161,7 +161,7 @@ defid(NODE *q, int class)
 #ifdef PCC_DEBUG
 	if (ddebug) {
 		printf("defid(%s (%p), ", p->sname, p);
-		tprint(stdout, q->n_type, q->n_qual);
+		tprint(q->n_type, q->n_qual);
 		printf(", %s, (%p)), level %d\n\t", scnames(class),
 		    q->n_df, blevel);
 		dump_attr(q->n_ap);
@@ -181,10 +181,10 @@ defid(NODE *q, int class)
 #ifdef PCC_DEBUG
 	if (ddebug) {
 		printf("	modified to ");
-		tprint(stdout, type, qual);
+		tprint(type, qual);
 		printf(", %s\n", scnames(class));
 		printf("	previous def'n: ");
-		tprint(stdout, stp, stq);
+		tprint(stp, stq);
 		printf(", %s, (%p,%p)), level %d\n",
 		    scnames(p->sclass), p->sdf, p->sap, slev);
 	}
@@ -476,13 +476,8 @@ ssave(struct symtab *sym)
 	struct params *p;
 
 	p = tmpalloc(sizeof(struct params));
-	p->next = NULL;
+	p->prev = lparam;
 	p->sym = sym;
-
-	if ((p->prev = lparam) == NULL)
-		lpole = p;
-	else
-		lparam->next = p;
 	lparam = p;
 }
 
@@ -490,7 +485,7 @@ ssave(struct symtab *sym)
  * end of function
  */
 void
-ftnend()
+ftnend(void)
 {
 	struct attr *gc, *gd;
 	extern NODE *cftnod;
@@ -561,7 +556,7 @@ static struct symtab nulsym = {
 };
 
 void
-dclargs()
+dclargs(void)
 {
 	union dimfun *df;
 	union arglist *al, *al2, *alb;
@@ -1924,7 +1919,103 @@ struct tylnk {
 	union dimfun df;
 };
 
-static void tyreduce(NODE *p, struct tylnk **, int *);
+/*
+ * Retrieve all CM-separated argument types, sizes and dimensions and
+ * put them in an array.
+ * XXX - can only check first type level, side effects?
+ */
+static union arglist *
+arglist(NODE *n)
+{
+	union arglist *al;
+	NODE *w = n, **ap;
+	int num, cnt, i, j, k;
+	TWORD ty;
+
+#ifdef PCC_DEBUG
+	if (pdebug) {
+		printf("arglist %p\n", n);
+		fwalk(n, eprint, 0);
+	}
+#endif
+	/* First: how much to allocate */
+	for (num = cnt = 0, w = n; w->n_op == CM; w = w->n_left) {
+		cnt++;	/* Number of levels */
+		num++;	/* At least one per step */
+		if (w->n_right->n_op == ELLIPSIS)
+			continue;
+		ty = w->n_right->n_type;
+		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+			num++;
+		while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+			ty = DECREF(ty);
+		if (ty > BTMASK)
+			num++;
+	}
+	cnt++;
+	ty = w->n_type;
+	if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+		num++;
+	while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+		ty = DECREF(ty);
+	if (ty > BTMASK)
+		num++;
+	num += 2; /* TEND + last arg type */
+
+	/* Second: Create list to work on */
+	ap = tmpalloc(sizeof(NODE *) * cnt);
+	al = permalloc(sizeof(union arglist) * num);
+	arglistcnt += num;
+
+	for (w = n, i = 0; w->n_op == CM; w = w->n_left)
+		ap[i++] = w->n_right;
+	ap[i] = w;
+
+	/* Third: Create actual arg list */
+	for (k = 0, j = i; j >= 0; j--) {
+		if (ap[j]->n_op == ELLIPSIS) {
+			al[k++].type = TELLIPSIS;
+			ap[j]->n_op = ICON; /* for tfree() */
+			continue;
+		}
+		/* Convert arrays to pointers */
+		if (ISARY(ap[j]->n_type)) {
+			ap[j]->n_type += (PTR-ARY);
+			ap[j]->n_df++;
+		}
+		/* Convert (silently) functions to pointers */
+		if (ISFTN(ap[j]->n_type))
+			ap[j]->n_type = INCREF(ap[j]->n_type);
+		ty = ap[j]->n_type;
+#ifdef GCC_COMPAT
+		if (ty == UNIONTY &&
+		    attr_find(ap[j]->n_ap, GCC_ATYP_TRANSP_UNION)){
+			/* transparent unions must have compatible types
+			 * shortcut here: if pointers, set void *, 
+			 * otherwise btype.
+			 */
+			struct symtab *sp = strmemb(ap[j]->n_ap);
+			ty = ISPTR(sp->stype) ? PTR|VOID : sp->stype;
+		}
+#endif
+		al[k++].type = ty;
+		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
+			al[k++].sap = ap[j]->n_ap;
+		while (!ISFTN(ty) && !ISARY(ty) && ty > BTMASK)
+			ty = DECREF(ty);
+		if (ty > BTMASK)
+			al[k++].df = ap[j]->n_df;
+	}
+	al[k++].type = TNULL;
+	if (k > num)
+		cerror("arglist: k%d > num%d", k, num);
+	tfree(n);
+#ifdef PCC_DEBUG
+	if (pdebug)
+		alprint(al, 0);
+#endif
+	return al;
+}
 
 static void
 tylkadd(union dimfun dim, struct tylnk **tylkp, int *ntdim)
@@ -1934,6 +2025,70 @@ tylkadd(union dimfun dim, struct tylnk **tylkp, int *ntdim)
 	(*tylkp)->next = NULL;
 	(*tylkp)->df = dim;
 	(*ntdim)++;
+}
+
+/*
+ * build a type, and stash away dimensions,
+ * from a parse tree of the declaration
+ * the type is build top down, the dimensions bottom up
+ */
+static void
+tyreduce(NODE *p, struct tylnk **tylkp, int *ntdim)
+{
+	union dimfun dim;
+	NODE *r = NULL;
+	int o;
+	TWORD t, q;
+
+	o = p->n_op;
+	if (o == NAME) {
+		p->n_qual = DECQAL(p->n_qual);
+		return;
+	}
+
+	t = INCREF(p->n_type);
+	q = p->n_qual;
+	switch (o) {
+	case CALL:
+		t += (FTN-PTR);
+		dim.dfun = arglist(p->n_right);
+		break;
+	case UCALL:
+		t += (FTN-PTR);
+		dim.dfun = NULL;
+		break;
+	case LB:
+		t += (ARY-PTR);
+		if (p->n_right->n_op != ICON) {
+			r = p->n_right;
+			o = RB;
+		} else {
+			dim.ddim = (int)p->n_right->n_lval;
+			nfree(p->n_right);
+#ifdef notdef
+	/* XXX - check dimensions at usage time */
+			if (dim.ddim == NOOFFSET && p->n_left->n_op == LB)
+				uerror("null dimension");
+#endif
+		}
+		break;
+	}
+
+	p->n_left->n_type = t;
+	p->n_left->n_qual = INCQAL(q) | p->n_left->n_qual;
+	tyreduce(p->n_left, tylkp, ntdim);
+
+	if (o == LB || o == UCALL || o == CALL)
+		tylkadd(dim, tylkp, ntdim);
+	if (o == RB) {
+		dim.ddim = -1;
+		tylkadd(dim, tylkp, ntdim);
+		arrstk[arrstkp++] = r;
+	}
+
+	p->n_sp = p->n_left->n_sp;
+	p->n_type = p->n_left->n_type;
+	p->n_qual = p->n_left->n_qual;
 }
 
 /*
@@ -2003,168 +2158,6 @@ tymerge(NODE *typ, NODE *idp)
 	return(idp);
 }
 
-/*
- * Retrieve all CM-separated argument types, sizes and dimensions and
- * put them in an array.
- * XXX - can only check first type level, side effects?
- */
-static union arglist *
-arglist(NODE *n)
-{
-	union arglist *al;
-	NODE *w = n, **ap;
-	int num, cnt, i, j, k;
-	TWORD ty;
-
-#ifdef PCC_DEBUG
-	if (pdebug) {
-		printf("arglist %p\n", n);
-		fwalk(n, eprint, 0);
-	}
-#endif
-	/* First: how much to allocate */
-	for (num = cnt = 0, w = n; w->n_op == CM; w = w->n_left) {
-		cnt++;	/* Number of levels */
-		num++;	/* At least one per step */
-		if (w->n_right->n_op == ELLIPSIS)
-			continue;
-		ty = w->n_right->n_type;
-		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-			num++;
-		while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-			ty = DECREF(ty);
-		if (ty > BTMASK)
-			num++;
-	}
-	cnt++;
-	ty = w->n_type;
-	if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-		num++;
-	while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-		ty = DECREF(ty);
-	if (ty > BTMASK)
-		num++;
-	num += 2; /* TEND + last arg type */
-
-	/* Second: Create list to work on */
-	ap = tmpalloc(sizeof(NODE *) * cnt);
-	al = permalloc(sizeof(union arglist) * num);
-	arglistcnt += num;
-
-	for (w = n, i = 0; w->n_op == CM; w = w->n_left)
-		ap[i++] = w->n_right;
-	ap[i] = w;
-
-	/* Third: Create actual arg list */
-	for (k = 0, j = i; j >= 0; j--) {
-		if (ap[j]->n_op == ELLIPSIS) {
-			al[k++].type = TELLIPSIS;
-			ap[j]->n_op = ICON; /* for tfree() */
-			continue;
-		}
-		/* Convert arrays to pointers */
-		if (ISARY(ap[j]->n_type)) {
-			ap[j]->n_type += (PTR-ARY);
-			ap[j]->n_df++;
-		}
-		/* Convert (silently) functions to pointers */
-		if (ISFTN(ap[j]->n_type))
-			ap[j]->n_type = INCREF(ap[j]->n_type);
-		ty = ap[j]->n_type;
-#ifdef GCC_COMPAT
-		if (ty == UNIONTY &&
-		    attr_find(ap[j]->n_ap, GCC_ATYP_TRANSP_UNION)){
-			/* transparent unions must have compatible types
-			 * shortcut here: if pointers, set void *, 
-			 * otherwise btype.
-			 */
-			struct symtab *sp = strmemb(ap[j]->n_ap);
-			ty = ISPTR(sp->stype) ? PTR|VOID : sp->stype;
-		}
-#endif
-		al[k++].type = ty;
-		if (BTYPE(ty) == STRTY || BTYPE(ty) == UNIONTY)
-			al[k++].sap = ap[j]->n_ap;
-		while (ISFTN(ty) == 0 && ISARY(ty) == 0 && ty > BTMASK)
-			ty = DECREF(ty);
-		if (ty > BTMASK)
-			al[k++].df = ap[j]->n_df;
-	}
-	al[k++].type = TNULL;
-	if (k > num)
-		cerror("arglist: k%d > num%d", k, num);
-	tfree(n);
-#ifdef PCC_DEBUG
-	if (pdebug)
-		alprint(al, 0);
-#endif
-	return al;
-}
-
-/*
- * build a type, and stash away dimensions,
- * from a parse tree of the declaration
- * the type is build top down, the dimensions bottom up
- */
-void
-tyreduce(NODE *p, struct tylnk **tylkp, int *ntdim)
-{
-	union dimfun dim;
-	NODE *r = NULL;
-	int o;
-	TWORD t, q;
-
-	o = p->n_op;
-	if (o == NAME) {
-		p->n_qual = DECQAL(p->n_qual);
-		return;
-	}
-
-	t = INCREF(p->n_type);
-	q = p->n_qual;
-	switch (o) {
-	case CALL:
-		t += (FTN-PTR);
-		dim.dfun = arglist(p->n_right);
-		break;
-	case UCALL:
-		t += (FTN-PTR);
-		dim.dfun = NULL;
-		break;
-	case LB:
-		t += (ARY-PTR);
-		if (p->n_right->n_op != ICON) {
-			r = p->n_right;
-			o = RB;
-		} else {
-			dim.ddim = (int)p->n_right->n_lval;
-			nfree(p->n_right);
-#ifdef notdef
-	/* XXX - check dimensions at usage time */
-			if (dim.ddim == NOOFFSET && p->n_left->n_op == LB)
-				uerror("null dimension");
-#endif
-		}
-		break;
-	}
-
-	p->n_left->n_type = t;
-	p->n_left->n_qual = INCQAL(q) | p->n_left->n_qual;
-	tyreduce(p->n_left, tylkp, ntdim);
-
-	if (o == LB || o == UCALL || o == CALL)
-		tylkadd(dim, tylkp, ntdim);
-	if (o == RB) {
-		dim.ddim = -1;
-		tylkadd(dim, tylkp, ntdim);
-		arrstk[arrstkp++] = r;
-	}
-
-	p->n_sp = p->n_left->n_sp;
-	p->n_type = p->n_left->n_type;
-	p->n_qual = p->n_left->n_qual;
-}
-
 static NODE *
 argcast(NODE *p, TWORD t, union dimfun *d, struct attr *ap)
 {
@@ -2198,7 +2191,7 @@ alprint(union arglist *al, int in)
 			printf("  ");
 		printf("arg %d: ", i++);
 		t = al->type;
-		tprint(stdout, t, 0);
+		tprint(t, 0);
 		while (t > BTMASK) {
 			if (ISARY(t)) {
 				al++;
@@ -2275,14 +2268,6 @@ doacall(struct symtab *sp, NODE *f, NODE *a, int hidden)
 	    (f->n_left->n_left->n_type & 0x7e0) == 0x4c0)
 		goto build;
 /* XXX XXX hack */
-
-#ifndef NO_C_BUILTINS
-	/* check for builtins. function pointers are not allowed */
-	if (f->n_op == NAME &&
-	    f->n_sp->sname[0] == '_' && f->n_sp->sname[1] == '_')
-		if ((w = builtin_check(f, a)) != NIL)
-			return w;
-#endif
 
 	/* Check for undefined or late defined enums */
 	if (BTYPE(f->n_type) == ENUMTY) {
@@ -2574,7 +2559,7 @@ done:		ty = BTYPE(usym->type);
 				return 1;
 		}
 
-		while (ISFTN(t2) == 0 && ISARY(t2) == 0 && t2 > BTMASK)
+		while (!ISFTN(t2) && !ISARY(t2) && t2 > BTMASK)
 			t2 = DECREF(t2);
 		if (t2 > BTMASK) {
 			usym++, udef++;
@@ -2829,7 +2814,7 @@ static char *stack_chk_guard = "__stack_chk_guard";
 static char *stack_chk_canary = "__stack_chk_canary";
 
 void
-sspinit()
+sspinit(void)
 {
 	NODE *p;
 
@@ -2845,7 +2830,7 @@ sspinit()
 }
 
 void
-sspstart()
+sspstart(void)
 {
 	NODE *p, *q;
 
@@ -2868,7 +2853,7 @@ sspstart()
 }
 
 void
-sspend()
+sspend(void)
 {
 	NODE *p, *q;
 	TWORD t;
@@ -3013,7 +2998,7 @@ static struct symtab *cxsp[3];
  * these by hand-crafting them.
  */
 void
-complinit()
+complinit(void)
 {
 	struct attr *ap;
 	struct rstack *rp;

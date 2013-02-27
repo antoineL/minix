@@ -268,6 +268,7 @@ struct interpass_prolog {
 	int ipp_autos;		/* Size on stack needed */
 	int ip_tmpnum;		/* # allocated temp nodes so far */
 	int ip_lblnum;		/* # used labels so far */
+	int *ip_labels;		/* labels used in computed goto */
 #ifdef TARGET_IPP_MEMBERS
 	TARGET_IPP_MEMBERS
 #endif
@@ -316,11 +317,11 @@ typedef struct mark {
 } MARK;
 
 /* memory management stuff */
-void *permalloc(int size);
-void *tmpcalloc(int size);
-void *tmpalloc(int size);
+void *permalloc(size_t);
+void *tmpcalloc(size_t);
+void *tmpalloc(size_t);
 void tmpfree(void);
-char *newstring(char *, int len);
+char *newstring(char *, size_t);
 char *tmpstrdup(char *str);
 void markset(struct mark *m);
 void markfree(struct mark *m);
@@ -328,7 +329,7 @@ void markfree(struct mark *m);
 /* command-line processing */
 void mflags(char *);
 
-void tprint(FILE *, TWORD, TWORD);
+void tprint(TWORD, TWORD);
 
 /* pass t communication subroutines */
 void topt_compile(struct interpass *);

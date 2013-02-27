@@ -69,15 +69,12 @@
 void setclass(int tmp, int class);
 int getclass(int tmp);
 
-extern char *ltyp[], *rtyp[];
-
 #ifdef PCC_DEBUG
 static char *srtyp[] = { "SRNOPE", "SRDIR", "SROREG", "SRREG" };
 #endif
 
 /*
  * return true if shape is appropriate for the node p
- * side effect for SFLD is to set up fldsz, etc
  *
  * Return values:
  * SRNOPE  Cannot match this shape.
@@ -278,7 +275,7 @@ expand(NODE *p, int cookie, char *cp)
 		switch( *cp ){
 
 		default:
-			PUTCHAR( *cp );
+			putchar(*cp);
 			continue;  /* this is the usual case... */
 
 		case 'Z':  /* special machine dependent operations */

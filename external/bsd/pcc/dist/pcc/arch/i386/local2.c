@@ -66,7 +66,7 @@ prtprolog(struct interpass_prolog *ipp, int addto)
 		printf("	subl $%d,%%esp\n", addto);
 	for (i = 0; i < MAXREGS; i++)
 		if (TESTBIT(ipp->ipp_regs, i))
-			fprintf(stdout, "	movl %s,-%d(%s)\n",
+			printf("	movl %s,-%d(%s)\n",
 			    rnames[i], regoff[i], rnames[FPREG]);
 }
 
@@ -124,7 +124,7 @@ eoftn(struct interpass_prolog *ipp)
 	/* return from function code */
 	for (i = 0; i < MAXREGS; i++)
 		if (TESTBIT(ipp->ipp_regs, i))
-			fprintf(stdout, "	movl -%d(%s),%s\n",
+			printf("	movl -%d(%s),%s\n",
 			    regoff[i], rnames[FPREG], rnames[i]);
 
 	/* struct return needs special treatment */
@@ -183,7 +183,7 @@ hopcode(int f, int o)
  * Return type size in bytes.  Used by R2REGS, arg 2 to offset().
  */
 int
-tlen(p) NODE *p;
+tlen(NODE *p)
 {
 	switch(p->n_type) {
 		case CHAR:
@@ -281,26 +281,24 @@ fldexpand(NODE *p, int cookie, char **cp)
 static void
 starg(NODE *p)
 {
-	FILE *fp = stdout;
-
 #if defined(MACHOABI)
-	fprintf(fp, "	subl $%d,%%esp\n", p->n_stsize);
-	fprintf(fp, "	subl $4,%%esp\n");
-	fprintf(fp, "	pushl $%d\n", p->n_stsize);
+	printf("	subl $%d,%%esp\n", p->n_stsize);
+	printf("	subl $4,%%esp\n");
+	printf("	pushl $%d\n", p->n_stsize);
 	expand(p, 0, "	pushl AL\n");
 	expand(p, 0, "	leal 12(%esp),A1\n");
 	expand(p, 0, "	pushl A1\n");
 	if (kflag) {
-		fprintf(fp, "	call L%s$stub\n", EXPREFIX "memcpy");
+		printf("	call L%s$stub\n", EXPREFIX "memcpy");
 		addstub(&stublist, EXPREFIX "memcpy");
 	} else {
-		fprintf(fp, "	call %s\n", EXPREFIX "memcpy");
+		printf("	call %s\n", EXPREFIX "memcpy");
 	}
-	fprintf(fp, "	addl $16,%%esp\n");
+	printf("	addl $16,%%esp\n");
 #else
 	NODE *q = p->n_left;
 
-	fprintf(fp, "	subl $%d,%%esp\n", (p->n_stsize+3) & ~3);
+	printf("	subl $%d,%%esp\n", (p->n_stsize + 3) & ~3);
 	p->n_left = mklnode(OREG, 0, ESP, INT);
 	zzzcode(p, 'Q');
 	tfree(p->n_left);
@@ -746,7 +744,7 @@ upput(NODE *p, int size)
 	size /= SZCHAR;
 	switch (p->n_op) {
 	case REG:
-		fprintf(stdout, "%%%s", &rnames[p->n_rval][3]);
+		printf("%%%s", &rnames[p->n_rval][3]);
 		break;
 
 	case NAME:
@@ -756,7 +754,7 @@ upput(NODE *p, int size)
 		p->n_lval -= size;
 		break;
 	case ICON:
-		fprintf(stdout, "$" CONFMT, p->n_lval >> 32);
+		printf("$" CONFMT, p->n_lval >> 32);
 		break;
 	default:
 		comperr("upput bad op %d size %d", p->n_op, size);

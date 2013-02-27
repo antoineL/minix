@@ -76,7 +76,6 @@ int fregs;
 int p2autooff, p2maxautooff;
 
 NODE *nodepole;
-FILE *prfil;
 struct interpass prepole;
 
 void saveip(struct interpass *ip);
@@ -409,7 +408,7 @@ pass2_compile(struct interpass *ip)
 	optimize(p2e);
 	ngenregs(p2e);
 
-	if (xssa && xtemps && xdeljumps)
+	if (xtemps && xdeljumps)
 		deljumps(p2e);
 
 	DLIST_FOREACH(ip, &p2e->ipole, qelem)
@@ -796,7 +795,7 @@ void
 genxasm(NODE *p)
 {
 	NODE *q, **nary;
-	int n = 1, o = 0;
+	int n = 1, o = 0, v = 0;
 	char *w;
 
 	if (p->n_left->n_op != ICON || p->n_left->n_type != STRTY) {
@@ -821,7 +820,16 @@ genxasm(NODE *p)
 				putchar('%');
 			else if (XASM_TARGARG(w, nary))
 				; /* handled by target */
-			else if (w[1] < '0' || w[1] > (n + '0'))
+			else if (w[1] == '=') {
+				if (v == 0) v = getlab2();
+				printf("%d", v);
+			} else if (w[1] == 'c') {
+				q = nary[(int)w[2]-'0']; 
+				if (q->n_left->n_op != ICON)
+					uerror("impossible constraint");
+				printf(CONFMT, q->n_left->n_lval);
+				w++;
+			} else if (w[1] < '0' || w[1] > (n + '0'))
 				uerror("bad xasm arg number %c", w[1]);
 			else {
 				if (w[1] == (n + '0'))
@@ -1053,58 +1061,57 @@ e2print(NODE *p, int down, int *a, int *b)
 	extern int tablesize;
 #endif
 
-	prfil = stdout;
 	*a = *b = down+1;
 	while( down >= 2 ){
-		fprintf(prfil, "\t");
+		printf("\t");
 		down -= 2;
 		}
-	if( down-- ) fprintf(prfil, "    " );
+	if( down-- ) printf("    " );
 
 
-	fprintf(prfil, "%p) %s", p, opst[p->n_op] );
+	printf("%p) %s", p, opst[p->n_op] );
 	switch( p->n_op ) { /* special cases */
 
 	case FLD:
-		fprintf(prfil, " sz=%d, shift=%d",
+		printf(" sz=%d, shift=%d",
 		    UPKFSZ(p->n_rval), UPKFOFF(p->n_rval));
 		break;
 
 	case REG:
-		fprintf(prfil, " %s", rnames[p->n_rval] );
+		printf(" %s", rnames[p->n_rval] );
 		break;
 
 	case TEMP:
-		fprintf(prfil, " %d", regno(p));
+		printf(" %d", regno(p));
 		break;
 
 	case XASM:
 	case XARG:
-		fprintf(prfil, " '%s'", p->n_name);
+		printf(" '%s'", p->n_name);
 		break;
 
 	case ICON:
 	case NAME:
 	case OREG:
-		fprintf(prfil, " " );
-		adrput(prfil, p );
+		printf(" " );
+		adrput(stdout, p );
 		break;
 
 	case STCALL:
 	case USTCALL:
 	case STARG:
 	case STASG:
-		fprintf(prfil, " size=%d", p->n_stsize );
-		fprintf(prfil, " align=%d", p->n_stalign );
+		printf(" size=%d", p->n_stsize );
+		printf(" align=%d", p->n_stalign );
 		break;
 		}
 
-	fprintf(prfil, ", " );
-	tprint(prfil, p->n_type, p->n_qual);
-	fprintf(prfil, ", " );
+	printf(", " );
+	tprint(p->n_type, p->n_qual);
+	printf(", " );
 
-	prtreg(prfil, p);
-	fprintf(prfil, ", SU= %d(%cREG,%s,%s,%s,%s,%s,%s)\n",
+	prtreg(p);
+	printf(", SU= %d(%cREG,%s,%s,%s,%s,%s,%s)\n",
 	    TBLIDX(p->n_su), 
 	    TCLASS(p->n_su)+'@',
 #ifdef PRTABLE
@@ -1283,13 +1290,13 @@ oreg2(NODE *p, void *arg)
 }
 
 void
-canon(p) NODE *p; {
+canon(NODE *p)
+{
 	/* put p in canonical form */
 
 	walkf(p, setleft, 0);	/* ptrs at left node for arithmetic */
 	walkf(p, oreg2, 0);	/* look for and create OREG nodes */
 	mycanon(p);		/* your own canonicalization routine(s) */
-
 }
 
 void
@@ -1309,7 +1316,6 @@ comperr(char *str, ...)
 	vfprintf(stderr, str, ap);
 	fprintf(stderr, "\n");
 	va_end(ap);
-	prfil = stderr;
 
 #ifdef PCC_DEBUG
 	if (nodepole && nodepole->n_op != FREE)
@@ -1355,7 +1361,7 @@ freetemp(int k)
 		p2maxautooff = p2autooff;
 	return( -p2autooff );
 #endif
-	}
+}
 
 NODE *
 mklnode(int op, CONSZ lval, int rval, TWORD type)
@@ -1449,6 +1455,10 @@ delnums(NODE *p, void *arg)
 	TWORD t;
 	int cnt, num;
 
+	/* gcc allows % in constraints, but we ignore it */
+	if (p->n_name[0] == '%' && p->n_name[1] >= '0' && p->n_name[1] <= '9')
+		p->n_name++;
+
 	if (p->n_name[0] < '0' || p->n_name[0] > '9')
 		return; /* not numeric */
 	if ((q = listarg(r, p->n_name[0] - '0', &cnt)) == NIL)
@@ -1513,10 +1523,11 @@ again:
 			p->n_name = "i";
 			break;
 		}
+		/* FALLTHROUGH */
 	case 'r': /* general reg */
 		/* set register class */
 		p->n_label = gclass(p->n_left->n_type);
-		if (p->n_left->n_op == REG)
+		if (p->n_left->n_op == REG || p->n_left->n_op == TEMP)
 			break;
 		q = p->n_left;
 		r = (cw & XASMINOUT ? tcopy(q) : q);

@@ -374,6 +374,7 @@ runtime:
 
 		case BITYPE:
 			p->n_right = pconvert( p->n_right );
+			/* FALLTHROUGH */
 		case UTYPE:
 			p->n_left = pconvert( p->n_left );
 
@@ -798,7 +799,9 @@ cbranch(NODE *p, NODE *q)
 }
 
 NODE *
-strargs( p ) register NODE *p;  { /* rewrite structure flavored arguments */
+strargs(register NODE *p)
+{
+	/* rewrite structure flavored arguments */
 
 	if( p->n_op == CM ){
 		p->n_left = strargs( p->n_left );
@@ -1018,6 +1021,7 @@ chkpun(NODE *p)
 			uerror("using void value");
 			return;
 		}
+		break;
 	case COLON:
 		if (t1 == VOID && t2 == VOID)
 			return;
@@ -1168,8 +1172,8 @@ stref(NODE *p)
 }
 
 int
-notlval(p) register NODE *p; {
-
+notlval(register NODE *p)
+{
 	/* return 0 if p an lvalue, 1 otherwise */
 
 	again:
@@ -1190,10 +1194,9 @@ notlval(p) register NODE *p; {
 
 	default:
 		return(1);
-
-		}
-
 	}
+}
+
 /* make a constant node with value i */
 NODE *
 bcon(int i)
@@ -1315,8 +1318,8 @@ convert(NODE *p, int f)
 }
 
 NODE *
-pconvert( p ) register NODE *p; {
-
+pconvert(register NODE *p)
+{
 	/* if p should be changed into a pointer, do so */
 
 	if( ISARY( p->n_type) ){
@@ -1328,10 +1331,11 @@ pconvert( p ) register NODE *p; {
 		return( buildtree( ADDROF, p, NIL ) );
 
 	return( p );
-	}
+}
 
 NODE *
-oconvert(p) register NODE *p; {
+oconvert(register NODE *p)
+{
 	/* convert the result itself: used for pointer and unsigned */
 
 	switch(p->n_op) {
@@ -1359,7 +1363,7 @@ oconvert(p) register NODE *p; {
 	cerror( "illegal oconvert: %d", p->n_op );
 
 	return(p);
-	}
+}
 
 /*
  * makes the operands of p agree; they are
@@ -1460,7 +1464,7 @@ ptmatch(NODE *p)
 		}
 
 	return(clocal(p));
-	}
+}
 
 /*
  * Satisfy the types of various arithmetic binary ops.
@@ -1516,11 +1520,11 @@ tymatch(NODE *p)
 #ifdef PCC_DEBUG
 	if (tdebug) {
 		printf("tymatch(%p): ", p);
-		tprint(stdout, tl, 0);
+		tprint(tl, 0);
 		printf(" %s ", copst(o));
-		tprint(stdout, tr, 0);
+		tprint(tr, 0);
 		printf(" => ");
-		tprint(stdout, t, 0);
+		tprint(t, 0);
 		printf("\n");
 		fwalk(p, eprint, 0);
 	}
@@ -1551,7 +1555,6 @@ makety(NODE *p, TWORD t, TWORD q, union dimfun *d, struct attr *ap)
 	p = block(t & TMASK ? PCONV : SCONV, p, NIL, t, d, ap);
 	p->n_qual = q;
 	return clocal(p);
-
 }
 
 NODE *
@@ -1574,7 +1577,7 @@ block(int o, NODE *l, NODE *r, TWORD t, union dimfun *d, struct attr *ap)
 	p->n_regw = 0;
 #endif
 	return(p);
-	}
+}
 
 /*
  * Return the constant value from an ICON.
@@ -1638,6 +1641,7 @@ opact(NODE *p)
 	switch (coptype(o = p->n_op)) {
 	case BITYPE:
 		mt12=mt2 = moditype(p->n_right->n_type);
+		/* FALLTHROUGH */
 	case UTYPE:
 		mt12 &= (mt1 = moditype(p->n_left->n_type));
 		break;
@@ -1903,7 +1907,7 @@ eprint(NODE *p, int down, int *a, int *b)
 		else
 			printf(", %d, ", p->n_rval);
 	}
-	tprint(stdout, p->n_type, p->n_qual);
+	tprint(p->n_type, p->n_qual);
 	printf( ", %p, ", p->n_df);
 	dump_attr(p->n_ap);
 }
@@ -1959,6 +1963,7 @@ logwalk(NODE *p)
 		return;
 	case BITYPE:
 		logwalk(r);
+		/* FALLTHROUGH */
 	case UTYPE:
 		logwalk(l);
 	}
@@ -2434,9 +2439,8 @@ static NODE *
 wrualfld(NODE *val, NODE *d, TWORD t, TWORD ct, int off, int fsz)
 { 
 	NODE *p, *q, *r, *rn, *s;
-	int tsz, ctsz, t2f, inbits;
+	int ctsz, t2f, inbits;
  
-	tsz = (int)tsize(t, 0, 0);
 	ctsz = (int)tsize(ct, 0, 0);
   
 	ct = ENUNSIGN(ct);
@@ -2508,7 +2512,6 @@ wrualfld(NODE *val, NODE *d, TWORD t, TWORD ct, int off, int fsz)
 static NODE *
 rmfldops(NODE *p)
 {
-	CONSZ msk;
 	TWORD t, ct;
 	NODE *q, *r, *t1, *t2, *bt, *t3, *t4;
 	int fsz, foff, tsz;
@@ -2550,7 +2553,6 @@ rmfldops(NODE *p)
 #if TARGET_ENDIAN == TARGET_BE
 		foff = tsz - fsz - foff;
 #endif
-		msk = (((1LL << (fsz-1))-1) << 1) | 1;
 		bt = NULL;
 		if (p->n_right->n_op != ICON && p->n_right->n_op != NAME) {
 			t2 = tempnode(0, p->n_right->n_type, 0, 0);

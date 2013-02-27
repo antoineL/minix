@@ -30,8 +30,6 @@
 # include "pass2.h"
 # include <ctype.h>
 
-# define putstr(s)	fputs((s), stdout)
-
 void acon(FILE *, NODE *p);
 int argsize(NODE *p);
 void genargs(NODE *p);
@@ -634,7 +632,7 @@ printcon(NODE *p)
 	p = p->n_left;
 	if (p->n_lval >= 0700000000000LL) {
 		/* converted to pointer in clocal() */
-		conput(0, p);
+		conput(stdout, p);
 		return;
 	}
 	if (p->n_lval == 0 && p->n_name[0] == '\0') {
@@ -824,7 +822,7 @@ zzzcode(NODE *p, int c)
 
 /* set up temporary registers */
 void
-setregs()
+setregs(void)
 {
 	fregs = 7;	/* 7 free regs on PDP10 (1-7) */
 }
@@ -930,18 +928,18 @@ conput(FILE *fp, NODE *p)
 	switch (p->n_op) {
 	case ICON:
 		if (p->n_lval != 0) {
-			acon(stdout, p);
+			acon(fp, p);
 			if (p->n_name[0] != '\0')
-				putchar('+');
+				fputc('+', fp);
 		}
 		if (p->n_name[0] != '\0')
-			printf("%s", p->n_name);
+			fprintf(fp, "%s", p->n_name);
 		if (p->n_name[0] == '\0' && p->n_lval == 0)
-			putchar('0');
+			fputc('0', fp);
 		return;
 
 	case REG:
-		putstr(rnames[p->n_rval]);
+		fprintf(fp, "%s", rnames[p->n_rval]);
 		return;
 
 	default:
@@ -967,7 +965,7 @@ upput(NODE *p, int size)
 	size /= SZLONG;
 	switch (p->n_op) {
 	case REG:
-		putstr(rnames[p->n_rval + size]);
+		printf("%s", rnames[p->n_rval + size]);
 		break;
 
 	case NAME:
@@ -1072,7 +1070,7 @@ adrput(FILE *fp, NODE *p)
 
 /*
  * print out a constant
-*/
+ */
 void
 acon(FILE *fp, NODE *p)
 {
@@ -1310,6 +1308,7 @@ void
 mflags(char *str)
 {
 }
+
 /*
  * Do something target-dependent for xasm arguments.
  * Supposed to find target-specific constraints and rewrite them.
