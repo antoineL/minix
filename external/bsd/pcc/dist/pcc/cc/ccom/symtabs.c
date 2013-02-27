@@ -1,5 +1,4 @@
-/*	Id: symtabs.c,v 1.24 2011/07/16 20:34:50 ragge Exp 	*/	
-/*	$NetBSD: symtabs.c,v 1.1.1.3 2011/09/01 12:47:02 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

@@ -1,5 +1,4 @@
-/*	Id: reader.c,v 1.278 2012/03/22 18:51:41 plunky Exp 	*/	
-/*	$NetBSD: reader.c,v 1.1.1.6 2012/03/26 14:27:14 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

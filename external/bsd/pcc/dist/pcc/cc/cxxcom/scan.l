@@ -1,6 +1,5 @@
 %{
-/*	Id: scan.l,v 1.1 2012/01/01 16:20:55 ragge Exp 	*/	
-/*	$NetBSD: scan.l,v 1.1.1.1 2012/01/11 20:33:21 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2002 Anders Magnusson. All rights reserved.

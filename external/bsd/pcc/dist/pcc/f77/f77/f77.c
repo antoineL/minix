@@ -1,5 +1,4 @@
-/*	Id: f77.c,v 1.22 2011/08/04 08:32:32 mickey Exp 	*/	
-/*	$NetBSD: f77.c,v 1.1.1.4 2011/09/01 12:47:05 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

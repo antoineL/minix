@@ -1,5 +1,4 @@
-/*	Id: cpp.h,v 1.55 2011/09/27 08:34:59 plunky Exp 	*/	
-/*	$NetBSD: cpp.h,v 1.1.1.5 2012/01/11 20:33:06 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2004,2010 Anders Magnusson (ragge@ludd.luth.se).

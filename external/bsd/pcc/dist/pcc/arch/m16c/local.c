@@ -1,5 +1,4 @@
-/*	Id: local.c,v 1.21 2011/09/23 18:17:51 plunky Exp 	*/	
-/*	$NetBSD: local.c,v 1.1.1.5 2012/01/11 20:32:50 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
