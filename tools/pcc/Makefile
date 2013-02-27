@@ -11,6 +11,7 @@ CONFIGURE_ARGS=		--target=${MACHINE_GNU_PLATFORM}
 .if !defined(__MINIX)
 CONFIGURE_ARGS+=	--enable-tls
 .endif
+CONFIGURE_ARGS+=	--disable-stripping
 CONFIGURE_ARGS+=	--includedir=/usr/include
 CONFIGURE_ARGS+=	--with-incdir=/usr/include
 CONFIGURE_ARGS+=	--with-libdir=/usr/lib

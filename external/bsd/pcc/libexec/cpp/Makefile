@@ -2,8 +2,7 @@
 
 .include <bsd.init.mk>
 
-.PATH:	${PCC_DIST}/cc/cpp \
-	${PCC_DIST}/mip
+.PATH:	${PCC_DIST}/cc/cpp
 
 #
 # We build cpp(1) as pcpp(1) to avoid confusion with GCC
@@ -28,12 +27,6 @@ CPPFLAGS+=	-I${PCC_DIST}/cc/cpp
 # generate cpy.h
 YHEADER=
 
-# some files include y.tab.h instead
-DPSRCS=		y.tab.h
-
-y.tab.h:	cpy.h
-	${HOST_LN} -f ${.ALLSRC} ${.TARGET}
-
-CLEANFILES+=	pcpp.1 y.tab.h
+CLEANFILES+=	pcpp.1
 
 .include <bsd.prog.mk>
