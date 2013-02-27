@@ -1,5 +1,4 @@
-/*	Id: optim2.c,v 1.82 2011/08/16 06:14:16 ragge Exp 	*/	
-/*	$NetBSD: optim2.c,v 1.1.1.4 2011/09/01 12:47:14 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2004 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

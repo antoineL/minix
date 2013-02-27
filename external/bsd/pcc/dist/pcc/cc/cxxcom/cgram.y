@@ -1,5 +1,4 @@
-/*	Id: cgram.y,v 1.2 2012/01/04 19:04:08 ragge Exp 	*/	
-/*	$NetBSD: cgram.y,v 1.1.1.1 2012/01/11 20:33:17 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).

@@ -1,5 +1,4 @@
-#	Id: Makefile.in,v 1.22 2012/03/15 09:22:13 plunky Exp 	
-#	$NetBSD: Makefile.in,v 1.1.1.5 2012/03/26 14:27:05 plunky Exp $
+#	$Id$
 #
 # Makefile for the Fortran 77 compiler
 #

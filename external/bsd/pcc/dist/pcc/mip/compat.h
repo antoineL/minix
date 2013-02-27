@@ -1,5 +1,4 @@
-/*	Id: compat.h,v 1.5 2011/06/09 19:24:46 plunky Exp 	*/	
-/*	$NetBSD: compat.h,v 1.1.1.2 2011/09/01 12:47:12 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Just compatibility function prototypes.

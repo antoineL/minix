@@ -1,5 +1,4 @@
-/*	Id: local2.c,v 1.7 2008/11/01 08:29:37 mickey Exp 	*/	
-/*	$NetBSD: local2.c,v 1.1.1.3 2010/06/03 18:57:21 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2006 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

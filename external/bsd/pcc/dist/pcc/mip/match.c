@@ -1,5 +1,4 @@
-/*      Id: match.c,v 1.98 2012/03/22 18:51:41 plunky Exp    */	
-/*      $NetBSD: match.c,v 1.1.1.5 2012/03/26 14:27:12 plunky Exp $   */
+/*      $Id$   */
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

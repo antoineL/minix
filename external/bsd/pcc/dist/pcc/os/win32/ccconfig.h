@@ -1,5 +1,4 @@
-/*	Id: ccconfig.h,v 1.17 2011/09/27 08:22:55 plunky Exp 	*/	
-/*	$NetBSD: ccconfig.h,v 1.1.1.4 2012/01/11 20:33:37 plunky Exp $	*/
+/*	$Id$	*/
 
 #ifndef LIBDIR
 #define LIBDIR "/usr/lib/"

@@ -1,5 +1,4 @@
-/*	Id: token.c,v 1.64 2011/08/30 20:12:21 plunky Exp 	*/	
-/*	$NetBSD: token.c,v 1.1.1.4 2011/09/01 12:46:55 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2004,2009 Anders Magnusson. All rights reserved.

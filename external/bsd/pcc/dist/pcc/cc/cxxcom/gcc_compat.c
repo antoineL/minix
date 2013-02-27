@@ -1,5 +1,4 @@
-/*      Id: gcc_compat.c,v 1.2 2012/03/22 18:04:41 plunky Exp      */	
-/*      $NetBSD: gcc_compat.c,v 1.1.1.2 2012/03/26 14:26:57 plunky Exp $     */
+/*      $Id$     */
 /*
  * Copyright (c) 2004 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

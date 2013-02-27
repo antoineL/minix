@@ -1,5 +1,4 @@
-/*	Id: main.c,v 1.17 2012/03/22 18:51:40 plunky Exp 	*/	
-/*	$NetBSD: main.c,v 1.1.1.5 2012/03/26 14:27:08 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
