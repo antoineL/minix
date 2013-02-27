@@ -1,5 +1,4 @@
-/*	Id: ccconfig.h,v 1.8 2011/06/04 19:27:25 plunky Exp 	*/	
-/*	$NetBSD: ccconfig.h,v 1.1.1.3 2011/09/01 12:47:17 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2004 Anders Magnusson (ragge@ludd.luth.se).
@@ -36,7 +35,6 @@
 
 /* common cpp predefines */
 #define	CPPADD	{ "-D__DragonFly__", "-D__ELF__", NULL, }
-#define	DYNLINKER { "-dynamic-linker", "/usr/libexec/ld-elf.so.2", NULL }
 
 #if __DragonFly_version < 200202
 #define CRT0FILE "/usr/lib/gcc34/crt1.o"
@@ -52,6 +50,7 @@
 #define	ENDFILES { "/usr/lib/gcc41/crtend.o", "/usr/lib/crtn.o", NULL }
 #endif
 
+#define	DYNLINKLIB "/usr/libexec/ld-elf.so.2"
 #define STARTLABEL "_start"
 
 #if defined(mach_i386)

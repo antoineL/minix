@@ -1,5 +1,4 @@
-/*	Id: code.c,v 1.80 2014/06/04 07:18:02 gmcgarry Exp 	*/	
-/*	$NetBSD: code.c,v 1.1.1.5 2014/07/24 19:17:05 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -128,14 +127,19 @@ efcode(void)
 {
 	extern int gotnr;
 	NODE *p, *q;
+	int sz;
 
 	gotnr = 0;	/* new number for next fun */
 	if (cftnsp->stype != STRTY+FTN && cftnsp->stype != UNIONTY+FTN)
 		return;
-#if defined(os_openbsd)
+
 	/* struct return for small structs */
-	int sz = tsize(BTYPE(cftnsp->stype), cftnsp->sdf, cftnsp->sap);
+	sz = tsize(BTYPE(cftnsp->stype), cftnsp->sdf, cftnsp->sap);
+#if defined(os_openbsd)
 	if (sz == SZCHAR || sz == SZSHORT || sz == SZINT || sz == SZLONGLONG) {
+#else
+	if (sz == SZLONGLONG && attr_find(cftnsp->sap, ATTR_COMPLEX)) {
+#endif
 		/* Pointer to struct in eax */
 		if (sz == SZLONGLONG) {
 			q = block(OREG, NIL, NIL, INT, 0, 0);
@@ -152,7 +156,7 @@ efcode(void)
 		ecomp(buildtree(ASSIGN, p, q));
 		return;
 	}
-#endif
+
 	/* Create struct assignment */
 	q = tempnode(structrettemp, PTR+STRTY, 0, cftnsp->sap);
 	q = buildtree(UMUL, q, NIL);
@@ -233,6 +237,7 @@ bfcode(struct symtab **sp, int cnt)
 
 	argbase = ARGINIT;
 	nrarg = regparmarg = 0;
+	argstacksize = 0;
 
 #ifdef GCC_COMPAT
         if (attr_find(cftnsp->sap, GCC_ATYP_STDCALL) != NULL)
@@ -243,10 +248,13 @@ bfcode(struct symtab **sp, int cnt)
 
 	/* Function returns struct, create return arg node */
 	if (cftnsp->stype == STRTY+FTN || cftnsp->stype == UNIONTY+FTN) {
+		sz = tsize(BTYPE(cftnsp->stype), cftnsp->sdf, cftnsp->sap);
 #if defined(os_openbsd)
 		/* OpenBSD uses non-standard return for small structs */
-		int sz = tsize(BTYPE(cftnsp->stype), cftnsp->sdf, cftnsp->sap);
-		if (sz <= SZLONGLONG)
+		if (sz > SZLONGLONG)
+#else
+		if (sz != SZLONGLONG ||
+		    attr_find(cftnsp->sap, ATTR_COMPLEX) == 0)
 #endif
 		{
 			if (regparmarg) {
@@ -257,6 +265,7 @@ bfcode(struct symtab **sp, int cnt)
 				n->n_lval = argbase/SZCHAR;
 				argbase += SZINT;
 				regno(n) = FPREG;
+				argstacksize += 4; /* popped by callee */
 			}
 			p = tempnode(0, INT, 0, 0);
 			structrettemp = regno(p);
@@ -316,14 +325,15 @@ bfcode(struct symtab **sp, int cnt)
                                 ecomp(p);
                         }
 		} else if (cisreg(sp2->stype) && !ISSOU(sp2->stype) &&
-		    ((cqual(sp2->stype, sp2->squal) & VOL) == 0)) {
+		    ((cqual(sp2->stype, sp2->squal) & VOL) == 0) && xtemps) {
 			/* just put rest in temps */
 			if (sp2->sclass == REGISTER) {
 				n = block(REG, 0, 0, sp2->stype,
 				    sp2->sdf, sp2->sap);
 				if (ISLONGLONG(sp2->stype))
 					regno(n) = longregs[sp2->soffset];
-				else if (DEUNSIGN(sp2->stype) == CHAR || sp2->stype == BOOL)
+				else if (DEUNSIGN(sp2->stype) == CHAR ||
+				    sp2->stype == BOOL)
 					regno(n) = charregs[sp2->soffset];
 				else
 					regno(n) = regpregs[sp2->soffset];
@@ -341,13 +351,14 @@ bfcode(struct symtab **sp, int cnt)
 		}
 	}
 
-        argstacksize = 0;
         if (cftnsp->sflags & SSTDCALL) {
-		argstacksize = (argbase - ARGINIT)/SZCHAR;
-#ifdef os_win32
-
+#ifdef PECOFFABI
                 char buf[256];
                 char *name;
+#endif
+		/* XXX interaction STDCALL and struct return? */
+		argstacksize += (argbase - ARGINIT)/SZCHAR;
+#ifdef PECOFFABI
                 /*
                  * mangle name in symbol table as a callee.
                  */
@@ -408,6 +419,14 @@ bjobcode(void)
 #if defined(MACHOABI)
 	DLIST_INIT(&stublist, link);
 	DLIST_INIT(&nlplist, link);
+#endif
+#if defined(__GNUC__) || defined(__PCC__)
+	/* Be sure that the compiler uses full x87 */
+	/* XXX cross-compiling will fail here */
+	int fcw;
+	__asm("fstcw (%0)" : : "r"(&fcw));
+	fcw |= 0x300;
+	__asm("fldcw (%0)" : : "r"(&fcw));
 #endif
 }
 
@@ -498,7 +517,16 @@ funcode(NODE *p)
 		r->n_left = l;
 		r->n_type = l->n_type;
 	}
-	if (stcall) {
+#ifdef os_openbsd
+	if (stcall && (ap = strattr(p->n_left->n_ap)) &&
+	    ap->amsize != SZCHAR && ap->amsize != SZSHORT &&
+	    ap->amsize != SZINT && ap->amsize != SZLONGLONG)
+#else
+	if (stcall &&
+	    (attr_find(p->n_left->n_ap, ATTR_COMPLEX) == 0 ||
+	     ((ap = strattr(p->n_left->n_ap)) && ap->amsize > SZLONGLONG)))
+#endif
+	{
 		/* Prepend a placeholder for struct address. */
 		/* Use EBP, can never show up under normal circumstances */
 		l = talloc();

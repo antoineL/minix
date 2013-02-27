@@ -1,6 +1,9 @@
 /* config.h.  Generated from config.h.in by configure.  */
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Define if building universal (internal helper macro) */
+/* #undef AC_APPLE_UNIVERSAL_BUILD */
+
 /* Using a.out ABI */
 /* #undef AOUTABI */
 
@@ -106,26 +109,32 @@
 /* Using Mach-O ABI */
 /* #undef MACHOABI */
 
+/* Define target Multi-Arch path */
+/* #undef MULTIARCH_PATH */
+
 /* Define to the address where bug reports for this package should be sent. */
-#define PACKAGE_BUGREPORT "<pcc-list@ludd.ltu.se>"
+#define PACKAGE_BUGREPORT "pcc@lists.ludd.ltu.se"
 
 /* Define to the full name of this package. */
 #define PACKAGE_NAME "pcc"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "pcc 1.1.0.DEVEL"
+#define PACKAGE_STRING "pcc 1.2.0.DEVEL"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "pcc"
 
+/* Define to the home page for this package. */
+#define PACKAGE_URL ""
+
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.1.0.DEVEL"
+#define PACKAGE_VERSION "1.2.0.DEVEL"
 
 /* Major version no */
 #define PCC_MAJOR 1
 
 /* Minor version no */
-#define PCC_MINOR 1
+#define PCC_MINOR 2
 
 /* Minor minor version no */
 #define PCC_MINORMINOR 0
@@ -152,16 +161,28 @@
 /* #define TARGET_LITTLE_ENDIAN 1 */
 
 /* Enable thread-local storage (TLS). */
-#define TLS 1
+/* #undef TLS */
 
 /* Version string */
-/* #define VERSSTR "pcc 1.1.0.DEVEL 20140706 for i386-unknown-netbsdelf6.99.40" */
+/* #define VERSSTR "pcc 1.2.0.DEVEL 20141228 for i386-pc-minix" */
 
 /* Size of wide-character type in chars */
 #define WCHAR_SIZE 4
 
 /* Type to use for wide characters */
 #define WCHAR_TYPE INT
+
+/* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
+   significant byte first (like Motorola and SPARC, unlike Intel). */
+#if defined AC_APPLE_UNIVERSAL_BUILD
+# if defined __BIG_ENDIAN__
+#  define WORDS_BIGENDIAN 1
+# endif
+#else
+# ifndef WORDS_BIGENDIAN
+/* #  undef WORDS_BIGENDIAN */
+# endif
+#endif
 
 /* Define to 1 if `lex' declares `yytext' as a `char *' by default, not a
    `char[]'. */

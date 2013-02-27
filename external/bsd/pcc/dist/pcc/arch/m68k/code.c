@@ -1,5 +1,4 @@
-/*	Id: code.c,v 1.4 2014/04/19 07:47:51 ragge Exp 	*/	
-/*	$NetBSD: code.c,v 1.1.1.1 2014/07/24 19:21:16 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2014 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -27,6 +26,8 @@
 
 
 # include "pass1.h"
+
+extern int gotnr;
 
 /*
  * Print out assembler segment name.
@@ -96,6 +97,7 @@ efcode(void)
 {
 	NODE *p, *q;
 
+	gotnr = 0;
 	if (cftnsp->stype != STRTY+FTN && cftnsp->stype != UNIONTY+FTN)
 		return;
 	/* use stasg to get call to memcpy() */
@@ -118,6 +120,19 @@ bfcode(struct symtab **s, int cnt)
 	struct symtab *sp2;
 	NODE *n, *p;
 	int i;
+
+	if (kflag) { /* PIC code */
+		/* Generate extended assembler for PIC prolog */
+		p = tempnode(0, CHAR|PTR, 0, 0);
+		gotnr = regno(p);
+		p = block(XARG, p, NIL, INT, 0, 0);
+		p->n_name = "=g";
+		p = block(XASM, p, bcon(0), INT, 0, 0);
+
+		p->n_name = "lea (%%pc,_GLOBAL_OFFSET_TABLE_@GOTPC),%0\n";
+		p->n_right->n_type = STRTY;
+		ecomp(p);
+	}
 
 	if (cftnsp->stype == STRTY+FTN || cftnsp->stype == UNIONTY+FTN) {
 		n = tempnode(0, INCREF(CHAR), 0, 0);

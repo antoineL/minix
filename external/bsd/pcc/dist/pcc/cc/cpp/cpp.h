@@ -1,5 +1,4 @@
-/*	Id: cpp.h,v 1.68 2014/05/28 08:52:42 plunky Exp 	*/	
-/*	$NetBSD: cpp.h,v 1.1.1.6 2014/07/24 19:22:35 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2004,2010 Anders Magnusson (ragge@ludd.luth.se).
@@ -38,10 +37,10 @@ extern	int	elflvl;
 extern	int	elslvl;
 extern	int	dflag;
 extern	int	tflag, Aflag, Cflag, Pflag;
-extern	int	Mflag, dMflag, MPflag;
+extern	int	Mflag, dMflag, MPflag, MMDflag;
 extern	usch	*Mfile, *MPfile;
-extern	int	ofd;
 extern	int	defining;
+extern	FILE	*of;
 
 /* args for lookup() */
 #define FIND    0
@@ -52,7 +51,7 @@ extern	int	defining;
 #if defined(mach_pdp11)
 #define CPPBUF  BUFSIZ
 #define	BUF_STACK
-#elif defined(os_win32)
+#elif defined(_WIN32)
 /* winxp seems to fail > 26608 bytes */
 #define CPPBUF	16384
 #else
@@ -149,15 +148,17 @@ struct nd {
 		unsigned long long uval;
 	} n;
 };
+extern struct nd yynode;
 
 #define nd_val n.val
 #define nd_uval n.uval
 
+enum { NUMBER = 257, UNUMBER, LS, RS, EQ, NE, STRING, WSPACE, CMNT, IDENT,
+	OROR, ANDAND, DEFINED, LE, GE };
+
 struct symtab *lookup(const usch *namep, int enterf);
-usch *gotident(struct symtab *nl);
 int submac(struct symtab *nl, int);
 int kfind(struct symtab *nl);
-int doexp(void);
 int donex(void);
 void ppdir(void);
 
@@ -167,26 +168,18 @@ void include_next(void);
 void line(void);
 
 int pushfile(const usch *fname, const usch *fn, int idx, void *incs);
-void popfile(void);
 void prtline(void);
 int yylex(void);
 int sloscan(void);
 void cunput(int);
-int curline(void);
-char *curfile(void);
-void setline(int);
-void setfile(char *);
 int yyparse(void);
 void unpstr(const usch *);
 usch *savstr(const usch *str);
 void savch(int c);
-void mainscan(void);
 void putch(int);
 void putstr(const usch *s);
-void line(void);
 usch *sheap(const char *fmt, ...);
 void warning(const char *fmt, ...);
 void error(const char *fmt, ...);
 int cinput(void);
 void getcmnt(void);
-void xwrite(int, const void *, unsigned int);

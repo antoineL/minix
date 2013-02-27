@@ -1,5 +1,4 @@
-/*	Id: optim2.c,v 1.89 2014/06/01 11:33:52 ragge Exp 	*/	
-/*	$NetBSD: optim2.c,v 1.3 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2004 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -1928,7 +1927,7 @@ void TraceSchedule(struct p2env* p2e)
 
 	map = tmpalloc(block_count * sizeof(struct block_map));
 
-	(void)map_blocks(p2e, map, block_count) ;
+	(void)map_blocks(p2e, map, block_count);
 
 	back = map[0].block->last ;
 	for (i=1; i < block_count; i++) {

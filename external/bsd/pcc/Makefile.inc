@@ -5,8 +5,8 @@ PCC_DIST=${PCC_DIR}/dist/pcc
 PCC_LIBS=${PCC_DIR}/dist/pcc-libs
 
 # (these strings will be updated by the prepare-import.sh script)
-PCC_VERSION=1.1.0.DEVEL
-PCC_DATESTAMP=20140706
+PCC_VERSION=1.2.0.DEVEL
+PCC_DATESTAMP=20141228
 
 TARGOS = netbsd
 

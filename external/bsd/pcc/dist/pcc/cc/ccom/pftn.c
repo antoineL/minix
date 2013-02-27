@@ -1,5 +1,4 @@
-/*	Id: pftn.c,v 1.379 2014/07/02 15:31:41 ragge Exp 	*/	
-/*	$NetBSD: pftn.c,v 1.9 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -130,6 +129,7 @@ static void alprint(union arglist *al, int in);
 #endif
 static void lcommadd(struct symtab *sp);
 static NODE *mkcmplx(NODE *p, TWORD dt);
+static void cxargfixup(NODE *arg, TWORD dt, struct attr *ap);
 extern int fun_inline;
 
 void
@@ -1002,6 +1002,8 @@ soumemb(NODE *n, char *name, int class)
 
 	if (class & FIELD) {
 		sp->sclass = (char)class;
+		if (rpole->rsou == UNAME)
+			rpole->rstr = 0;
 		falloc(sp, class&FLDSIZ, NIL);
 	} else if (rpole->rsou == STNAME || rpole->rsou == UNAME) {
 		sp->sclass = rpole->rsou == STNAME ? MOS : MOU;
@@ -1151,6 +1153,9 @@ talign(unsigned int ty, struct attr *apl)
 		ty = DEUNSIGN(ty);
 
 	switch (ty) {
+#ifdef GCC_COMPAT
+	case VOID: a = ALCHAR; break; /* GCC */
+#endif
 	case BOOL: a = ALBOOL; break;
 	case CHAR: a = ALCHAR; break;
 	case SHORT: a = ALSHORT; break;
@@ -1259,15 +1264,20 @@ strend(int wide, char *str)
 				sp->stype = CHAR+ARY;
 			}
 		}
-		if (wide) {
-			for (wr = sp->sname, i = 1; *wr; i++)
-				u82cp(&wr);
-			sp->sdf->ddim = i;
-			inwstring(sp);
-		} else {
-			sp->sdf->ddim = strlen(sp->sname)+1;
-			instring(sp);
+		for (wr = sp->sname, i = 1; *wr; i++) {
+			if (wide)
+				(void)u82cp(&wr);
+			else if (*wr == '\\')
+				(void)esccon(&wr);
+			else
+				wr++;
 		}
+		sp->sdf->ddim = i;
+
+		if (wide)
+			inwstring(sp);
+		else
+			instring(sp);
 	}
 
 	p = block(NAME, NIL, NIL, sp->stype, sp->sdf, sp->sap);
@@ -1283,14 +1293,15 @@ inwstring(struct symtab *sp)
 {
 	char *s = sp->sname;
 	NODE *p;
+	int n;
 
 	locctr(STRNG, sp);
 	defloc(sp);
 	p = xbcon(0, NULL, WCHAR_TYPE);
-	do {
-		p->n_lval=u82cp(&s);
+	for (n = sp->sdf->ddim; n > 0; n--) {
+		p->n_lval = u82cp(&s);
 		inval(0, tsize(WCHAR_TYPE, NULL, NULL), p);
-	} while (s[-1] != 0);
+	}
 	nfree(p);
 }
 
@@ -1299,38 +1310,31 @@ inwstring(struct symtab *sp)
  * Print out a string of characters.
  * Assume that the assembler understands C-style escape
  * sequences.
- * Do not break UTF-8 sequences between lines and ensure
- * the code path is 8-bit clean.
  */
 void
 instring(struct symtab *sp)
 {
-	char *s = sp->sname;
+	char *s, *str;
 
 	locctr(STRNG, sp);
 	defloc(sp);
 
-	char line[70], *t = line;
 	printf("\t.ascii \"");
-	while(s[0] != 0) {
-		unsigned int c=(unsigned char)*s++;
-		if(c<' ') t+=sprintf(t,"\\%03o",c);
-		else if(c=='\\') *t++='\\', *t++='\\';
-		else if(c=='\"') *t++='\\', *t++='\"';
-		else if(c=='\'') *t++='\\', *t++='\'';
-		else {
-			*t++=c;
-			int sz=u8len(&s[-1]);
-			int i;
-			for(i=1;i<sz;i++) *t++=*s++;
-		}
-		if(t>=&line[60]) {
-			fwrite(line, 1, t-&line[0], stdout);
+	str = s = sp->sname;
+	while (*s) {
+		if (*s == '\\')
+			(void)esccon(&s);
+		else
+			s++;
+
+		if (s - str > 60) {
+			fwrite(str, 1, s - str, stdout);
 			printf("\"\n\t.ascii \"");
-			t = line;
+			str = s;
 		}
 	}
-	fwrite(line, 1, t-&line[0], stdout);
+
+	fwrite(str, 1, s - str, stdout);
 	printf("\\0\"\n");
 }
 #endif
@@ -1758,7 +1762,9 @@ typwalk(NODE *p, void *arg)
 		break;
 
 	case QUALIFIER:
-		if (p->n_qual == 0 && tc->saved && !ISPTR(tc->saved->n_type))
+		if (p->n_qual == 0 && 
+		    ((tc->saved && !ISPTR(tc->saved->n_type)) ||
+		    (tc->saved == 0)))
 			uerror("invalid use of 'restrict'");
 		tc->qual |= p->n_qual >> TSHIFT;
 		break;
@@ -2423,6 +2429,13 @@ doacall(struct symtab *sp, NODE *f, NODE *a)
 
 		/* Check structs */
 		if (type <= BTMASK && arrt <= BTMASK) {
+#ifndef NO_COMPLEX
+			if ((type != arrt) && (ANYCX(apole->node) ||
+			    (arrt == STRTY &&
+			    attr_find(al[1].sap, ATTR_COMPLEX)))) {
+				cxargfixup(apole->node, arrt, al[1].sap);
+			} else
+#endif
 			if (type != arrt) {
 				if (ISSOU(BTYPE(type)) || ISSOU(BTYPE(arrt))) {
 incomp:					uerror("incompatible types for arg %d",
@@ -2484,7 +2497,7 @@ incomp:					uerror("incompatible types for arg %d",
 			/* do not complain for pointers with signedness */
 			if ((DEUNSIGN(BTYPE(type)) == DEUNSIGN(BTYPE(arrt))) &&
 			    (BTYPE(type) != BTYPE(arrt))) {
-				warner(Wpointer_sign, NULL);
+				warner(Wpointer_sign);
 				goto skip;
 			}
 		}
@@ -2848,7 +2861,7 @@ scnames(int c)
 	}
 #endif
 
-#ifdef os_openbsd
+#if 0
 static char *stack_chk_fail = "__stack_smash_handler";
 static char *stack_chk_guard = "__guard";
 #else
@@ -3093,6 +3106,20 @@ complinit(void)
 	ddebug = d_debug;
 }
 
+static TWORD
+maxtt(NODE *p)
+{
+	TWORD t;
+
+	t = ANYCX(p) ? strmemb(p->n_ap)->stype : p->n_type;
+	t = BTYPE(t);
+	if (t == VOID)
+		t = CHAR; /* pointers */
+	if (ISITY(t))
+		t -= (FIMAG - FLOAT);
+	return t;
+}
+
 /*
  * Return the highest real floating point type.
  * Known that at least one type is complex or imaginary.
@@ -3102,12 +3129,8 @@ maxtyp(NODE *l, NODE *r)
 {
 	TWORD tl, tr, t;
 
-	tl = ANYCX(l) ? strmemb(l->n_ap)->stype : l->n_type;
-	tr = ANYCX(r) ? strmemb(r->n_ap)->stype : r->n_type;
-	if (ISITY(tl))
-		tl -= (FIMAG - FLOAT);
-	if (ISITY(tr))
-		tr -= (FIMAG - FLOAT);
+	tl = maxtt(l);
+	tr = maxtt(r);
 	t = tl > tr ? tl : tr;
 	if (!ISFTY(t))
 		cerror("maxtyp");
@@ -3147,6 +3170,8 @@ mkcmplx(NODE *p, TWORD dt)
 			r = bcon(0);
 			i = p;
 		} else {
+			if (ISPTR(p->n_type))
+				p = cast(p, INTPTR, 0);
 			r = p;
 			i = bcon(0);
 		}
@@ -3210,6 +3235,8 @@ cxop(int op, NODE *l, NODE *r)
 	if (op != UMINUS)
 		r = mkcmplx(r, mxtyp);
 
+	if (op == COLON)
+		return buildtree(COLON, l, r);
 
 	/* put a pointer to left and right elements in a TEMP */
 	l = buildtree(ADDROF, l, NIL);
@@ -3436,11 +3463,11 @@ cxret(NODE *p, NODE *q)
 {
 	if (ANYCX(q)) { /* Return complex type */
 		p = mkcmplx(p, strmemb(q->n_ap)->stype);
-	} else if (ISFTY(q->n_type) || ISITY(q->n_type)) { /* real or imag */
-		p = structref(p, DOT, ISFTY(q->n_type) ? real : imag);
+	} else if (q->n_type < STRTY || ISITY(q->n_type)) { /* real or imag */
+		p = structref(p, DOT, ISITY(q->n_type) ? imag : real);
 		if (p->n_type != q->n_type)
 			p = cast(p, q->n_type, 0);
-	} else 
+	} else
 		cerror("cxred failing type");
 	return p;
 }
@@ -3455,11 +3482,31 @@ cxcast(NODE *p1, NODE *p2)
 		if (p1->n_type != p2->n_type)
 			p2 = mkcmplx(p2, p1->n_type);
 	} else if (ANYCX(p1)) {
-		p2 = mkcmplx(p2, p1->n_type);
+		p2 = mkcmplx(p2, strmemb(p1->n_ap)->stype);
 	} else /* if (ANYCX(p2)) */ {
 		p2 = cast(structref(p2, DOT, real), p1->n_type, 0);
 	}
 	nfree(p1);
 	return p2;
+}
+
+static void
+cxargfixup(NODE *a, TWORD dt, struct attr *ap)
+{
+	NODE *p;
+	TWORD t;
+
+	p = talloc();
+	*p = *a;
+	if (dt == STRTY) {
+		/* dest complex */
+		t = strmemb(ap)->stype;
+		p = mkcmplx(p, t);
+	} else {
+		/* src complex, not dest */
+		p = structref(p, DOT, ISFTY(dt) ? real : imag);
+	}
+	*a = *p;
+	nfree(p);
 }
 #endif

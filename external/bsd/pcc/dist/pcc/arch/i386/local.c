@@ -1,5 +1,4 @@
-/*	Id: local.c,v 1.179 2014/05/24 15:19:53 ragge Exp 	*/	
-/*	$NetBSD: local.c,v 1.1.1.6 2014/07/24 19:17:05 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -104,7 +103,7 @@ picsymtab(char *p, char *s, char *s2)
 	return sp;
 }
 
-#ifdef os_win32
+#ifdef PECOFFABI
 static NODE *
 import(NODE *p)
 {
@@ -384,10 +383,7 @@ clocal(NODE *p)
 
 	struct attr *ap;
 	register struct symtab *q;
-	register NODE *r, *l;
-#if defined(os_openbsd)
-	register NODE *s, *n;
-#endif
+	register NODE *r, *l, *n, *s;
 	register int o;
 	register int m;
 
@@ -451,7 +447,7 @@ clocal(NODE *p)
 			}
 #endif
 
-#ifdef os_win32
+#ifdef PECOFFABI
 			if (q->sflags & SDLLINDIRECT)
 				p = import(p);
 #endif
@@ -497,6 +493,23 @@ clocal(NODE *p)
 		break;
 
 	case USTCALL:
+#if defined(os_openbsd)
+		ap = strattr(p->n_left->n_ap);
+		if (ap->amsize == SZCHAR || ap->amsize == SZSHORT ||
+		    ap->amsize == SZINT || ap->amsize == SZLONGLONG)
+#else
+		if (attr_find(p->n_left->n_ap, ATTR_COMPLEX) &&
+		    (ap = strattr(p->n_left->n_ap)) &&
+		    ap->amsize == SZLONGLONG)
+#endif
+		{
+			/* float complex */
+			/* fake one arg to make pass2 happy */
+			p->n_right = block(FUNARG, bcon(0), NIL, INT, 0, 0);
+			p->n_op -= (UCALL-CALL);
+			break;
+		}
+
 		/* Add hidden arg0 */
 		r = block(REG, NIL, NIL, INCREF(VOID), 0, 0);
 		regno(r) = EBP;
@@ -530,54 +543,6 @@ clocal(NODE *p)
 #endif
 			
 		break;
-
-#if defined(os_openbsd)
-/*
- * The called function returns structures according to their aligned size:
- *  Structures 1, 2 or 4 bytes in size are placed in EAX.
- *  Structures 8 bytes in size are placed in: EAX and EDX.
- */
-	case UMUL:
-		o = 0;
-		l = p->n_left;
-		if (l->n_op == PLUS)
-			l = l->n_left, o++;
-		if (l->n_op != PCONV)
-			break;
-		l = l->n_left;
-		if (l->n_op != STCALL && l->n_op != USTCALL)
-			break;
-		m = tsize(DECREF(l->n_type), l->n_df, l->n_ap);
-		if (m != SZCHAR && m != SZSHORT &&
-		    m != SZINT && m != SZLONGLONG)
-			break;
-		/* This is a direct reference to a small struct return */
-		l->n_op -= (STCALL-CALL);
-		if (o == 0) {
-			/* first element in struct */
-			p->n_left = nfree(p->n_left); /* free PCONV */
-			l->n_ap = p->n_ap;
-			l->n_df = p->n_df;
-			l->n_type = p->n_type;
-			if (p->n_type < INT) {
-				/* Need to add SCONV */
-				p->n_op = SCONV;
-			} else
-				p = nfree(p); /* no casts needed */
-		} else {
-			/* convert PLUS to RS */
-			o = p->n_left->n_right->n_lval;
-			l->n_type = (o > 3 ? ULONGLONG : UNSIGNED);
-			nfree(p->n_left->n_right);
-			p->n_left = nfree(p->n_left);
-			p->n_left = nfree(p->n_left);
-			p->n_left = buildtree(RS, p->n_left, bcon(o*8));
-			p->n_left = makety(p->n_left, p->n_type, p->n_qual,
-			    p->n_df, p->n_ap);
-			p = nfree(p);
-		}
-		break;
-#endif
 
 #ifdef notyet
 	/* XXX breaks sometimes */
@@ -645,7 +610,7 @@ clocal(NODE *p)
 
 		if (DEUNSIGN(p->n_type) == INT && DEUNSIGN(l->n_type) == INT &&
 		    coptype(l->n_op) == BITYPE && l->n_op != COMOP &&
-		    l->n_op != QUEST) {
+		    l->n_op != QUEST && l->n_op != ASSIGN) {
 			l->n_type = p->n_type;
 			nfree(p);
 			return l;
@@ -713,7 +678,7 @@ clocal(NODE *p)
 			break;
 		p->n_right = block(SCONV, p->n_right, NIL, CHAR, 0, 0);
 		break;
-#if defined(os_openbsd)
+
 		/* If not using pcc struct return */
 	case STASG:
 		r = p->n_right;
@@ -730,7 +695,10 @@ clocal(NODE *p)
 			m = LONGLONG;
 		else
 			break;
-
+#if !defined(os_openbsd)
+		if (attr_find(r->n_ap, ATTR_COMPLEX) == 0)
+			break;	/* float _Complex always in regs */
+#endif
 		l = buildtree(ADDROF, p->n_left, NIL);
 		nfree(p);
 
@@ -757,7 +725,6 @@ clocal(NODE *p)
 		p = buildtree(COMOP, p, r);
 		p = buildtree(COMOP, p, s);
 		break;
-#endif
 	}
 #ifdef PCC_DEBUG
 	if (xdebug) {
@@ -854,6 +821,14 @@ myp2tree(NODE *p)
 		fixnames(p, 0);
 
 	mangle(p);
+
+	if ((p->n_op == STCALL || p->n_op == USTCALL) && 
+	    p->n_left->n_op == ICON &&
+	    attr_find(p->n_left->n_ap, ATTR_COMPLEX) &&
+	    tsize(DECREF(DECREF(p->n_left->n_type)),
+	    p->n_left->n_df, p->n_left->n_ap) == SZLONGLONG) {
+		p->n_su = 42;
+	}
 
 	if (p->n_op != FCON)
 		return;
@@ -1068,7 +1043,7 @@ defzero(struct symtab *sp)
 	off = (int)tsize(sp->stype, sp->sdf, sp->sap);
 	SETOFF(off,SZCHAR);
 	off /= SZCHAR;
-#if defined(MACHOABI)
+#if defined(MACHOABI) || defined(PECOFFABI)/* && binutils>2.20 */
 	al = ispow2(al);
 	if (sp->sclass == STATIC) {
 		if (sp->slevel == 0)
@@ -1081,7 +1056,7 @@ defzero(struct symtab *sp)
 		else
 			printf("\t.comm  " LABFMT ",0%o,%d\n", sp->soffset, off, al);
 	}
-#else
+#elif defined(ELFABI)
 	if (attr_find(sp->sap, GCC_ATYP_WEAKREF) != NULL)
 		return;
 	if (sp->sclass == STATIC) {
@@ -1094,6 +1069,15 @@ defzero(struct symtab *sp)
 		printf("\t.comm %s,0%o,%d\n", name, off, al);
 	else
 		printf("\t.comm  " LABFMT ",0%o,%d\n", sp->soffset, off, al);
+#else
+	if (attr_find(sp->sap, GCC_ATYP_WEAKREF) != NULL)
+		return;
+	if (sp->slevel == 0)
+		printf("\t.%scomm %s,0%o\n",
+			sp->sclass == STATIC ? "l" : "", name, off);
+	else
+		printf("\t.%scomm  " LABFMT ",0%o\n", 
+			sp->sclass == STATIC ? "l" : "", sp->soffset, off);
 #endif
 }
 
@@ -1101,7 +1085,7 @@ defzero(struct symtab *sp)
 static int gottls;
 #endif
 static int stdcall;
-#ifdef os_win32
+#ifdef PECOFFABI
 static int dllindirect;
 #endif
 static char *alias;
@@ -1130,7 +1114,7 @@ mypragma(char *str)
 		stdcall = 0;
 		return 1;
 	}
-#ifdef os_win32
+#ifdef PECOFFABI
 	if (strcmp(str, "fastcall") == 0) {
 		stdcall = 2;
 		return 1;
@@ -1239,10 +1223,10 @@ fixdef(struct symtab *sp)
 #endif
 		printf("\t.p2align 2\n");
 		printf("\t.long %s\n", exname(sp->sname));
-#ifdef MACHOABI
-		printf("\t.text\n");
-#else
+#if defined(ELFABI)
 		printf("\t.previous\n");
+#else
+		printf("\t.text\n");
 #endif
 		constructor = destructor = 0;
 	}
@@ -1250,7 +1234,7 @@ fixdef(struct symtab *sp)
 		sp->sflags |= SSTDCALL;
 		stdcall = 0;
 	}
-#ifdef os_win32
+#ifdef PECOFFABI
 	if (dllindirect && (sp->sclass != PARAM)) {
 		sp->sflags |= SDLLINDIRECT;
 		dllindirect = 0;
@@ -1294,7 +1278,7 @@ mangle(NODE *p)
 	if (attr_find(l->n_sp->sap, GCC_ATYP_STDCALL) != NULL)
 		l->n_sp->sflags |= SSTDCALL;
 #endif
-#ifdef os_win32
+#ifdef PECOFFABI
 	if (l->n_sp->sflags & SSTDCALL) {
 		if (strchr(l->n_name, '@') == NULL) {
 			int size = 0;
@@ -1325,6 +1309,19 @@ mangle(NODE *p)
 #endif
 }
 
+/*
+ * find struct return functions and clear stalign field if float _Complex.
+ */
+static void
+fixstcall(NODE *p, void *arg)
+{
+	if (p->n_op != STCALL && p->n_op != USTCALL)
+		return;
+	if (p->n_su == 42)
+		p->n_stalign = 42;
+}
+
+
 void
 pass1_lastchance(struct interpass *ip)
 {
@@ -1332,6 +1329,8 @@ pass1_lastchance(struct interpass *ip)
 	    (ip->ip_node->n_op == CALL || ip->ip_node->n_op == UCALL) &&
 	    ISFTY(ip->ip_node->n_type))
 		ip->ip_node->n_flags = FFPPOP;
+	if (ip->type == IP_NODE)
+		walkf(ip->ip_node, fixstcall, 0);
  
 	if (ip->type == IP_EPILOG) {
 		struct interpass_prolog *ipp = (struct interpass_prolog *)ip;

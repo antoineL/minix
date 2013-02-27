@@ -1,5 +1,4 @@
-/*	Id: common.c,v 1.111 2014/06/07 07:04:10 plunky Exp 	*/	
-/*	$NetBSD: common.c,v 1.6 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -95,7 +94,7 @@ incerr(void)
  * it tells where the error took place
  */
 void
-uerror(char *s, ...)
+uerror(const char *s, ...)
 {
 	va_list ap;
 
@@ -111,7 +110,7 @@ uerror(char *s, ...)
  * compiler error: die
  */
 void
-cerror(char *s, ...)
+cerror(const char *s, ...)
 {
 	va_list ap;
 
@@ -148,13 +147,21 @@ u8error(const char *s, ...)
 		incerr();
 }
 
+#ifdef MKEXT
+int wdebug;
+#endif
+
 /*
  * warning
  */
 void
-werror(char *s, ...)
+werror(const char *s, ...)
 {
+	extern int wdebug;
 	va_list ap;
+
+	if (wdebug)
+		return;
 	va_start(ap, s);
 	WHERE('w');
 	fprintf(stderr, "warning: ");

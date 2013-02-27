@@ -1,5 +1,4 @@
-/*	Id: init.c,v 1.90 2014/05/17 20:42:15 plunky Exp 	*/	
-/*	$NetBSD: init.c,v 1.1.1.7 2014/07/24 19:23:38 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2004, 2007 Anders Magnusson (ragge@ludd.ltu.se).
@@ -1060,8 +1059,12 @@ strcvt(NODE *p)
 #endif
 
 	for (s = p->n_sp->sname; *s != 0; ) {
-		if(p->n_type==ARY+WCHAR_TYPE) i=u82cp(&s);
-		else i=(unsigned char)*s++;
+		if (p->n_type == ARY+WCHAR_TYPE)
+			i = u82cp(&s);
+		else if (*s == '\\')
+			i = esccon(&s);
+		else
+			i = (unsigned char)*s++;
 		asginit(bcon(i));
 	} 
 	tfree(q);

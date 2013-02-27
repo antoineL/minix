@@ -1,5 +1,4 @@
-/*	Id: local.c,v 1.80 2014/07/03 14:25:51 ragge Exp 	*/	
-/*	$NetBSD: local.c,v 1.3 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2008 Michael Shalayeff
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
@@ -93,16 +92,18 @@ picext(NODE *p)
 {
 #if defined(ELFABI)
 
-	struct attr *ga;
 	NODE *q;
 	struct symtab *sp;
 	char *c;
 
 	if (p->n_sp->sflags & SBEENHERE)
 		return p;
+#ifdef GCC_COMPAT
+	struct attr *ga;
 	if ((ga = attr_find(p->n_sp->sap, GCC_ATYP_VISIBILITY)) &&
 	    strcmp(ga->sarg(0), "hidden") == 0)
 		return p; /* no GOT reference */
+#endif
 
 	c = p->n_sp->soname ? p->n_sp->soname : exname(p->n_sp->sname);
 	sp = picsymtab("", c, "@GOTPCREL");
@@ -195,6 +196,7 @@ tlspic(NODE *p)
 	return r;
 }
 
+#ifdef GCC_COMPAT
 /*
  * The "initial exec" tls model.
  */
@@ -227,10 +229,12 @@ tlsinitialexec(NODE *p)
 	tfree(p);
 	return r;
 }
+#endif
 
 static NODE *
 tlsref(NODE *p)
 {
+#ifdef GCC_COMPAT
 	struct symtab *sp = p->n_sp;
 	struct attr *ga;
 	char *c;
@@ -244,6 +248,7 @@ tlsref(NODE *p)
 		else
 			werror("unsupported tls model '%s'", c);
 	}
+#endif
 	return tlspic(p);
 }
 
@@ -378,7 +383,7 @@ clocal(NODE *p)
 
 		if (DEUNSIGN(p->n_type) == INT && DEUNSIGN(l->n_type) == INT &&
 		    coptype(l->n_op) == BITYPE && l->n_op != COMOP &&
-		    l->n_op != QUEST) {
+		    l->n_op != QUEST && l->n_op != ASSIGN) {
 			l->n_type = p->n_type;
 			nfree(p);
 			return l;
@@ -658,7 +663,8 @@ ninval(CONSZ off, int fsz, NODE *p)
 		/* XXX probably broken on most hosts */
 		printf("\t.long\t0x%x,0x%x,0x%x,0\n", u.i[2], u.i[1], u.i[0]);
 #else
-		printf("\t.long\t0x%x,0x%x,0x%x,0\n", u.i[0], u.i[1], u.i[2]);
+		printf("\t.long\t0x%x,0x%x,0x%x,0\n", u.i[0], u.i[1],
+		    u.i[2] & 0xffff);
 #endif
 		break;
 	case DOUBLE:
@@ -835,12 +841,13 @@ mypragma(char *str)
 void
 fixdef(struct symtab *sp)
 {
-	struct attr *ga;
-
 	/* may have sanity checks here */
 	if (gottls)
 		sp->sflags |= STLS;
 	gottls = 0;
+
+#ifdef GCC_COMPAT
+	struct attr *ga;
 
 #ifdef HAVE_WEAKREF
 	/* not many as'es have this directive */
@@ -867,6 +874,7 @@ fixdef(struct symtab *sp)
 		printf("\t.%s %s\n", v, sn);
 		printf("\t.set %s,%s\n", sn, an);
 	}
+#endif
 	if (alias != NULL && (sp->sclass != PARAM)) {
 		printf("\t.globl %s\n", exname(sp->soname));
 		printf("%s = ", exname(sp->soname));
@@ -879,7 +887,9 @@ fixdef(struct symtab *sp)
 		p->n_op = NAME;
 		p->n_sp =
 		  (struct symtab *)(constructor ? "constructor" : "destructor");
+#ifdef GCC_COMPAT
 		sp->sap = attr_add(sp->sap, gcc_attr_parse(p));
+#endif
 		constructor = destructor = 0;
 	}
 }

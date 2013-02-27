@@ -1,5 +1,4 @@
-/*	Id: local2.c,v 1.54 2014/07/02 08:59:40 ragge Exp 	*/	
-/*	$NetBSD: local2.c,v 1.3 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2008 Michael Shalayeff
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
@@ -321,9 +320,6 @@ ultofd(NODE *p)
 static void
 ldtoul(NODE *p)
 {
-	int r __unused;
-
-	r = getlr(p, '1')->n_rval;
 
 	E("	subq $16,%rsp\n");
 	E("	movl $0x5f000000,(%rsp)\n"); /* More than long can have */
@@ -433,13 +429,15 @@ zzzcode(NODE *p, int c)
 			else
 				printf("\tmovsd %%xmm0,-%d(%%rbp)\n", stkpos);
 			if (p->n_stsize > 8) {
-				if (p->n_stalign == STRREG ||
-				    p->n_stalign == STRFI)
-					printf("\tmovq %%rdx,-%d(%%rbp)\n",
-					    stkpos-8);
+				if (p->n_stalign == STRREG)
+					printf("\tmovq %%rdx");
+				else if (p->n_stalign == STRFI)
+					printf("\tmovq %%rax");
+				else if (p->n_stalign == STRIF)
+					printf("\tmovsd %%xmm0");
 				else
-					printf("\tmovsd %%xmm1,-%d(%%rbp)\n",
-					    stkpos-8);
+					printf("\tmovsd %%xmm1");
+				printf(",-%d(%%rbp)\n", stkpos-8);
 			}
 			printf("\tleaq -%d(%%rbp),%%rax\n", stkpos);
 		}
@@ -777,12 +775,17 @@ adjustname(char *s)
 static void
 fixcalls(NODE *p, void *arg)
 {
+	int ps;
+
 	/* Prepare for struct return by allocating bounce space on stack */
 	switch (p->n_op) {
 	case STCALL:
 	case USTCALL:
-		if (p->n_stsize+p2autooff > stkpos)
-			stkpos = p->n_stsize+p2autooff;
+		ps = p->n_stsize;
+		if (ps < 16)
+			ps = 16;
+		if (ps+p2autooff > stkpos)
+			stkpos = ps+p2autooff;
 		break;
 	case XASM:
 		p->n_name = adjustname(p->n_name);
@@ -1061,7 +1064,7 @@ retry:	switch (c) {
 		p->n_name = tmpstrdup(p->n_name);
 		w = strchr(p->n_name, c);
 		*w = 'r'; /* now reg */
-		return c == 'q' || c == 'x' ? 0 : 1;
+		return c == 'q' || c == 'x' || c == 't' ? 0 : 1;
 
 	case 'I':
 	case 'J':
@@ -1197,6 +1200,14 @@ static struct {
 	{ "rdx", RDX },
 	{ "rsi", RSI },
 	{ "rdi", RDI },
+	{ "r8", R08 },
+	{ "r9", R09 },
+	{ "r10", R10 },
+	{ "r11", R11 },
+	{ "r12", R12 },
+	{ "r13", R13 },
+	{ "r14", R14 },
+	{ "r15", R15 },
 	{ "st", 040 },
 	{ "st(0)", 040 },
 	{ "st(1)", 041 },

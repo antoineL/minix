@@ -1,5 +1,4 @@
-/*	Id: pftn.c,v 1.11 2014/06/20 07:04:48 plunky Exp 	*/	
-/*	$NetBSD: pftn.c,v 1.1.1.3 2014/07/24 19:26:25 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -2468,7 +2467,7 @@ incomp:					uerror("incompatible types for arg %d",
 			/* do not complain for pointers with signedness */
 			if ((DEUNSIGN(BTYPE(type)) == DEUNSIGN(BTYPE(arrt))) &&
 			    (BTYPE(type) != BTYPE(arrt))) {
-				warner(Wpointer_sign, NULL);
+				warner(Wpointer_sign);
 				goto skip;
 			}
 		}

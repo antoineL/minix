@@ -1,5 +1,4 @@
-/*	Id: cc.c,v 1.278 2014/07/01 16:09:00 ragge Exp 	*/	
-/*	$NetBSD: cc.c,v 1.1.1.6 2014/07/24 19:22:18 plunky Exp $	*/
+/*	Id	*/
 
 /*-
  * Copyright (c) 2011 Joerg Sonnenberger <joerg@NetBSD.org>.
@@ -102,7 +101,7 @@
 #endif
 #include <assert.h>
 
-#ifdef os_win32
+#ifdef  _WIN32
 #include <windows.h>
 #include <process.h>
 #include <io.h>
@@ -189,21 +188,27 @@ char	*sysroot = "", *isysroot;
 #ifndef STDINC
 #define	STDINC	  	"/usr/include/"
 #endif
+#ifdef MULTIARCH_PATH
+#define STDINC_MA	STDINC MULTIARCH_PATH "/"
+#endif
+
 
 char *cppadd[] = CPPADD;
 char *cppmdadd[] = CPPMDADD;
-
-/* Dynamic linker definitions, per-target */
-#ifndef DYNLINKER
-#define	DYNLINKER { 0 }
-#endif
 
 /* Default libraries and search paths */
 #ifndef PCCLIBDIR	/* set by autoconf */
 #define PCCLIBDIR	NULL
 #endif
+#ifndef LIBDIR
+#define LIBDIR		"/usr/lib/"
+#endif
 #ifndef DEFLIBDIRS	/* default library search paths */
-#define DEFLIBDIRS	{ "/usr/lib/", 0 }
+#ifdef MULTIARCH_PATH
+#define DEFLIBDIRS	{ LIBDIR, LIBDIR MULTIARCH_PATH "/", 0 }
+#else
+#define DEFLIBDIRS	{ LIBDIR, 0 }
+#endif
 #endif
 #ifndef DEFLIBS		/* default libraries included */
 #define	DEFLIBS		{ "-lpcc", "-lc", "-lpcc", 0 }
@@ -217,8 +222,15 @@ char *cppmdadd[] = CPPMDADD;
 #ifndef STARTLABEL
 #define STARTLABEL "__start"
 #endif
+#ifndef DYNLINKARG
+#define DYNLINKARG	"-dynamic-linker"
+#endif
+#ifndef DYNLINKLIB
+#define DYNLINKLIB	NULL
+#endif
 
-char *dynlinker[] = DYNLINKER;
+char *dynlinkarg = DYNLINKARG;
+char *dynlinklib = DYNLINKLIB;
 char *pcclibdir = PCCLIBDIR;
 char *deflibdirs[] = DEFLIBDIRS;
 char *deflibs[] = DEFLIBS;
@@ -255,7 +267,7 @@ void setup_ccom_flags(void);
 void setup_as_flags(void);
 void setup_ld_flags(void);
 static void expand_sysroot(void);
-#ifdef os_win32
+#ifdef  _WIN32
 char *win32pathsubst(char *);
 char *win32commandline(struct strlist *l);
 #endif
@@ -266,13 +278,14 @@ int	cflag;
 int	gflag;
 int	rflag;
 int	vflag;
+int	noexec;	/* -### */
 int	tflag;
 int	Eflag;
 int	Oflag;
 int	kflag;	/* generate PIC/pic code */
 #define F_PIC	1
 #define F_pic	2
-int	Mflag, needM, MDflag;	/* dependencies only */
+int	Mflag, needM, MDflag, MMDflag;	/* dependencies only */
 int	pgflag;
 int	Xflag;
 int	nostartfiles, Bstatic, shared;
@@ -288,6 +301,18 @@ int	xuchar = 0;
 int	cxxflag;
 int	cppflag;
 int	printprogname, printfilename;
+
+#ifdef SOFTFLOAT
+int	softfloat = 1;
+#else
+int	softfloat = 0;
+#endif
+
+#ifdef TARGET_BIG_ENDIAN
+int	bigendian = 1;
+#else
+int	bigendian = 0;
+#endif
 
 #ifdef mach_amd64
 int amd64_i386;
@@ -434,7 +459,7 @@ main(int argc, char *argv[])
 	PCC_EARLY_SETUP
 #endif
 
-#ifdef os_win32
+#ifdef _WIN32
 	/* have to prefix path early.  -B may override */
 	incdir = win32pathsubst(incdir);
 	altincdir = win32pathsubst(altincdir);
@@ -494,6 +519,15 @@ main(int argc, char *argv[])
 		switch (argp[1]) {
 		default:
 			oerror(argp);
+			break;
+
+		case '#':
+			if (match(argp, "-###")) {
+				printf("%s\n", VERSSTR);
+				vflag++;
+				noexec++;
+			} else
+				oerror(argp);
 			break;
 
 		case '-': /* double -'s */
@@ -609,11 +643,39 @@ main(int argc, char *argv[])
 			break;
 
 		case 'm': /* target-dependent options */
+			if (strncmp(argp, "-march=", 6) == 0) {
+				strlist_append(&compiler_flags, argp);
+				break;
+			}
 #ifdef mach_amd64
 			/* need to call i386 ccom for this */
 			if (strcmp(argp, "-melf_i386") == 0) {
 				pass0 = LIBEXECDIR "/ccom_i386";
 				amd64_i386 = 1;
+				break;
+			}
+#endif
+#if defined(mach_arm) || defined(mach_mips)
+			if (match(argp, "-mbig-endian")) {
+				bigendian = 1;
+				strlist_append(&compiler_flags, argp);
+				break;
+			}
+			if (match(argp, "-mlittle-endian")) {
+				bigendian = 0;
+				strlist_append(&compiler_flags, argp);
+				break;
+			}
+			if (match(argp, "-msoft-float")) {
+				softfloat = 1;
+				strlist_append(&compiler_flags, argp);
+				break;
+			}
+#endif
+#if defined(mach_mips)
+			if (match(argp, "-mhard-float")) {
+				softfloat = 0;
+				strlist_append(&compiler_flags, argp);
 				break;
 			}
 #endif
@@ -740,6 +802,11 @@ main(int argc, char *argv[])
 				MDflag++;
 				needM = 0;
 				strlist_append(&depflags, "-M");
+			} else if (match(argp, "-MMD")) {
+				MMDflag++;
+				needM = 0;
+				strlist_append(&depflags, "-M");
+				strlist_append(&depflags, "-xMMD");
 			} else
 				oerror(argp);
 			break;
@@ -747,6 +814,10 @@ main(int argc, char *argv[])
 		case 'v':
 			printf("%s\n", VERSSTR);
 			vflag++;
+			break;
+
+		case 'w': /* no warnings at all emitted */
+			strlist_append(&compiler_flags, "-w");
 			break;
 
 		case 'W': /* Ignore (most of) W-flags */
@@ -842,7 +913,7 @@ main(int argc, char *argv[])
 		errorx(8, "output file will be clobbered");
 #endif
 
-	if (needM && !Mflag && !MDflag)
+	if (needM && !Mflag && !MDflag && !MMDflag)
 		errorx(8, "to make dependencies needs -M");
 
 
@@ -901,14 +972,14 @@ main(int argc, char *argv[])
 		ascpp = match(suffix, "S");
 		if (ascpp || match(suffix, "c") || cxxsuf(suffix)) {
 			/* find out next output file */
-			if (Mflag || MDflag) {
+			if (Mflag || MDflag || MMDflag) {
 				char *Mofile = NULL;
 
 				if (MFfile)
 					Mofile = MFfile;
 				else if (outfile)
 					Mofile = setsuf(outfile, 'd');
-				else if (MDflag)
+				else if (MDflag || MMDflag)
 					Mofile = setsuf(ifile, 'd');
 				if (preprocess_input(ifile, Mofile, 1))
 					exandrm(Mofile);
@@ -1152,6 +1223,10 @@ preprocess_input(char *input, char *output, int dodep)
 			strlist_append(&args, s->value);
 		}
 	}
+	STRLIST_FOREACH(s, &dirafterdirs) {
+		strlist_append(&args, "-S");
+		strlist_append(&args, s->value);
+	}
 	if (dodep)
 		strlist_append_list(&args, &depflags);
 	strlist_append(&args, input);
@@ -1245,7 +1320,7 @@ setsuf(char *s, char ch)
 	return rp;
 }
 
-#ifdef os_win32
+#ifdef _WIN32
 
 static int
 strlist_exec(struct strlist *l)
@@ -1259,6 +1334,8 @@ strlist_exec(struct strlist *l)
 	cmd = win32commandline(l);
 	if (vflag)
 		printf("%s\n", cmd);
+	if (noexec)
+		return 0;
 
 	ZeroMemory(&si, sizeof(STARTUPINFO));
 	si.cb = sizeof(STARTUPINFO);
@@ -1300,16 +1377,18 @@ strlist_exec(struct strlist *l)
 	strlist_make_array(l, &argv, &argc);
 	if (vflag) {
 		printf("Calling ");
-		strlist_print(l, stdout);
+		strlist_print(l, stdout, noexec);
 		printf("\n");
 	}
+	if (noexec)
+		return 0;
 
 	switch ((child = fork())) {
 	case 0:
 		execvp(argv[0], argv);
 		result = write(STDERR_FILENO, "Exec of ", 8);
 		result = write(STDERR_FILENO, argv[0], strlen(argv[0]));
-		result = write(STDERR_FILENO, "failed\n", 7);
+		result = write(STDERR_FILENO, " failed\n", 8);
 		(void)result;
 		_exit(127);
 	case -1:
@@ -1353,7 +1432,7 @@ cunlink(char *f)
 	return (unlink(f));
 }
 
-#ifdef os_win32
+#ifdef _WIN32
 char *
 gettmp(void)
 {
@@ -1448,7 +1527,7 @@ nxtopt(char *o)
 		if (lav[0][l] != 0)
 			return &lav[0][l];
 	}
-	if (lac == 0)
+	if (lac == 1)
 		errorx(8, "missing argument to '%s'", o);
 	lav++;
 	lac--;
@@ -1553,6 +1632,7 @@ static char *gcppflags[] = {
 #endif
 #endif
 #endif
+	NULL
 };
 
 /* These should _not_ be defined here */
@@ -1560,7 +1640,7 @@ static char *fpflags[] = {
 #ifdef TARGET_FLT_EVAL_METHOD
 	"-D__FLT_EVAL_METHOD__=" MKS(TARGET_FLT_EVAL_METHOD),
 #endif
-#if defined(os_darwin) || defined(os_netbsd)
+#if defined(os_darwin) || defined(os_netbsd) || defined(os_minix)
 	"-D__FLT_RADIX__=2",
 #if defined(mach_vax)
 	"-D__FLT_DIG__=6",
@@ -1633,6 +1713,7 @@ static char *fpflags[] = {
 	"-D__LDBL_MIN__=2.2250738585072014e-308",
 #endif
 #endif
+	NULL
 };
 
 /*
@@ -1647,14 +1728,14 @@ setup_cpp_flags(void)
 	for (i = 0; i < (int)sizeof(defflags)/(int)sizeof(char *); i++)
 		strlist_prepend(&preprocessor_flags, defflags[i]);
 
-	for (i = 0; i < (int)sizeof(gcppflags)/(int)sizeof(char *); i++)
+	for (i = 0; gcppflags[i]; i++)
 		strlist_prepend(&preprocessor_flags, gcppflags[i]);
 	strlist_prepend(&preprocessor_flags, xgnu89 ?
 	    "-D__GNUC_GNU_INLINE__" : "-D__GNUC_STDC_INLINE__");
 
 	cksetflags(cppflgcheck, &preprocessor_flags, 'p');
 
-	for (i = 0; i < (int)sizeof(fpflags)/(int)sizeof(char *); i++)
+	for (i = 0; fpflags[i]; i++)
 		strlist_prepend(&preprocessor_flags, fpflags[i]);
 
 	for (i = 0; cppadd[i]; i++)
@@ -1664,6 +1745,9 @@ setup_cpp_flags(void)
 
 	/* Include dirs */
 	strlist_append(&sysincdirs, "=" INCLUDEDIR "pcc/");
+#ifdef STDINC_MA
+	strlist_append(&sysincdirs, "=" STDINC_MA);
+#endif
 	strlist_append(&sysincdirs, "=" STDINC);
 #ifdef PCCINCDIR
 	if (cxxflag)
@@ -1806,15 +1890,27 @@ setup_ld_flags(void)
 	char *b, *e;
 	int i;
 
+#ifdef PCC_SETUP_LD_ARGS
+	PCC_SETUP_LD_ARGS
+#endif
+
 	cksetflags(ldflgcheck, &early_linker_flags, 'a');
 	if (Bstatic == 0 && shared == 0 && rflag == 0) {
-		for (i = 0; dynlinker[i]; i++)
-			strlist_append(&early_linker_flags, dynlinker[i]);
+		if (dynlinklib) {
+			strlist_append(&early_linker_flags, dynlinkarg);
+			strlist_append(&early_linker_flags, dynlinklib);
+		}
 		strlist_append(&early_linker_flags, "-e");
 		strlist_append(&early_linker_flags, STARTLABEL);
 	}
 	if (shared == 0 && rflag)
 		strlist_append(&early_linker_flags, "-r");
+#ifdef STARTLABEL_S
+	if (shared == 1) {
+		strlist_append(&early_linker_flags, "-e");
+		strlist_append(&early_linker_flags, STARTLABEL_S);
+	}
+#endif
 	if (sysroot && *sysroot)
 		strlist_append(&early_linker_flags, cat("--sysroot=", sysroot));
 	if (!nostdlib) {
@@ -1854,6 +1950,19 @@ setup_ld_flags(void)
 		strap(&late_linker_flags, &crtdirs, e, 'a');
 		strap(&middle_linker_flags, &crtdirs, CRTI, 'p');
 		strap(&late_linker_flags, &crtdirs, CRTN, 'a');
+#ifdef os_win32
+		/*
+		 * On Win32 Cygwin/MinGW runtimes, the profiling code gcrtN.o
+		 * comes in addition to crtN.o or dllcrtN.o
+		 */
+		if (pgflag)
+			strap(&middle_linker_flags, &crtdirs, GCRT0, 'p');
+		if (shared == 0)
+			b = CRT0;
+		else
+			b = CRT0_S;     /* dllcrtN.o */
+		strap(&middle_linker_flags, &crtdirs, b, 'p');
+#else
 		if (shared == 0) {
 			if (pgflag)
 				b = GCRT0;
@@ -1865,10 +1974,11 @@ setup_ld_flags(void)
 				b = CRT0;
 			strap(&middle_linker_flags, &crtdirs, b, 'p');
 		}
+#endif
 	}
 }
 
-#ifdef os_win32
+#ifdef _WIN32
 char *
 win32pathsubst(char *s)
 {

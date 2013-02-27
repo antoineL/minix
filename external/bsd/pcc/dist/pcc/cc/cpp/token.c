@@ -1,5 +1,4 @@
-/*	Id: token.c,v 1.116 2014/06/06 15:32:53 plunky Exp 	*/	
-/*	$NetBSD: token.c,v 1.1.1.5 2014/07/24 19:22:42 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2004,2009 Anders Magnusson. All rights reserved.
@@ -51,7 +50,6 @@
 
 #include "compat.h"
 #include "cpp.h"
-#include "cpy.h"
 
 static void cvtdig(int);
 static int dig2num(int);
@@ -375,9 +373,11 @@ xloop:		if (ch == -1)
 
 		case '/': /* Comments */
 			if ((ch = inch()) == '/') {
-cppcmt:				if (Cflag) { PUTCH(ch); } else { PUTCH(' '); }
+				if (!flslvl) {
+cppcmt:					putch(Cflag ? ch : ' ');
+				}
 				do {
-					if (Cflag) PUTCH(ch);
+					if (Cflag && !flslvl) putch(ch);
 					ch = inch();
 					if (ch == -1)
 						goto eof;
@@ -541,7 +541,7 @@ con:			PUTCH(ch);
 				if ((nl = lookup(yytext, FIND)) && kfind(nl))
 					putstr(stringbuf);
 				else
-					putstr(yytext);
+					putstr((usch *)yytext);
 				stringbuf = cp;
 			}
 			if (ch == -1)
@@ -600,6 +600,9 @@ ppnum:		for (;;) {
 					yytext[yyp++] = (usch)ch;
 				} else
 					unch(ch);
+				if ((spechr[ch = inch()] & C_DIGIT) == 0)
+					break; /* only digits allowed */
+				unch(ch);
 				continue;
 			}
 			if ((spechr[ch] & C_ID) || ch == '.') {
@@ -841,8 +844,8 @@ yylex(void)
 
 	case NUMBER:
 		if (yytext[0] == '\'') {
-			yylval.node.op = NUMBER;
-			yylval.node.nd_val = charcon(yytext);
+			yynode.op = NUMBER;
+			yynode.nd_val = charcon(yytext);
 		} else
 			cvtdig(yytext[0] != '0' ? 10 :
 			    yytext[1] == 'x' || yytext[1] == 'X' ? 16 : 8);
@@ -855,7 +858,7 @@ yylex(void)
 		}
 		nl = lookup(yytext, FIND);
 		if (ifdef) {
-			yylval.node.nd_val = nl != NULL;
+			yynode.nd_val = nl != NULL;
 			ifdef = 0;
 		} else if (nl && noex == 0) {
 			usch *och = stringbuf;
@@ -871,9 +874,9 @@ yylex(void)
 			noex = 1;
 			return yylex();
 		} else {
-			yylval.node.nd_val = 0;
+			yynode.nd_val = 0;
 		}
-		yylval.node.op = NUMBER;
+		yynode.op = NUMBER;
 		return NUMBER;
 	case WARN:
 		noex = 0;
@@ -975,7 +978,7 @@ pushfile(const usch *file, const usch *fn, int idx, void *incs)
 		prinit(initar, ic);
 		initar = NULL;
 		if (dMflag)
-			xwrite(ofd, ic->buffer, strlen((char *)ic->buffer));
+			printf("%s", (char *)ic->buffer);
 		fastscan();
 		prtline();
 		ic->infil = oin;
@@ -1008,12 +1011,12 @@ prtline(void)
 	if (Mflag) {
 		if (dMflag)
 			return; /* no output */
-		if (ifiles->lineno == 1) {
-			sheap("%s: %s\n", Mfile, ifiles->fname);
+		if (ifiles->lineno == 1 &&
+		    (MMDflag == 0 || ifiles->idx != SYSINC)) {
+			printf("%s: %s\n", Mfile, ifiles->fname);
 			if (MPflag &&
 			    strcmp((const char *)ifiles->fname, (char *)MPfile))
-				sheap("%s:\n", ifiles->fname);
-			xwrite(ofd, sb, stringbuf - sb);
+				printf("%s:\n", ifiles->fname);
 		}
 	} else if (!Pflag) {
 		sheap("\n# %d \"%s\"", ifiles->lineno, ifiles->fname);
@@ -1071,11 +1074,11 @@ cvtdig(int rad)
 	y--;
 	while (*y == 'l' || *y == 'L')
 		y++;
-	yylval.node.op = *y == 'u' || *y == 'U' ? UNUMBER : NUMBER;
-	yylval.node.nd_uval = rv;
-	if ((rad == 8 || rad == 16) && yylval.node.nd_val < 0)
-		yylval.node.op = UNUMBER;
-	if (yylval.node.op == NUMBER && yylval.node.nd_val < 0)
+	yynode.op = *y == 'u' || *y == 'U' ? UNUMBER : NUMBER;
+	yynode.nd_uval = rv;
+	if ((rad == 8 || rad == 16) && yynode.nd_val < 0)
+		yynode.op = UNUMBER;
+	if (yynode.op == NUMBER && yynode.nd_val < 0)
 		/* too large for signed, see 6.4.4.1 */
 		error("constant \"%s\" is out of range", yytext);
 }

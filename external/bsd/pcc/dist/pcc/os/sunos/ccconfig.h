@@ -1,5 +1,4 @@
-/*	Id: ccconfig.h,v 1.5 2012/08/05 14:35:00 ragge Exp 	*/	
-/*	$NetBSD: ccconfig.h,v 1.1.1.5 2014/07/24 19:29:37 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2008 Adam Hoka.
@@ -32,10 +31,6 @@
  * Various settings that controls how the C compiler works.
  */
 
-#ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
-#endif
-
 /* common cpp predefines */
 #define	CPPADD	{ "-Dunix", "-Dsun", "-D__SVR4", "-D__unix", "-D__sun", "-D__SunOS", "-D__ELF__", NULL }
 
@@ -52,7 +47,8 @@
 #endif
 
 /* host-independent */
-#define	DYNLINKER { "-Bdynamic", "/usr/lib/ld.so", NULL }
+#define	DYNLINKARG	"-Bdynamic"
+#define	DYNLINKLIB	"/usr/lib/ld.so"
 
 #if defined(mach_i386)
 #define	CPPMDADD { "-D__i386__", "-D__i386", NULL, }

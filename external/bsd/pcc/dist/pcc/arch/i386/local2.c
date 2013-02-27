@@ -1,5 +1,4 @@
-/*	Id: local2.c,v 1.177 2014/06/04 06:43:49 gmcgarry Exp 	*/	
-/*	$NetBSD: local2.c,v 1.1.1.7 2014/07/24 19:17:13 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -37,7 +36,7 @@
 #define EXPREFIX	""
 #endif
 
-
+int msettings = MI686;
 static int stkpos;
 
 void
@@ -303,19 +302,55 @@ fcomp(NODE *p)
 {
 	static char *fpcb[] = { "jz", "jnz", "jbe", "jc", "jnc", "ja" };
 
-	if ((p->n_su & DORIGHT) == 0)
-		expand(p, 0, "\tfxch\n");
-	expand(p, 0, "\tfucomip %st(1),%st\n");	/* emit compare insn  */
-	expand(p, 0, "\tfstp %st(0)\n");	/* pop fromstack */
+	if (msettings & MI686) {
+		if ((p->n_su & DORIGHT) == 0)
+			expand(p, 0, "\tfxch\n");
+		expand(p, 0, "\tfucomip %st(1),%st\n");	/* emit compare insn  */
+		expand(p, 0, "\tfstp %st(0)\n");	/* pop fromstack */
 
-	if (p->n_op == NE || p->n_op == GT || p->n_op == GE)
-		expand(p, 0, "\tjp LC\n");
-	else if (p->n_op == EQ)
-		printf("\tjp 1f\n");
-	printf("	%s ", fpcb[p->n_op - EQ]);
-	expand(p, 0, "LC\n");
-	if (p->n_op == EQ)
-		printf("1:\n");
+		if (p->n_op == NE || p->n_op == GT || p->n_op == GE)
+			expand(p, 0, "\tjp LC\n");
+		else if (p->n_op == EQ)
+			printf("\tjp 1f\n");
+		printf("	%s ", fpcb[p->n_op - EQ]);
+		expand(p, 0, "LC\n");
+		if (p->n_op == EQ)
+			printf("1:\n");
+	} else {
+		int swap = ((p->n_su & DORIGHT) == 0);
+
+		if (p->n_op == GT || p->n_op == GE)
+			swap ^= 1;
+		if (swap)
+			expand(p, 0, "\tfxch\n");
+
+		/*
+		 * Flags for x87:
+		 * C3 C2 C0
+		 * 0  0  0	st0 > st1
+		 * 0  0  1	st0 < st1
+		 * 1  0  0	st0 = st1
+		 * 1  1  1	unordered
+		 */
+
+		/* ax avoided in nspecial() */
+		printf("\tfucompp\n\tfnstsw %%ax\n");
+		if (p->n_op == GE || p->n_op == LE) {
+			printf("\ttestb $0x45,%%ah\n");
+		} else if (p->n_op == GT || p->n_op == LT) {
+			printf("\ttestb $0x05,%%ah\n");
+		} else if (p->n_op == NE) {
+			printf("\tandb $0x45,%%ah\n");
+			printf("\txorb $0x40,%%ah\n");
+		} else if (p->n_op == EQ) {
+			printf("\tandb $0x45,%%ah\n");
+			printf("\tcmpb $0x40,%%ah\n");
+		}
+		if (p->n_op == EQ) {
+			expand(p, 0, "\tje LC\n");
+		} else
+			expand(p, 0, "\tjne LC\n");
+	}
 }
 
 /*
@@ -446,6 +481,16 @@ zzzcode(NODE *p, int c)
 			return; /* XXX remove ZC from UCALL */
 		if (pr)
 			printf("	addl $%d, %s\n", pr, rnames[ESP]);
+#if defined(os_openbsd)
+		if (p->n_op == STCALL && (p->n_stsize == 1 ||
+		    p->n_stsize == 2 || p->n_stsize == 4 || 
+		    p->n_stsize == 8)) {
+			/* save on stack */
+			printf("\tmovl %%eax,-%d(%%ebp)\n", stkpos);
+			printf("\tmovl %%edx,-%d(%%ebp)\n", stkpos+4);
+			printf("\tleal -%d(%%ebp),%%eax\n", stkpos);
+		}
+#endif
 		break;
 
 	case 'D': /* Long long comparision */
@@ -825,6 +870,8 @@ fixcalls(NODE *p, void *arg)
 	case USTCALL:
 		if (p->n_stsize+p2autooff > stkpos)
 			stkpos = p->n_stsize+p2autooff;
+		if (8+p2autooff > stkpos)
+			stkpos = p->n_stsize+p2autooff;
 		break;
 	case LS:
 	case RS:
@@ -985,6 +1032,14 @@ updatereg(NODE *p, void *arg)
 
 	if (p->n_op != STCALL)
 		return;
+#if defined(os_openbsd)
+	if (p->n_stsize == 1 || p->n_stsize == 2 || p->n_stsize == 4 || 
+	    p->n_stsize == 8)
+		return;
+#endif
+	if (p->n_stalign == 42)
+		return;
+
 	if (p->n_right->n_op != CM)
 		p = p->n_right;
 	else for (p = p->n_right;
@@ -1208,7 +1263,7 @@ lastcall(NODE *p)
 		if (p->n_right->n_op != ASSIGN)
 			size += argsiz(p->n_right);
 	}
-	if (p->n_op != ASSIGN)
+	if (p->n_op != ASSIGN && op->n_op != STCALL)
 		size += argsiz(p);
 
 #if defined(MACHOABI)
@@ -1264,6 +1319,13 @@ special(NODE *p, int shape)
 void
 mflags(char *str)
 {
+#define	MSET(s,a) if (strcmp(str, s) == 0) \
+	msettings = (msettings & ~MCPUMSK) | a
+
+	MSET("arch=i386",MI386);
+	MSET("arch=i486",MI486);
+	MSET("arch=i586",MI586);
+	MSET("arch=i686",MI686);
 }
 
 /*

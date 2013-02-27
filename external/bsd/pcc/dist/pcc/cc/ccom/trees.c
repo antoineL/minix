@@ -1,5 +1,4 @@
-/*	Id: trees.c,v 1.330 2014/07/05 09:05:52 ragge Exp 	*/	
-/*	$NetBSD: trees.c,v 1.4 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -84,6 +83,7 @@ void putjops(NODE *, void *);
 static int has_se(NODE *p);
 static struct symtab *findmember(struct symtab *, char *);
 int inftn; /* currently between epilog/prolog */
+NODE *cstknode(TWORD t, union dimfun *df, struct attr *ap);
 
 static char *tnames[] = {
 	"undef",
@@ -342,6 +342,8 @@ buildtree(int o, NODE *l, NODE *r)
 			return bcon(n);
 		}
 	} else if ((cdope(o)&ASGOPFLG) && o != RETURN && o != CAST) {
+		if (l->n_op == SCONV && l->n_left->n_op == FLD)
+			l = nfree(l);
 		/*
 		 * Handle side effects by storing address in temporary q.
 		 * Side effect nodes always have an UMUL.
@@ -368,6 +370,8 @@ buildtree(int o, NODE *l, NODE *r)
 		l = q;
 		o = COMOP;
 	} else if (o == INCR || o == DECR) {
+		if (l->n_op == SCONV && l->n_left->n_op == FLD)
+			l = nfree(l);
 		/*
 		 * Rewrite to (t=d,d=d+1,t)
 		 */
@@ -387,6 +391,8 @@ buildtree(int o, NODE *l, NODE *r)
 			r = rewincop(l, r, o == INCR ? PLUSEQ : MINUSEQ);
 		l = q;
 		o = COMOP;
+	} else if (o == ASSIGN && l->n_op == SCONV && l->n_left->n_op == FLD) {
+		l = nfree(l);
 	}
 
 
@@ -619,9 +625,12 @@ runtime:
 
 		default:
 			cerror( "other code %d", o );
-			}
-
 		}
+	}
+
+	/* fixup type in bit-field assignment */
+	if (p->n_op == ASSIGN && l->n_op == FLD && UPKFSZ(l->n_rval) < SZINT)
+		p = makety(p, INT, 0, 0, 0);
 
 	/*
 	 * Allow (void)0 casts.
@@ -1153,7 +1162,7 @@ chkpun(NODE *p)
 			t2 = DECREF(t2);
 		}
 		if (DEUNSIGN(t1) != DEUNSIGN(t2))
-			warner(Wpointer_sign, NULL);
+			warner(Wpointer_sign);
 	}
 }
 
@@ -1175,7 +1184,7 @@ stref(NODE *p)
 	struct attr *ap, *xap, *yap;
 	union dimfun *d;
 	TWORD t, q;
-	int dsc;
+	int dsc, fsz;
 	OFFSZ off;
 	struct symtab *s;
 
@@ -1222,11 +1231,21 @@ stref(NODE *p)
 	if (dsc & FIELD) {
 		TWORD ftyp = s->stype;
 		int fal = talign(ftyp, ap);
+		fsz = dsc&FLDSIZ;
 		off = (off/fal)*fal;
 		p = offplus(p, off, t, q, d, ap);
 		p = block(FLD, p, NIL, ftyp, 0, ap);
 		p->n_qual = q;
-		p->n_rval = PKFIELD(dsc&FLDSIZ, s->soffset%fal);
+		p->n_rval = PKFIELD(fsz, s->soffset%fal);
+		/* make type int or some other signed type */
+		if (fsz < SZINT)
+			ftyp = INT;
+		else if (fsz > SZINT && fsz < SZLONG && ftyp < LONG)
+			ftyp = LONG;
+		else if (fsz > SZLONG && fsz < SZLONGLONG && ftyp < LONGLONG)
+			ftyp = LONGLONG;
+		if (ftyp != p->n_type)
+			p = makety(p, ftyp, 0, 0, 0);
 	} else {
 		p = offplus(p, off, t, q, d, ap);
 #ifndef CAN_UNALIGN
@@ -1570,6 +1589,11 @@ tymatch(NODE *p)
 		if (r->n_op != ICON && tl < FLOAT && tr < FLOAT &&
 		    DEUNSIGN(tl) < DEUNSIGN(tr) && o != CAST)
 			warner(Wtruncate, tnames[tr], tnames[tl]);
+		if (l->n_type == BOOL && r->n_type != BOOL) {
+			/* must create a ?: */
+			p->n_right = buildtree(QUEST, p->n_right,
+			     buildtree(COLON, bcon(1), bcon(0)));
+		}
 		p->n_right = makety(p->n_right, l->n_type, 0, 0, 0);
 		t = p->n_type = l->n_type;
 		p->n_ap = l->n_ap;
@@ -1758,7 +1782,7 @@ opact(NODE *p)
 
 	case LS:
 	case RS:
-		if( mt12 & MINT ) return( TYPL+OTHER );
+		if( mt12 & MINT ) return( TYPL+OTHER+PROML );
 		break;
 
 	case EQ:
@@ -2494,7 +2518,7 @@ static NODE *
 rmfldops(NODE *p)
 {
 	TWORD t, ct;
-	NODE *q, *r, *t1, *t2, *bt, *t3, *t4;
+	NODE *q, *r, *t1, *t2, *bt;
 	int fsz, foff;
 
 	if (p->n_op == FLD) {
@@ -2516,7 +2540,14 @@ rmfldops(NODE *p)
 		} else
 #endif
 			bt = bcon(0);
+#if TARGET_ENDIAN == TARGET_BE
+		foff = (int)tsize(t, 0, 0) - fsz - foff;
+#endif
 		q = rdualfld(q, t, ct, foff, fsz);
+		if (fsz < SZINT)
+			q = makety(q, INT, 0, 0, 0);
+		if (p->n_type != INT)
+			q = makety(q, p->n_type, 0, 0, 0);
 		p->n_left = bt;
 		p->n_right = q;
 		p->n_op = COMOP;
@@ -2551,7 +2582,6 @@ rmfldops(NODE *p)
 		/* t2 is what we have to write (RHS of ASSIGN) */
 		/* bt is (eventually) something that must be written */
 
-
 		if (q->n_left->n_op == UMUL) {
 			/* LHS of assignment may have side effects */
 			q = q->n_left;
@@ -2573,38 +2603,38 @@ rmfldops(NODE *p)
 			p->n_left = bcon(0);
 			p->n_right = q;
 			p->n_op = COMOP;
-		} else if ((cdope(p->n_op)&ASGOPFLG)) {
-			/* And here is the asgop-specific code */
-			t3 = tempnode(0, t, 0, 0);
-			q = rdualfld(ccopy(t1), t, ct, foff, fsz);
-			q = buildtree(UNASG p->n_op, q, t2);
-			q = buildtree(ASSIGN, ccopy(t3), q);
-			r = wrualfld(ccopy(t3), t1, t, ct, foff, fsz);
-			q = buildtree(COMOP, q, r);
-			q = buildtree(COMOP, q, t3);
+		} else
+			cerror("NOTASSIGN!");
 
-			nfree(p->n_left);
-			p->n_left = bt ? bt : bcon(0);
-			p->n_right = q;
-			p->n_op = COMOP;
+		t = p->n_type;
+		if (ISUNSIGNED(p->n_type)) {
+			/* mask away unwanted bits */
+			if ((t == LONGLONG && fsz == SZLONGLONG-1) ||
+			    (t == LONG && fsz == SZLONG-1) ||
+			    (t == INT && fsz == SZINT-1))
+				p = buildtree(AND, p,
+				    xbcon((1LL << fsz)-1, 0, t));
 		} else {
-			t3 = tempnode(0, t, 0, 0);
-			t4 = tempnode(0, t, 0, 0);
-
-			q = rdualfld(ccopy(t1), t, ct, foff, fsz);
-			q = buildtree(ASSIGN, ccopy(t3), q);
-			r = buildtree(p->n_op==INCR?PLUS:MINUS, ccopy(t3), t2);
-			r = buildtree(ASSIGN, ccopy(t4), r);
-			q = buildtree(COMOP, q, r);
-			r = wrualfld(t4, t1, t, ct, foff, fsz);
-			q = buildtree(COMOP, q, r);
-		
-			if (bt)
-				q = block(COMOP, bt, q, t, 0, 0);
-			nfree(p->n_left);
-			p->n_left = q;
-			p->n_right = t3;
-			p->n_op = COMOP;
+			/* Correct value in case of signed bitfield.  */
+			if (t == LONGLONG)
+				fsz = SZLONGLONG - fsz;
+			else if (t == LONG)
+				fsz = SZLONG - fsz;
+			else
+				fsz = SZINT - fsz;
+			p = buildtree(LS, p, bcon(fsz));
+#ifdef RS_DIVIDES
+			p = buildtree(RS, p, bcon(fsz));
+#else
+			{
+				p = buildtree(DIV, p, xbcon(1LL << fsz, 0, t));
+				/* avoid wrong sign if divisor gets negative */
+				if ((t == LONGLONG && fsz == SZLONGLONG-1) ||
+				    (t == LONG && fsz == SZLONG-1) ||
+				    (t == INT && fsz == SZINT-1))
+					p = buildtree(UMINUS, p, NIL);
+			}
+#endif
 		}
 	}
 	if (coptype(p->n_op) != LTYPE)
@@ -2624,7 +2654,7 @@ ecomp(NODE *p)
 		fwalk(p, eprint, 0);
 #endif
 	if (!reached) {
-		warner(Wunreachable_code, NULL);
+		warner(Wunreachable_code);
 		reached = 1;
 	}
 	p = optim(p);
@@ -3067,7 +3097,7 @@ send_passt(int type, ...)
 		ip->ip_node = va_arg(ap, NODE *);
 		if (ip->ip_node->n_op == LABEL) {
 			NODE *p = ip->ip_node;
-			ip->ip_lbl = p->n_left->n_lval;
+			ip->ip_lbl = (int)p->n_left->n_lval;
 			ip->type = IP_DEFLAB;
 			nfree(nfree(p));
 		}
@@ -3272,6 +3302,9 @@ plabel(int label)
 NODE *
 intprom(NODE *n)
 {
+	if (n->n_op == FLD && UPKFSZ(n->n_rval) < SZINT)
+		return makety(n, INT, 0, 0, 0);
+
 	if ((n->n_type >= CHAR && n->n_type < INT) || n->n_type == BOOL) {
 		if ((n->n_type == UCHAR && MAX_UCHAR > MAX_INT) ||
 		    (n->n_type == USHORT && MAX_USHORT > MAX_INT))

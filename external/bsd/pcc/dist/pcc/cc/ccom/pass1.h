@@ -1,5 +1,4 @@
-/*	Id: pass1.h,v 1.261 2014/06/07 07:04:09 plunky Exp 	*/	
-/*	$NetBSD: pass1.h,v 1.4 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
@@ -276,6 +275,7 @@ extern struct rstack *rpole;
 int oalloc(struct symtab *, int *);
 void deflabel(char *, NODE *);
 void gotolabel(char *);
+unsigned int esccon(char **);
 void inline_start(struct symtab *, int class);
 void inline_end(void);
 void inline_addarg(struct interpass *);
@@ -384,7 +384,6 @@ struct symtab *strmemb(struct attr *ap);
 int yylex(void);
 void yyerror(char *);
 int pragmas_gcc(char *t);
-NODE *cstknode(TWORD t, union dimfun *df, struct attr *ap);
 int concast(NODE *p, TWORD t);
 #ifdef WORD_ADDRESSED
 #define rmpconv(p) (p)

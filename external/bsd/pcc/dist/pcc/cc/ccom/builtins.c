@@ -1,5 +1,4 @@
-/*	Id: builtins.c,v 1.52 2014/06/06 07:04:42 ragge Exp 	*/	
-/*	$NetBSD: builtins.c,v 1.1.1.5 2014/07/24 19:22:59 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -413,7 +412,11 @@ builtin_va_arg(const struct bitable *bt, NODE *a)
 	rv = buildtree(ASSIGN, q, p);
 
 	r = a->n_right;
-	sz = (int)tsize(r->n_type, r->n_df, r->n_ap)/SZCHAR;
+	sz = (int)tsize(r->n_type, r->n_df, r->n_ap);
+#ifdef MYVAARGSZ
+	SETOFF(sz, MYVAARGSZ);
+#endif
+	sz /= SZCHAR;
 	/* add one to ap */
 #ifdef BACKAUTO
 	rv = buildtree(COMOP, rv , buildtree(PLUSEQ, a->n_left, bcon(sz)));
@@ -432,8 +435,7 @@ builtin_va_arg(const struct bitable *bt, NODE *a)
 static NODE *
 builtin_va_end(const struct bitable *bt, NODE *a)
 {
-	tfree(a);
-	return bcon(0); /* nothing */
+	return a; /* may have side effects */
 }
 
 static NODE *
@@ -493,6 +495,62 @@ builtin_prefetch(const struct bitable *bt, NODE *a)
 	return bcon(0);
 }
 #endif
+
+/*
+ * check if compatible types.
+ * XXX - all enum are considered equal types
+ */
+static NODE *
+builtin_tc(const struct bitable *bt, NODE *a)
+{
+	NODE *p;
+
+	if (a == NIL || a->n_op != CM ||
+	    a->n_left->n_op != TYPE || a->n_right->n_op != TYPE)
+		uerror("bad %s arg", bt->name);
+	
+	p = bcon(a->n_left->n_type == a->n_right->n_type);
+	nfree(a->n_left);
+	nfree(a->n_right);
+	nfree(a);
+	return p;
+}
+
+static void
+putinlbl(NODE *p, void *arg)
+{
+	if (p->n_op == COMOP && p->n_left->n_op == GOTO) {
+		int v = (int)p->n_left->n_left->n_lval;
+		send_passt(IP_DEFLAB, v+1);
+	}
+}
+
+/*
+ * Similar to ?:
+ */
+static NODE *
+builtin_ce(const struct bitable *bt, NODE *a)
+{
+	NODE *p;
+
+	if (a == NIL || a->n_op != CM ||
+	    a->n_left->n_op != CM || a->n_left->n_left->n_op == CM)
+		uerror("bad %s arg", bt->name);
+	if (nncon(a->n_left->n_left) == 0)
+		uerror("arg not constant");
+	if (a->n_left->n_left->n_lval) {
+		p = a->n_left->n_right;
+		a->n_left->n_op = UMUL; /* for tfree() */
+		walkf(a->n_right, putinlbl, 0);
+	} else {
+		p = a->n_right;
+		a->n_op = UMUL; /* for tfree() */
+		walkf(a->n_left->n_right, putinlbl, 0);
+	}
+	tfree(a);
+	return p;
+	
+}
 
 #ifndef TARGET_ISMATH
 /*
@@ -775,6 +833,7 @@ static const struct bitable bitable[] = {
 	{ "__builtin_bswap16", builtin_bswap16, 0, 1, bsw16t, USHORT },
 	{ "__builtin_bswap32", builtin_bswap32, 0, 1, bitt, UNSIGNED },
 	{ "__builtin_bswap64", builtin_bswap64, 0, 1, bitllt, ULONGLONG },
+	{ "__builtin_choose_expr", builtin_ce, BTNOPROTO|BTNORVAL, 0, 0, 0 },
 	{ "__builtin_clz", builtin_clz, 0, 1, bitt, INT },
 	{ "__builtin_clzl", builtin_clzl, 0, 1, bitlt, INT },
 	{ "__builtin_clzll", builtin_clzll, 0, 1, bitllt, INT },
@@ -845,6 +904,7 @@ static const struct bitable bitable[] = {
 	{ "__builtin_strspn", builtin_unimp, 0, 2, strspnt, SIZET },
 	{ "__builtin_strstr", builtin_unimp, 0, 2, strcmpt, CHAR|PTR },
 	{ "__builtin_strpbrk", builtin_unimp, 0, 2, strpbrkt, CHAR|PTR },
+	{ "__builtin_types_compatible_p", builtin_tc, BTNOPROTO, 2, 0, INT },
 #ifndef TARGET_STDARGS
 	{ "__builtin_stdarg_start", builtin_stdarg_start, 0, 2, 0, VOID },
 	{ "__builtin_va_start", builtin_stdarg_start, 0, 2, 0, VOID },

@@ -1,5 +1,4 @@
-/*	Id: macdefs.h,v 1.19 2014/06/01 11:35:03 ragge Exp 	*/	
-/*	$NetBSD: macdefs.h,v 1.1.1.5 2014/07/24 19:21:48 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
@@ -60,6 +59,7 @@
 # define ALPOINT 32
 # define ALSTRUCT 8
 # define  ALSTACK 32 
+#define MYVAARGSZ SZINT
 
 /*
  * Min/max values.

@@ -1,5 +1,4 @@
-/*	Id: cpp.c,v 1.194 2014/06/04 06:43:49 gmcgarry Exp 	*/	
-/*	$NetBSD: cpp.c,v 1.3 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2004,2010 Anders Magnusson (ragge@ludd.luth.se).
@@ -48,15 +47,12 @@
 
 #include "compat.h"
 #include "cpp.h"
-#include "cpy.h"
 
 #ifndef S_ISDIR
 #define S_ISDIR(m)	(((m) & S_IFMT) == S_IFDIR)
 #endif
 
 #define	SBSIZE	1000000
-
-static const char versstr[] = "PCC preprocessor version " VERSSTR "\n";
 
 static usch	sbf[SBSIZE];
 /* C command */
@@ -76,15 +72,13 @@ static void prrep(const usch *s);
 #define IMP(x)
 #endif
 
-int ofd;
-usch outbuf[CPPBUF], lastoch;
-int obufp, istty;
-int Aflag, Cflag, Eflag, Mflag, dMflag, Pflag, MPflag;
+int Aflag, Cflag, Eflag, Mflag, dMflag, Pflag, MPflag, MMDflag;
 usch *Mfile, *MPfile, *Mxfile;
 struct initar *initar;
 int readmac;
 int defining;
 int warnings;
+FILE *of;
 
 /* include dirs */
 struct incs {
@@ -143,7 +137,6 @@ int bidx;			/* Top of bptr stack */
 static int readargs(struct symtab *sp, const usch **args);
 static void exparg(int);
 static void subarg(struct symtab *sp, const usch **args, int);
-static void flbuf(void);
 static void usage(void);
 static usch *xstrdup(const usch *str);
 static void addidir(char *idir, struct incs **ww);
@@ -227,11 +220,13 @@ main(int argc, char **argv)
 			break;
 #endif
 		case 'v':
-			xwrite(2, versstr, sizeof(versstr) - 1);
+			fprintf(stderr, "PCC preprocessor version "VERSSTR"\n");
 			break;
 
 		case 'x':
-			if (strcmp(optarg, "MP") == 0) {
+			if (strcmp(optarg, "MMD") == 0) {
+				MMDflag++;
+			} else if (strcmp(optarg, "MP") == 0) {
 				MPflag++;
 			} else if (strncmp(optarg, "MT,", 3) == 0 ||
 			    strncmp(optarg, "MQ,", 3) == 0) {
@@ -324,11 +319,10 @@ main(int argc, char **argv)
 	}
 
 	if (argc == 2) {
-		if ((ofd = open(argv[1], O_WRONLY|O_CREAT|O_TRUNC, 0666)) < 0)
+		if ((of = freopen(argv[1], "w", stdout)) == NULL)
 			error("Can't creat %s", argv[1]);
 	} else
-		ofd = 1; /* stdout */
-	istty = isatty(ofd);
+		of = stdout;
 
 	if (argc && strcmp(argv[0], "-")) {
 		fn1 = fn2 = (usch *)argv[0];
@@ -339,8 +333,7 @@ main(int argc, char **argv)
 	if (pushfile(fn1, fn2, 0, NULL))
 		error("cannot open %s", argv[0]);
 
-	flbuf();
-	close(ofd);
+	fclose(of);
 #ifdef TIMING
 	(void)gettimeofday(&t2, NULL);
 	t2.tv_sec -= t1.tv_sec;
@@ -368,7 +361,7 @@ addidir(char *idir, struct incs **ww)
 		return; /* ignore */
 	if (*ww != NULL) {
 		for (w = *ww; w->next; w = w->next) {
-#ifdef os_win32
+#ifdef _WIN32
 			if (strcmp(w->dir, idir) == 0)
 				return;
 #else
@@ -376,7 +369,7 @@ addidir(char *idir, struct incs **ww)
 				return;
 #endif
 		}
-#ifdef os_win32
+#ifdef _WIN32
 		if (strcmp(w->dir, idir) == 0)
 			return;
 #else
@@ -403,7 +396,7 @@ line(void)
 
 	if ((c = yylex()) != NUMBER)
 		goto bad;
-	ifiles->lineno = (int)(yylval.node.nd_val - 1);
+	ifiles->lineno = (int)(yynode.nd_val - 1);
 	ifiles->escln = 0;
 
 	if ((c = yylex()) == '\n')
@@ -422,10 +415,8 @@ line(void)
 		lbuf = stringbuf;
 		stringbuf += c;
 		llen = c;
-		if (stringbuf >= &sbf[SBSIZE]) {
-			stringbuf = sbf; /* need space to write error message */
+		if (stringbuf >= &sbf[SBSIZE])
 			error("#line filename exceeds buffer size");
-		}
 	}
 	memcpy(lbuf, p, c);
 	ifiles->fname = lbuf;
@@ -1054,21 +1045,15 @@ void
 warning(const char *fmt, ...)
 {
 	va_list ap;
-	usch *sb;
 
-	flbuf();
-	savch(0);
-
-	sb = stringbuf;
 	if (ifiles != NULL)
-		sheap("%s:%d: warning: ", ifiles->fname, ifiles->lineno);
+		fprintf(stderr, "%s:%d: warning: ",
+		    ifiles->fname, ifiles->lineno);
 
 	va_start(ap,fmt);
-	vsheap(fmt, ap);
+	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	savch('\n');
-	xwrite(2, sb, stringbuf - sb);
-	stringbuf = sb;
+	fputc('\n', stderr);
 
 	warnings++;
 }
@@ -1077,22 +1062,15 @@ void
 error(const char *fmt, ...)
 {
 	va_list ap;
-	usch *sb;
 
-	flbuf();
-	savch(0);
-
-	sb = stringbuf;
 	if (ifiles != NULL)
-		sheap("%s:%d: error: ", ifiles->fname, ifiles->lineno);
+		fprintf(stderr, "%s:%d: error: ",
+		    ifiles->fname, ifiles->lineno);
 
 	va_start(ap, fmt);
-	vsheap(fmt, ap);
+	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	savch('\n');
-	xwrite(2, sb, stringbuf - sb);
-	stringbuf = sb;
-
+	fputc('\n', stderr);
 	exit(1);
 }
 
@@ -1172,10 +1150,9 @@ donex(void)
 void
 savch(int c)
 {
-	if (stringbuf >= &sbf[SBSIZE]) {
-		stringbuf = sbf; /* need space to write error message */
+	if (stringbuf >= &sbf[SBSIZE])
 		error("out of macro space!");
-	}
+
 	*stringbuf++ = (usch)c;
 }
 
@@ -1310,7 +1287,7 @@ kfind(struct symtab *sp)
 	struct symtab *nl;
 	const usch *argary[MAXARGS+1], *cbp;
 	usch *sbp;
-	int c, o, chkf;
+	int c, o;
 
 	DPRINT(("%d:enter kfind(%s)\n",0,sp->namep));
 	IMP("KFIND");
@@ -1331,11 +1308,6 @@ kfind(struct symtab *sp)
 		exparg(1);
 
 upp:		sbp = stringbuf;
-		chkf = 1;
-		if (obufp != 0)
-			lastoch = outbuf[obufp-1];
-		if (iswsnl(lastoch))
-			chkf = 0;
 		if (Cflag)
 			readmac++;
 		while ((c = sloscan()) != WARN) {
@@ -1391,12 +1363,9 @@ upp:		sbp = stringbuf;
 				break;
 
 			default:
-				if (chkf && c < 127)
-					putch(' ');
 				savstr(yytext);
 				break;
 			}
-			chkf = 0;
 		}
 		if (Cflag)
 			readmac--;
@@ -1711,7 +1680,7 @@ void
 subarg(struct symtab *nl, const usch **args, int lvl)
 {
 	int narg, instr, snuff;
-	const usch *sp, *bp, *ap, *vp;
+	const usch *sp, *bp, *ap, *vp, *tp;
 
 	DPRINT(("%d:subarg '%s'\n", lvl, nl->namep));
 	vp = nl->value;
@@ -1773,26 +1742,27 @@ subarg(struct symtab *nl, const usch **args, int lvl)
 				exparg(lvl+1);
 				delwarn();
 			} else {
-			while (*bp)
-				bp++;
-			while (bp > ap) {
-				bp--;
-				if (snuff && !instr && iswsnl(*bp)) {
-					while (iswsnl(*bp))
-						bp--;
-					cunput(' ');
-				}
+				while (*bp)
+					bp++;
+				while (bp > ap) {
+					bp--;
+					if (snuff && !instr && iswsnl(*bp)) {
+						while (iswsnl(*bp))
+							bp--;
+						cunput(' ');
+					}
 
-				cunput(*bp);
-				if ((*bp == '\'' || *bp == '"')
-				     && bp[-1] != '\\' && snuff) {
-					instr ^= 1;
-					if (instr == 0 && *bp == '"')
+					cunput(*bp);
+					if (snuff && (*bp == '\'' || *bp == '"')) {
+						instr ^= 1;
+						for (tp = bp - 1; *tp == '\\'; tp--)
+							instr ^= 1;
+						if (*bp == '"')
+							cunput('\\');
+					}
+					if (snuff && instr && *bp == '\\')
 						cunput('\\');
 				}
-				if (instr && (*bp == '\\' || *bp == '"'))
-					cunput('\\');
-			}
 			}
 		} else
 			cunput(*sp);
@@ -1979,10 +1949,8 @@ savstr(const usch *str)
 	usch *rv = stringbuf;
 
 	do {
-		if (stringbuf >= &sbf[SBSIZE])   {
-			stringbuf = sbf; /* need space to write error message */
+		if (stringbuf >= &sbf[SBSIZE])
 			error("out of macro space!");
-		}
 	} while ((*stringbuf++ = *str++));
 	stringbuf--;
 	return rv;
@@ -2010,23 +1978,11 @@ unpstr(const usch *c)
 	}
 }
 
-static void
-flbuf(void)
-{
-	if (obufp == 0)
-		return;
-	if (Mflag == 0)
-		xwrite(ofd, outbuf, obufp);
-	lastoch = outbuf[obufp-1];
-	obufp = 0;
-}
-
 void
 putch(int ch)
 {
-	outbuf[obufp++] = (usch)ch;
-	if (obufp == CPPBUF || (istty && ch == '\n'))
-		flbuf();
+	if (Mflag == 0)
+		fputc(ch, stdout);
 }
 
 void
@@ -2035,9 +1991,8 @@ putstr(const usch *s)
 	for (; *s; s++) {
 		if (*s == PHOLD)
 			continue;
-		outbuf[obufp++] = *s;
-		if (obufp == CPPBUF || (istty && *s == '\n'))
-			flbuf();
+		if (Mflag == 0)
+			fputc(*s, stdout);
 	}
 }
 
@@ -2276,14 +2231,4 @@ xstrdup(const usch *str)
 	if ((rv = (usch *)strdup((const char *)str)) == NULL)
 		error("xstrdup: out of mem");
 	return rv;
-}
-
-void
-xwrite(int fd, const void *buf, unsigned int len)
-{
-	if (write(fd, buf, len) != (int)len) {
-		if (fd == 2)
-			exit(2);
-		error("write error");
-	}
 }

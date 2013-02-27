@@ -1,6 +1,5 @@
 %{
-/*	Id: scan.l,v 1.122 2014/07/03 17:30:31 ragge Exp 	*/	
-/*	$NetBSD: scan.l,v 1.5 2014/07/24 20:12:50 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2002 Anders Magnusson. All rights reserved.
@@ -162,8 +161,8 @@ extern void yyset_lineno (int);
 0[xX]{H}+{IS}?		{ yylval.nodep = cvtdig(16); return(C_ICON); }
 0{D}+{IS}?		{ yylval.nodep = cvtdig(8); return(C_ICON); }
 {D}+{IS}?		{ yylval.nodep = cvtdig(10); return(C_ICON); }
-L'(\\.|[^\\'])+'	{ yylval.nodep = wcharcon(); return(C_ICON); }
-'(\\.|[^\\'])+'		{ yylval.nodep = charcon(); return(C_ICON); }
+L'(\\.|[^\\'])*'	{ yylval.nodep = wcharcon(); return(C_ICON); }
+'(\\.|[^\\'])*'		{ yylval.nodep = charcon(); return(C_ICON); }
 
 {D}+{E}{FS}?		{ yylval.nodep = floatcon(yytext); return(C_FCON); }
 {D}*"."{D}+({E})?{FS}?	{ yylval.nodep = floatcon(yytext); return(C_FCON); }
@@ -366,7 +365,7 @@ fdecl(char *c, char **ep)
 
 	while (isdigit((int)*c)) {
 		val *= 10;
-		val += *c++;
+		val += *c++ - '0';
 		if (val > 32769)
 			val = 32769;
 	}
@@ -427,7 +426,7 @@ NODE *
 cvtdig(int radix)
 {
 	NODE *p;
-	TWORD otype, ntype;
+	TWORD ntype;
 	unsigned long long v;
 	char *ch = yytext;
 	int n, numl, numu;
@@ -463,7 +462,6 @@ cvtdig(int radix)
 	if (*ch)
 		uerror("constant has too many '%c'", *ch);
 
-	otype = ntype;
 	switch (ntype) {
 	case DOUBLE: /* special case */
 		p = block(FCON, NIL, NIL, IMAG, 0, 0);
@@ -474,37 +472,34 @@ cvtdig(int radix)
 	case LONG:
 	case LONGLONG:
 		if (radix == 10) {
-			if (otype == LONGLONG)
+			if (ntype == LONGLONG)
 				break;
-			if (v > MAX_LONG) { 
+			if (v > MAX_LONG)
 				ntype = LONGLONG;
-				if (otype == LONG)
-					break;
-			} else if (v > MAX_INT)
+			else if (v > MAX_INT)
 				ntype = LONG;
 		} else {
 			if (v > MAX_LONGLONG) {
 				ntype = ULONGLONG;
-				if (otype == LONGLONG)
-					break;
 			} else if (v > MAX_ULONG) {
-				ntype = LONGLONG;
+				if (ntype < LONGLONG)
+					ntype = LONGLONG;
 			} else if (v > MAX_LONG) {
-				ntype = ULONG;
-				if (otype == LONG)
-					break;
+				if (ntype < ULONG)
+					ntype = ULONG;
 			} else if (v > MAX_UNSIGNED) {
-				ntype = LONG;
-			} else if (v > MAX_INT)
-				ntype = UNSIGNED;
+				if (ntype < LONG)
+					ntype = LONG;
+			} else if (v > MAX_INT) {
+				if (ntype < UNSIGNED)
+					ntype = UNSIGNED;
+			}
 		}
 		break;
 	case UNSIGNED:
 	case ULONG:
 		if (v > MAX_ULONG) {
 			ntype = ULONGLONG;
-			if (otype == ULONG)
-				break;
 		} else if (v > MAX_UNSIGNED)
 			ntype = ULONG;
 		break;	
@@ -518,31 +513,108 @@ cvtdig(int radix)
 }
 
 /*
- * Convert a character constant to an 8-bit integer.
+ * return value of escaped character constant
+ */
+unsigned int
+esccon(char **sptr)
+{
+	unsigned int val;
+	char *wr = *sptr;
+	char c;
+
+	wr++;	/* skip \ */
+	switch (c = *wr++) {
+	case 'a': val = '\a'; break;
+	case 'b': val = '\b'; break;
+#ifdef GCC_COMPAT
+	case 'e': val = '\033'; break;
+#endif
+	case 'f': val = '\f'; break;
+	case 'n': val = '\n'; break;
+	case 'r': val = '\r'; break;
+	case 't': val = '\t'; break;
+	case 'v': val = '\v'; break;
+
+	case '\"': val = '\"'; break;
+	case '\'': val = '\''; break;
+	case '\?': val = '\?'; break;
+	case '\\': val = '\\'; break;
+
+	case 'x':
+		val = 0;
+		for (;;) {
+			c = *wr;
+			if (c >= '0' && c <= '9')
+				c = c - '0';
+			else if (c >= 'a' && c <= 'f')
+				c = c - 'a' + 10;
+			else if (c >= 'A' && c <= 'F')
+				c = c - 'A' + 10;
+			else
+				break;
+
+			val = (val << 4) + c;
+			wr++;
+		}
+		break;
+
+	case '0': case '1': case '2': case '3':
+	case '4': case '5': case '6': case '7':
+		val = (c - '0');
+		c = *wr;
+		if (c >= '0' && c <= '7') {
+			wr++;
+			val = (val << 3) + (c - '0');
+			c = *wr;
+			if (c >= '0' && c <= '7') {
+				wr++;
+				val = (val << 3) + (c - '0');
+			}
+		}
+		break;
+
+	default:
+		werror("unknown escape sequence \\%c", c);
+		val = c;
+		break;
+	}
+
+	*sptr = wr;
+	return val;
+}
+
+/*
+ * Convert a character constant to an int
  */
 NODE *
 charcon(void)
 {
-	int val = 0, i = 0;
+	unsigned int val = 0, i = 0;
 	char *pp = yytext;
 
-	if (*pp == 'L')
-		pp++;
-	pp++;
+	pp++;	/* skip ' */
 	while (*pp != '\'') {
-		val=esc2char(&pp);
+		if (*pp == '\\')
+			val = esccon(&pp);
+		else
+			val = *pp++;
+
 		i++;
 	}
 
 	if (i == 0)
 		uerror("empty character constant");
 	else if (i > 1)
-		werror("%d too many characters in character constant",i-1);
+		werror("too many characters in character constant");
+
+	if (xuchar == 0 && val > MAX_CHAR)
+		val -= (MAX_UCHAR + 1);
+
 	return bcon(val);
 }
 
 /*
- * Convert a utf-8 character constant to an 32-bit integer.
+ * Convert a wide-character constant to an unsigned int
  */
 NODE *
 wcharcon(void)
@@ -550,19 +622,27 @@ wcharcon(void)
 	unsigned int val = 0, i = 0;
 	char *pp = yytext;
 
-	if (*pp == 'L')
-		pp++;
-	pp++;
+	pp++;	/* skip L */
+	pp++;	/* skip ' */
 	while (*pp != '\'') {
-		if(*pp == '\\') val=esc2char(&pp);
-		else val=u82cp(&pp);
+		/*
+		 * although u82cp() does handle escaped values, we deal
+		 * with them directly since otherwise you can't process
+		 * values which might be valid utf8 prefix
+		 */
+		if (*pp == '\\')
+			val = esccon(&pp);
+		else
+			val = u82cp(&pp);
+
 		i++;
 	}
 
 	if (i == 0)
 		uerror("empty wide-character constant");
-	if (i > 1)
-		werror("%d too many characters in wide-character constant",i-1);
+	else if (i > 1)
+		werror("too many characters in wide-character constant");
+
 	return xbcon(val, NULL, ctype(UNSIGNED));
 }
 

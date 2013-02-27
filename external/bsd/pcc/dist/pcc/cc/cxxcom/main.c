@@ -1,5 +1,4 @@
-/*	Id: main.c,v 1.5 2014/04/09 10:01:24 plunky Exp 	*/	
-/*	$NetBSD: main.c,v 1.1.1.3 2014/07/24 19:26:25 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2002 Anders Magnusson. All rights reserved.
@@ -40,7 +39,7 @@
 #include "pass2.h"
 
 int bdebug, ddebug, edebug, idebug, ndebug;
-int odebug, pdebug, sdebug, tdebug, xdebug, cppdebug;
+int odebug, pdebug, sdebug, tdebug, xdebug, cppdebug, wdebug;
 int b2debug, c2debug, e2debug, f2debug, g2debug, o2debug;
 int r2debug, s2debug, t2debug, u2debug, x2debug;
 int gflag, kflag, pflag, sflag;

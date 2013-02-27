@@ -1,5 +1,4 @@
-/*	Id: cgram.y,v 1.7 2014/06/06 13:19:03 plunky Exp 	*/	
-/*	$NetBSD: cgram.y,v 1.1.1.2 2014/07/24 19:25:26 plunky Exp $	*/
+/*	Id	*/
 
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
@@ -970,7 +969,7 @@ statement:	   e ';' { /* fwalk($1, eprint, 0); */ ecomp(eve($1)); symclear(bleve
 				uerror("return value required");
 			rch:
 			if (!reached)
-				warner(Wunreachable_code, NULL);
+				warner(Wunreachable_code);
 			reached = 0;
 		}
 		|  C_RETURN e  ';' {

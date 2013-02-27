@@ -1,5 +1,4 @@
-/*	Id: table.c,v 1.140 2014/07/03 14:31:36 ragge Exp 	*/	
-/*	$NetBSD: table.c,v 1.1.1.5 2014/07/24 19:17:34 plunky Exp $	*/
+/*	Id	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -425,7 +424,7 @@ struct optab table[] = {
 		"	subl $16,%esp\n"
 		"	fnstcw (%esp)\n"
 		"	fnstcw 4(%esp)\n"
-		"	movb $15,1(%esp)\n"	/* 64-bit prec */
+		"	movb $7,1(%esp)\n"	/* 64-bit, round down  */
 		"	fldcw (%esp)\n"
 		"	movl $0x5f000000, 8(%esp)\n"	/* (float)(1<<63) */
 		"	fsubs 8(%esp)\n"	/* keep in range of fistpq */
@@ -1100,8 +1099,8 @@ struct optab table[] = {
 { STASG,	INAREG|FOREFF,
 	SOREG|SNAME,	TANY,
 	SAREG,		TPTRTO|TANY,
-		NSPECIAL,	RDEST,
-		"ZQ", },
+		NSPECIAL|NAREG,	RDEST,
+		"F	movl %esi,A1\nZQF	movl A1,%esi\n", },
 
 /*
  * DIV/MOD/MUL 
@@ -1300,7 +1299,7 @@ struct optab table[] = {
 { OPLOG,	FORCC,
 	SDREG,	TLDOUBLE|TDOUBLE|TFLOAT,
 	SDREG,	TLDOUBLE|TDOUBLE|TFLOAT,
-		0, 	RNOP,
+		NSPECIAL, 	RNOP,
 		"ZG", },
 
 { OPLOG,	FORCC,
