@@ -1,26 +1,29 @@
-#	$NetBSD: Makefile,v 1.8 2011/09/01 13:00:15 plunky Exp $
+#	$NetBSD$
 
 WARNS?=	2
 
 .include <bsd.init.mk>
 
-.PATH: ${PCC_DIST}/cc/cc
+.PATH: ${PCC_DIST}/cc/cc ${PCC_DIST}/cc/driver
 
 #
 # we build PCC cc(1) as pcc(1) to avoid conflicts with GCC
 #
 
 PROG=	pcc
-SRCS=	cc.c
+SRCS=	cc.c strlist.c xalloc.c
 MAN=	pcc.1
 
-CPPFLAGS+=	-DTARGOS=\"${TARGOS}\"
-CPPFLAGS+=	-DTARGMACH=\"${TARGMACH}\"
 CPPFLAGS+=	-DLIBEXECDIR=\"/usr/libexec/\"
 CPPFLAGS+=	-DINCLUDEDIR=\"/usr/include/\"
+CPPFLAGS+=	-I${PCC_DIST}/cc/driver
 CPPFLAGS+=	-I${PCC_DIST}/mip
 CPPFLAGS+=	-I${PCC_DIST}/os/${TARGOS}
 CPPFLAGS+=	-I${PCC_DIST}/arch/${TARGMACH}
+
+CPPDEST=	${BINDIR}/pcpp
+CPPFLAGS+=	-DCPPROGNAME=\"$(CPPDEST)\"
+LINKS+=	${BINDIR}/pcc	$(CPPDEST)
 
 pcc.1:	cc.1
 	${TOOL_SED} -e "s,Nm cc,Nm pcc,"	\
