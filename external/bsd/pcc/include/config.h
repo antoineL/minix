@@ -152,10 +152,10 @@
 /* #define TARGET_LITTLE_ENDIAN 1 */
 
 /* Enable thread-local storage (TLS). */
-#define TLS 1
+/* #undef TLS */
 
 /* Version string */
-/* #define VERSSTR "pcc 1.1.0.DEVEL 20130217 for i386-unknown-netbsdelf6.0" */
+/* #define VERSSTR "pcc 1.1.0.DEVEL 20130217 for i686-pc-minix" */
 
 /* Size of wide-character type in chars */
 #define WCHAR_SIZE 4
