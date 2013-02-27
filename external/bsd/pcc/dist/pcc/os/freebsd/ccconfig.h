@@ -27,21 +27,12 @@
  * SUCH DAMAGE.
  */
 
-#ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
-#endif
-
 #define CPPADD { "-D__FreeBSD__=" MKS(TARGOSVER), "-D__ELF__", \
 	"-D__unix__=1", "-D__unix=1", NULL, }
 
 /* host-dependent */
-#define CRT0FILE LIBDIR "crt1.o"
-#define CRT0FILE_PROFILE LIBDIR "gcrt1.o"
-#define STARTFILES { LIBDIR "crti.o", LIBDIR "crtbegin.o", NULL }
-#define ENDFILES { LIBDIR "crtend.o", LIBDIR "crtn.o", NULL }
-#define STARTFILES_S { LIBDIR "crti.o", LIBDIR "crtbeginS.o", NULL }
-#define ENDFILES_S { LIBDIR "crtendS.o", LIBDIR "crtn.o", NULL }
-#define LIBCLIBS { "-lc", "-lpcc", NULL }
+#define CRT0		"crt1.o"
+#define GCRT0		"gcrt1.o"
 #define STARTLABEL "_start"
 
 /* host-independent */
@@ -50,8 +41,12 @@
 #if defined(mach_i386)
 #define CPPMDADD { "-D__i386__", "-D__i386", NULL, }
 #elif defined(mach_amd64)
+#define	AMD64_32_EMUL	"elf_i386_fbsd"
+#define	AMD64_64_EMUL	"elf_x86_64_fbsd"
+#include "../inc/amd64.h"
+#elif defined(mach_sparc64)
 #define CPPMDADD \
-	{ "-D__x86_64__", "-D__x86_64", "-D__amd64__", "-D__amd64", \
+	{ "-D__sparc64__", "-D__sparc_v9__", "-D__sparc__", "-D__sparc",\
 	  "-D__LP64__=1", "-D_LP64=1", NULL, }
 #else
 #error defines for arch missing

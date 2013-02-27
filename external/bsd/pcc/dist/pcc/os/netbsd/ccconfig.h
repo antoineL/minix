@@ -31,33 +31,8 @@
  * Various settings that controls how the C compiler works.
  */
 
-#ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
-#endif
-
 /* common cpp predefines */
 #define	CPPADD	{ "-D__NetBSD__", "-D__ELF__", NULL, }
-
-/* host-dependent */
-#define CRT0FILE LIBDIR "crt0.o"
-#define CRT0FILE_PROFILE LIBDIR "gcrt0.o"
-
-#if TARGOSVER == 1
-#define STARTFILES { LIBDIR "crtbegin.o", NULL }
-#define	ENDFILES { LIBDIR "crtend.o", NULL }
-#else
-#define STARTFILES { LIBDIR "crti.o", LIBDIR "crtbegin.o", NULL }
-#define	ENDFILES { LIBDIR "crtend.o", LIBDIR "crtn.o", NULL }
-#endif
-
-/* shared libraries linker files */
-#if TARGOSVER == 1
-#define STARTFILES_S { LIBDIR "crtbeginS.o", NULL }
-#define	ENDFILES_S { LIBDIR "crtendS.o", NULL }
-#else
-#define STARTFILES_S { LIBDIR "crti.o", LIBDIR "crtbeginS.o", NULL }
-#define	ENDFILES_S { LIBDIR "crtendS.o", LIBDIR "crtn.o", NULL }
-#endif
 
 #ifdef LANG_F77
 #define F77LIBLIST { "-L/usr/local/lib", "-lF77", "-lI77", "-lm", "-lc", NULL };
@@ -65,6 +40,12 @@
 
 /* host-independent */
 #define	DYNLINKER { "-dynamic-linker", "/usr/libexec/ld.elf_so", NULL }
+
+#define CRTEND_T	"crtend.o"
+
+#define DEFLIBS		{ "-lc", NULL }
+#define DEFPROFLIBS	{ "-lc_p", NULL }
+#define DEFCXXLIBS	{ "-lp++", "-lc", NULL }
 
 #if defined(mach_amd64)
 #define CPPMDADD \
@@ -85,6 +66,7 @@
 #define STARTLABEL "_start"
 #elif defined(mach_vax)
 #define CPPMDADD { "-D__vax__", NULL, }
+#define	PCC_EARLY_SETUP { kflag = 1; }
 #elif defined(mach_sparc64)
 #define CPPMDADD { "-D__sparc64__", NULL, }
 #else

@@ -115,7 +115,7 @@ defloc(struct symtab *sp)
  * deals with struct return here
  */
 void
-efcode()
+efcode(void)
 {
 	extern int gotnr;
 	NODE *p, *q;
@@ -284,7 +284,7 @@ struct stub nlplist;
 /* called just before final exit */
 /* flag is 1 if errors, 0 if none */
 void
-ejobcode(int flag )
+ejobcode(int flag)
 {
 #if defined(MACHOABI)
 	/*
@@ -315,7 +315,7 @@ ejobcode(int flag )
 }
 
 void
-bjobcode()
+bjobcode(void)
 {
 #ifdef os_sunos
 	astypnames[SHORT] = astypnames[USHORT] = "\t.2byte";
@@ -384,3 +384,67 @@ mygenswitch(int num, TWORD type, struct swents **p, int n)
 {
 	return 0;
 }
+
+NODE *	
+builtin_return_address(const struct bitable *bt, NODE *a)
+{	
+	int nframes;
+	NODE *f; 
+	
+	if (a->n_op != ICON)
+		goto bad;
+
+	nframes = (int)a->n_lval;
+  
+	tfree(a);	
+			
+	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);
+	regno(f) = FPREG;
+ 
+	while (nframes--)
+		f = block(UMUL, f, NIL, PTR+VOID, 0, 0);
+				    
+	f = block(PLUS, f, bcon(4), INCREF(PTR+VOID), 0, 0);
+	f = buildtree(UMUL, f, NIL);	
+   
+	return f;
+bad:						
+	uerror("bad argument to __builtin_return_address");
+	return bcon(0);
+}
+
+NODE *
+builtin_frame_address(const struct bitable *bt, NODE *a)
+{
+	int nframes;
+	NODE *f;
+
+	if (a->n_op != ICON)
+		goto bad;
+
+	nframes = (int)a->n_lval;
+
+	tfree(a);
+
+	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);
+	regno(f) = FPREG;
+
+	while (nframes--)
+		f = block(UMUL, f, NIL, PTR+VOID, 0, 0);
+
+	return f;
+bad:
+	uerror("bad argument to __builtin_frame_address");
+	return bcon(0);
+}
+
+/*
+ * Return "canonical frame address".
+ */
+NODE *
+builtin_cfa(const struct bitable *bt, NODE *a)
+{
+	uerror("missing builtin_cfa");
+	return bcon(0);
+}
+

@@ -12,8 +12,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -34,32 +32,22 @@
 /* common cpp predefines */
 #define CPPADD	{ "-D__linux__", "-D__ELF__", NULL, }
 
-#define CRT0FILE LIBDIR "crt1.o"
-#define CRT0FILE_PROFILE LIBDIR "gcrt1.o"
-
-#define LIBCLIBS { "-lc", "-lpcc", NULL }
-#define LIBCLIBS_PROFILE LIBCLIBS
-
-#define STARTFILES { LIBDIR "crti.o", PCCLIBDIR "crtbegin.o", NULL }
-#define ENDFILES { PCCLIBDIR "crtend.o", LIBDIR "crtn.o", NULL }
-
-#define STARTFILES_S { LIBDIR "crti.o", PCCLIBDIR "crtbegin.o", NULL }
-#define ENDFILES_S { PCCLIBDIR "crtend.o", LIBDIR "crtn.o", NULL }
+#define CRT0		"crt1.o"
+#define GCRT0		"gcrt1.o"
 
 #define STARTLABEL "_start"
 
 #if defined(mach_i386)
-#define CPPMDADD { "-D__i386__", NULL, }
-#define DYNLINKER { "-dynamic-linker", "/lib/ld-linux.so.2", NULL }
+#define CPPMDADD	{ "-D__i386__", NULL, }
+#define DYNLINKER	{ "-dynamic-linker", "/lib/ld-linux.so.2", NULL }
 #elif defined(mach_powerpc)
-#define CPPMDADD { "-D__ppc__", NULL, }
-#define DYNLINKER { "-dynamic-linker", "/lib/ld-linux.so.2", NULL }
+#define CPPMDADD	{ "-D__ppc__", NULL, }
+#define DYNLINKER	{ "-dynamic-linker", "/lib/ld-linux.so.2", NULL }
 #elif defined(mach_amd64)
-#define CPPMDADD { "-D__x86_64__", NULL, }
+#define CPPMDADD	{ "-D__x86_64__", "-D__x86_64", "-D__amd64__", \
+	"-D__amd64", "-D__LP64__", "-D_LP64", NULL, }
 #define	DYNLINKER { "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2", NULL }
-#ifndef LIBDIR
-#define	LIBDIR "/usr/lib64/"
-#endif
+#define	DEFLIBDIRS	{ "/usr/lib64/", 0 }
 #elif defined(mach_mips)
 #define CPPMDADD { "-D__mips__", NULL, }
 #define DYNLINKER { "-dynamic-linker", "/lib/ld.so.1", NULL }
@@ -67,6 +55,13 @@
 #error defines for arch missing
 #endif
 
-#ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
+/* fixup small m options */
+#if defined(mach_amd64)
+#define PCC_EARLY_ARG_CHECK	{					\
+	if (match(argp, "-m32")) {					\
+		argp = "-melf_i386";					\
+	} else if (match(argp, "-m64")) {				\
+		argp = "-melf_x86_64";					\
+	}								\
+}
 #endif

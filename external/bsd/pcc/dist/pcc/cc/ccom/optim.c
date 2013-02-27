@@ -193,10 +193,8 @@ again:	o = p->n_op;
 			} else
 #endif
 			/* avoid larger shifts than type size */
-			if (RV(p) >= sz) {
-				RV(p) = RV(p) % sz;
+			if (RV(p) >= sz)
 				werror("shift larger than type");
-			}
 			if (RV(p) == 0)
 				p = zapleft(p);
 		}
@@ -234,13 +232,25 @@ again:	o = p->n_op;
 			} else
 #endif
 			/* avoid larger shifts than type size */
-			if (RV(p) >= sz) {
-				RV(p) = RV(p) % sz;
+			if (RV(p) >= sz)
 				werror("shift larger than type");
-			}
 			if (RV(p) == 0)  
 				p = zapleft(p);
 		}
+		break;
+
+	case QUEST:
+		if (!LCON(p))
+			break;
+		if (LV(p) == 0) {
+			q = p->n_right->n_right;
+		} else {
+			q = p->n_right->n_left;
+			p->n_right->n_left = p->n_right->n_right;
+		}
+		p->n_right->n_op = UMUL; /* for tfree() */
+		tfree(p);
+		p = q;
 		break;
 
 	case MINUS:
@@ -252,7 +262,7 @@ again:	o = p->n_op;
 		if( !nncon(p->n_right) ) break;
 		RV(p) = -RV(p);
 		o = p->n_op = PLUS;
-
+		/* FALLTHROUGH */
 	case MUL:
 		/*
 		 * Check for u=(x-y)+z; where all vars are pointers to
@@ -262,7 +272,7 @@ again:	o = p->n_op;
 		 *    calculation do not give correct result if using
 		 *    unaligned structs.
 		 */
-		if (p->n_type == INTPTR && RCON(p) &&
+		if (o == MUL && p->n_type == INTPTR && RCON(p) &&
 		    LO(p) == DIV && RCON(p->n_left) &&
 		    RV(p) == RV(p->n_left) &&
 		    LO(p->n_left) == MINUS) {
@@ -380,6 +390,18 @@ again:	o = p->n_op;
 	case ULE:
 	case UGT:
 	case UGE:
+		if (LCON(p) && RCON(p) &&
+		    !ISPTR(p->n_left->n_type) && !ISPTR(p->n_right->n_type)) {
+			/* Do constant evaluation */
+			q = p->n_left;
+			if (conval(q, o, p->n_right)) {
+				nfree(p->n_right);
+				nfree(p);
+				p = q;
+				break;
+			}
+		}
+
 		if( !LCON(p) ) break;
 
 		/* exchange operands */
@@ -389,6 +411,20 @@ again:	o = p->n_op;
 		p->n_right = sp;
 		p->n_op = revrel[p->n_op - EQ ];
 		break;
+
+	case CBRANCH:
+		if (LCON(p)) {
+			if (LV(p) == 0) {
+				tfree(p);
+				p = bcon(0);
+			} else {
+				tfree(p->n_left);
+				p->n_left = p->n_right;
+				p->n_op = GOTO;
+			}
+		}
+		break;
+				
 
 #ifdef notyet
 	case ASSIGN:
@@ -419,7 +455,8 @@ ispow2(CONSZ c)
 }
 
 int
-nncon( p ) NODE *p; {
+nncon(NODE *p)
+{
 	/* is p a constant without a name */
 	return( p->n_op == ICON && p->n_sp == NULL );
-	}
+}
