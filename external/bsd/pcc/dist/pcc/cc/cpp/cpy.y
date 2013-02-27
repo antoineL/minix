@@ -62,11 +62,11 @@
  */
 
 %{
+#include "config.h"
 
 #include "cpp.h"
 
 void yyerror(const char *);
-int yylex(void);
 int setd(int l, int r);
 
 #define	EVALUNARY(tok, l, r) l.nd_val = tok r.nd_val; l.op = r.op

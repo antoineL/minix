@@ -201,14 +201,14 @@ struct optab  table[] = {
 		"	cmpb	AL,AR\n", },
 
 { OPLOG,	FORCC,
-	SAREG|AWD,	TDOUBLE,
-	SAREG|AWD,	TDOUBLE,
+	SBREG|AWD,	TDOUBLE,
+	SBREG|AWD,	TDOUBLE,
 		0,	RESCC,
 		"	cmpd	AL,AR\n", },
 
 { OPLOG,	FORCC,
-	SAREG|AWD,	TFLOAT|TDOUBLE,
-	SAREG|AWD,	TFLOAT|TDOUBLE,
+	SAREG|AWD,	TFLOAT,
+	SAREG|AWD,	TFLOAT,
 		0,	RESCC,
 		"	cmpf	AL,AR\n", },
 
@@ -294,6 +294,7 @@ struct optab  table[] = {
 		NAREG|NASL,	RESC1,	/* should be 0 */
 		"	calls	ZC,(AL)\n", },
 
+#if 0
 { UCALL,	FOREFF,
 	SNAME,	TANY,
 	SANY,	TANY,
@@ -317,6 +318,7 @@ struct optab  table[] = {
 	SANY,	TAREG,
 		NAREG|NASL,	RESC1,	/* really reg 0 */
 		"	calls	ZC,*AL\n", },
+#endif
 
 { STCALL,	INAREG,
 	SCON,	TANY,
@@ -324,7 +326,23 @@ struct optab  table[] = {
 		NAREG|NASL,	RESC1, /* should be register 0 */
 		"	calls	ZC,CL\n", },
 
+{ STCALL,	FOREFF,
+	SCON,	TANY,
+	SANY,	TAREG,
+		NAREG|NASL,	0, /* should be register 0 */
+		"	calls	ZC,CL\n", },
 
+{ STCALL,	INAREG,
+	SAREG,	TANY,
+	SANY,	TAREG,
+		NAREG|NASL,	RESC1,	/* should be 0 */
+		"	calls	ZC,(AL)\n", },
+
+{ STCALL,	FOREFF,
+	SAREG,	TANY,
+	SANY,	TAREG,
+		NAREG|NASL,	0,	/* should be 0 */
+		"	calls	ZC,(AL)\n", },
 
 /*
  * Function arguments
@@ -342,12 +360,15 @@ struct optab  table[] = {
 		"	movq	AL,-(%sp)\n" },
 
 /* RS for signed <= int converted to negative LS */
-/* RS longlong converted to function call */
+#if 0
+/* RS ulonglong converted to function call */
+/* RS longlong converted to negative LS */
 { RS,	INBREG|FORCC,
 	SBREG|AWD,		TLONGLONG,
 	SAREG|SBREG|AWD,	TANY,
 		NBREG|NBSL|NBSR,	RESC1|RESCC,
 		"	ashq	AR,AL,A1\n", },
+#endif
 
 { RS,	INAREG|FORCC,
 	SAREG,		TUCHAR,
@@ -372,6 +393,13 @@ struct optab  table[] = {
 	SCON,	TANY,
 		NAREG|NASL,	RESC1|RESCC,
 		"	extzv	AR,ZU,AL,A1\n", },
+
+/* extv only for short and char, rest uses ashl/q */
+{ RS,	INAREG|FORCC,
+	SAREG,	TSHORT|TCHAR,
+	SCON,	TANY,
+		NAREG|NASL,	RESC1|RESCC,
+		"	extv	AR,ZU,AL,A1\n", },
 
 { LS,	INBREG|FORCC,
 	SBREG|AWD,	TLL,
@@ -489,8 +517,8 @@ struct optab  table[] = {
 		"	HELP HELP HELP\n", },
 
 { UMUL, INBREG,
-	SANY,	TPOINT|TLL,
-	SOREG,	TPOINT|TLL,
+	SANY,	TPOINT,
+	SOREG,	TBREG,
 		NBREG|NBSL,	RESC1,
 		"	movq AL,A1\n", },
 
@@ -598,6 +626,12 @@ struct optab  table[] = {
 	SAREG|AWD,	TAREG|TDOUBLE,
 	SANY,	TANY,
 		NAREG|NASL,	RESC1|RESCC,
+		"	mnegZL	AL,A1\n", },
+
+{ UMINUS,	INBREG|FORCC,
+	SBREG|AWD,	TDOUBLE,
+	SANY,	TANY,
+		NBREG|NASL,	RESC1|RESCC,
 		"	mnegZL	AL,A1\n", },
 
 { COMPL,	INBREG,

@@ -681,13 +681,13 @@ INSTALL_SCRIPT
 INSTALL_DATA
 YACC
 YFLAGS
-strip
 LEX
 LEX_OUTPUT_ROOT
 LEXLIB
 targos
 targosver
 targmach
+hostos
 ADD_CFLAGS
 ADD_CPPFLAGS
 LIBOBJS
@@ -1280,8 +1280,10 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-tls            Enable Thread-local storage (TLS).
+  --enable-Werror         Enable use of compiler -Werror flag
   --disable-gcc-compat    Disable GCC compatibility
   --disable-pcc-debug     Disable PCC debugging
+  --disable-stripping     Disable stripping of symbols in installed binaries
   --enable-native         Build the compiler as a native rather than
                           cross-build compiler
 
@@ -1907,6 +1909,7 @@ targosver=0
 tls=no
 gcccompat=yes
 pccdebug=yes
+stripping=yes
 native=no
 useyasm=no
 stabs=no
@@ -1974,6 +1977,7 @@ case "$target_os" in
 	esac
 	case "$target_cpu" in
 	    i386) targmach=i386 ;;
+	    sparc64) targmach=sparc64 endian=big ;;
 	    x86_64) targmach=amd64 ;;
 	esac
 	;;
@@ -2088,6 +2092,14 @@ case "$target_os" in
 	esac
 	;;
 
+    sysv4*)
+	targos=sysv4
+	abi=elf
+	case "$target_cpu" in
+	    i?86) targmach=i386 ;;
+	esac
+	;;
+
     sunos*|solaris*)
         targos=sunos
         abi=elf
@@ -2123,24 +2135,61 @@ fi
 
 case "$host_os" in
 
-    pe*)
+    apple)
+        hostos=apple
+	;;
+    bsd)
+        hostos=bsd
+	;;
+    darwin*)
+	echo $targosver
+	if test "$targosver" -ge 10 ; then
+		targmach=amd64
+	fi
+	hostos=darwin
+	;;
+    dragonfly*)
+        hostos=dragonfly
+	;;
+    freebsd*)
+        hostos=freebsd
+	;;
+    linux*)
+        hostos=linux
+	;;
+    midnightbsd*)
+        hostos=midnightbsd
+	;;
+    mingw*)
+        hostos=win32
+	;;
+    minix*)
+        hostos=minix
+	;;
+    mirbsd*)
+        hostos=mirbsd
+	;;
+    netbsd*)
+        hostos=netbsd
+	;;
+    nextstep*)
+        hostos=nextstep
+	;;
+    openbsd*)
+        hostos=openbsd
+	;;
+    sunos*|solaris*)
+	ADD_CPPFLAGS="$ADD_CPPFLAGS -D_XOPEN_SOURCE=600"
+        hostos=sunos
+	;;
+    pe*|windows*)
 	# quick hack for cross-build to win32 host
+	hostos=win32
 	if "$prefix" = NONE; then
 		prefix="c:/pcc"
 		assembler="yasm.exe -p gnu -f win32"
 		linker="link.exe /nologo"
 		ADD_CPPFLAGS="$ADD_CPPFLAGS -DMSLINKER"
-	fi
-	;;
-
-    sunos*|solaris*)
-	ADD_CPPFLAGS="$ADD_CPPFLAGS -D_XOPEN_SOURCE=600"
-	;;
-
-    darwin*)
-	echo $targosver
-	if test "$targosver" -ge 10 ; then
-		targmach=amd64
 	fi
 	;;
 
@@ -2243,6 +2292,14 @@ cat >>confdefs.h <<\_ACEOF
 _ACEOF
 
 fi
+# Check whether --enable-Werror was given.
+if test "${enable_Werror+set}" = set; then
+  enableval=$enable_Werror; werror=$enableval
+fi
+
+if test "$werror" = "yes"; then
+	ADD_CFLAGS="$ADD_CFLAGS -Werror"
+fi
 # Check whether --enable-gcc-compat was given.
 if test "${enable_gcc_compat+set}" = set; then
   enableval=$enable_gcc_compat; gcccompat=$enableval
@@ -2259,6 +2316,21 @@ fi
 if test "$pccdebug" = "yes"; then
 	ADD_CPPFLAGS="$ADD_CPPFLAGS -DPCC_DEBUG";
 fi
+
+# Check whether --enable-stripping was given.
+if test "${enable_stripping+set}" = set; then
+  enableval=$enable_stripping; stripping=$enableval
+fi
+
+if test "$stripping" = "yes"; then
+	if test -z "$INSTALL_PROGRAM"; then
+		INSTALL_PROGRAM='${INSTALL} -s'
+	else
+		{ echo "$as_me:$LINENO: WARNING: Installed binaries may be unstripped" >&5
+echo "$as_me: WARNING: Installed binaries may be unstripped" >&2;}
+	fi
+fi
+
 
 # Check whether --with-yasm was given.
 if test "${with_yasm+set}" = set; then
@@ -3286,19 +3358,63 @@ for flag in $DESIRED_FLAGS
 do
 	{ echo "$as_me:$LINENO: checking whether $CC accepts $flag" >&5
 echo $ECHO_N "checking whether $CC accepts $flag... $ECHO_C" >&6; }
-	cat >conftest.$ac_ext <<_ACEOF
-int main() { return 0; }
+	cflags="$CFLAGS"
+	CFLAGS="$CFLAGS $flag"
+
+cat >conftest.$ac_ext <<_ACEOF
+
+	    /* confdefs.h.  */
 _ACEOF
-	$CC $CFLAGS $flag -c conftest.c > /dev/null 2> /dev/null
-	if test $? = 0 ; then
-		ADD_CFLAGS="$ADD_CFLAGS $flag"
-		{ echo "$as_me:$LINENO: result: yes" >&5
-echo "${ECHO_T}yes" >&6; };
-	else
-		{ echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6; };
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+
+_ACEOF
+rm -f conftest.$ac_objext
+if { (ac_try="$ac_compile"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_compile") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest.$ac_objext; then
+
+	    use_flag=yes
+
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+
+	    use_flag=no
+
+fi
+
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+	CFLAGS="$cflags"
+
+	{ echo "$as_me:$LINENO: result: $use_flag" >&5
+echo "${ECHO_T}$use_flag" >&6; }
+	if test $use_flag = yes; then
+	    ADD_CFLAGS="$ADD_CFLAGS $flag"
 	fi
-	rm -f conftest.o
 done
 
 # setup for cross-compiling mkext
@@ -3355,7 +3471,6 @@ echo "${ECHO_T}not cross compiling" >&6; }
         CC_FOR_BUILD=${CC-cc}
 
 fi
-
 
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
@@ -3995,12 +4110,12 @@ done
 
 { echo "$as_me:$LINENO: checking for C99 printf size specifiers" >&5
 echo $ECHO_N "checking for C99 printf size specifiers... $ECHO_C" >&6; }
-if test "${ac_have_c99_format+set}" = set; then
+if test "${ac_cv_have_c99_format+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
 else
 
   if test "$cross_compiling" = yes; then
-   ac_have_c99_format=yes
+   ac_cv_have_c99_format=yes
 else
   cat >conftest.$ac_ext <<_ACEOF
 
@@ -4044,14 +4159,14 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
   ac_status=$?
   echo "$as_me:$LINENO: \$? = $ac_status" >&5
   (exit $ac_status); }; }; then
-   ac_have_c99_format=yes
+   ac_cv_have_c99_format=yes
 else
   echo "$as_me: program exited with status $ac_status" >&5
 echo "$as_me: failed program was:" >&5
 sed 's/^/| /' conftest.$ac_ext >&5
 
 ( exit $ac_status )
- ac_have_c99_format=no
+ ac_cv_have_c99_format=no
 fi
 rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext conftest.$ac_objext conftest.$ac_ext
 fi
@@ -4059,62 +4174,12 @@ fi
 
 
 fi
-{ echo "$as_me:$LINENO: result: $ac_have_c99_format" >&5
-echo "${ECHO_T}$ac_have_c99_format" >&6; }
-if test $ac_have_c99_format = yes; then
+{ echo "$as_me:$LINENO: result: $ac_cv_have_c99_format" >&5
+echo "${ECHO_T}$ac_cv_have_c99_format" >&6; }
+if test $ac_cv_have_c99_format = yes; then
 
 cat >>confdefs.h <<\_ACEOF
 #define HAVE_C99_FORMAT 1
-_ACEOF
-
-fi
-
-{ echo "$as_me:$LINENO: checking for C99 variadic macro support" >&5
-echo $ECHO_N "checking for C99 variadic macro support... $ECHO_C" >&6; }
-if test "${ac_have_variadic+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-
-  cat >conftest.$ac_ext <<_ACEOF
-
-	#define macro(...) func(__VA_ARGS__)
-	int func(int a, ...);
-	int test() { return macro(1, 2, 3); }
-
-_ACEOF
-rm -f conftest.$ac_objext
-if { (ac_try="$ac_compile"
-case "(($ac_try" in
-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-  *) ac_try_echo=$ac_try;;
-esac
-eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
-  (eval "$ac_compile") 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } && {
-	 test -z "$ac_c_werror_flag" ||
-	 test ! -s conftest.err
-       } && test -s conftest.$ac_objext; then
-   ac_have_variadic=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-	 ac_have_variadic=no
-fi
-
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ echo "$as_me:$LINENO: result: $ac_have_variadic" >&5
-echo "${ECHO_T}$ac_have_variadic" >&6; }
-if test $ac_have_variadic = yes ; then
-
-cat >>confdefs.h <<\_ACEOF
-#define HAVE_CPP_VARARG_MACRO_GCC 1
 _ACEOF
 
 fi
@@ -4361,7 +4426,6 @@ presetting ac_cv_c_bigendian=no (or yes) will help" >&2;}
 esac
 
 
-
 # Checks for programs.
 { echo "$as_me:$LINENO: checking whether ${MAKE-make} sets \$(MAKE)" >&5
 echo $ECHO_N "checking whether ${MAKE-make} sets \$(MAKE)... $ECHO_C" >&6; }
@@ -4515,45 +4579,6 @@ fi
   test -n "$YACC" && break
 done
 test -n "$YACC" || YACC="yacc"
-
-# Extract the first word of "strip", so it can be a program name with args.
-set dummy strip; ac_word=$2
-{ echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
-if test "${ac_cv_prog_strip+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  if test -n "$strip"; then
-  ac_cv_prog_strip="$strip" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
-    ac_cv_prog_strip="yes"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-IFS=$as_save_IFS
-
-  test -z "$ac_cv_prog_strip" && ac_cv_prog_strip="no"
-fi
-fi
-strip=$ac_cv_prog_strip
-if test -n "$strip"; then
-  { echo "$as_me:$LINENO: result: $strip" >&5
-echo "${ECHO_T}$strip" >&6; }
-else
-  { echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6; }
-fi
-
-
 
 for ac_prog in flex lex
 do
@@ -4757,13 +4782,6 @@ _ACEOF
 
 fi
 rm -f conftest.l $LEX_OUTPUT_ROOT.c
-
-fi
-if test "$LEX" = flex ; then
-
-cat >>confdefs.h <<_ACEOF
-#define ISFLEX 1
-_ACEOF
 
 fi
 
@@ -5111,7 +5129,8 @@ done
 pcc_major=`echo $PACKAGE_VERSION | awk -F. '{print $1}'`
 pcc_minor=`echo $PACKAGE_VERSION | awk -F. '{print $2}'`
 pcc_minorminor=`echo $PACKAGE_VERSION | awk -F. '{print $3}'`
-versstr="\"$PACKAGE_STRING `cat $srcdir/DATESTAMP` for $target\""
+test -n "$MPVERSION" && MPVERSION=", $MPVERSION"
+versstr="\"$PACKAGE_STRING `cat $srcdir/DATESTAMP` for $target$MPVERSION\""
 
 
 cat >>confdefs.h <<_ACEOF
@@ -5828,13 +5847,13 @@ INSTALL_SCRIPT!$INSTALL_SCRIPT$ac_delim
 INSTALL_DATA!$INSTALL_DATA$ac_delim
 YACC!$YACC$ac_delim
 YFLAGS!$YFLAGS$ac_delim
-strip!$strip$ac_delim
 LEX!$LEX$ac_delim
 LEX_OUTPUT_ROOT!$LEX_OUTPUT_ROOT$ac_delim
 LEXLIB!$LEXLIB$ac_delim
 targos!$targos$ac_delim
 targosver!$targosver$ac_delim
 targmach!$targmach$ac_delim
+hostos!$hostos$ac_delim
 ADD_CFLAGS!$ADD_CFLAGS$ac_delim
 ADD_CPPFLAGS!$ADD_CPPFLAGS$ac_delim
 LIBOBJS!$LIBOBJS$ac_delim

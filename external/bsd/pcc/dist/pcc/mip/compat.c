@@ -55,7 +55,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
- *	NetBSD: basename.c,v 1.9 2009/11/24 13:34:20 tnozaki Exp 
+ *	$NetBSD: basename.c,v 1.9 2009/11/24 13:34:20 tnozaki Exp $
  */
 
 /*
@@ -86,7 +86,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	NetBSD: gettemp.c,v 1.13 2003/12/05 00:57:36 uebayasi Exp 
+ *	$NetBSD: gettemp.c,v 1.13 2003/12/05 00:57:36 uebayasi Exp $
  */
 
 #include <string.h>

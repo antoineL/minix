@@ -220,11 +220,11 @@ L?\"(\\.|[^\\"])*\"	{ yylval.strp = yytext; return C_STRING; }
 
 %%
 
-int lineno;
+int lineno, issyshdr;
 char *ftitle = "<stdin>";
 
 static int
-namechk()
+namechk(void)
 { 	
 	struct symtab *s;
 	int i;
@@ -797,11 +797,12 @@ struct pragmas {
 	{ "ident", NULL },
 	{ 0 },
 };
+
 /*
  * got a full pragma line.  Split it up here.
  */
 static void
-pragma()
+pragma(void)
 {
 	struct pragmas *p;
 	char *t, *pt;

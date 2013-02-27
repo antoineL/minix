@@ -62,7 +62,7 @@ prtprolog(struct interpass_prolog *ipp, int addto)
 	/* save permanent registers */
 	for (i = 0; i < MAXREGS; i++)
 		if (TESTBIT(ipp->ipp_regs, i))
-			fprintf(stdout, "\tmovq %s,-%d(%s)\n",
+			printf("\tmovq %s,-%d(%s)\n",
 			    rnames[i], regoff[i], rnames[FPREG]);
 }
 
@@ -165,7 +165,7 @@ eoftn(struct interpass_prolog *ipp)
 		/* return from function code */
 		for (i = 0; i < MAXREGS; i++)
 			if (TESTBIT(ipp->ipp_regs, i))
-				fprintf(stdout, "	movq -%d(%s),%s\n",
+				printf("	movq -%d(%s),%s\n",
 				    regoff[i], rnames[FPREG], rnames[i]);
 
 		/* struct return needs special treatment */
@@ -612,7 +612,7 @@ upput(NODE *p, int size)
 	size /= SZCHAR;
 	switch (p->n_op) {
 	case REG:
-		fprintf(stdout, "%%%s", &rnames[p->n_rval][3]);
+		printf("%%%s", &rnames[p->n_rval][3]);
 		break;
 
 	case NAME:
@@ -622,7 +622,7 @@ upput(NODE *p, int size)
 		p->n_lval -= size;
 		break;
 	case ICON:
-		fprintf(stdout, "$" CONFMT, p->n_lval >> 32);
+		printf("$" CONFMT, p->n_lval >> 32);
 		break;
 	default:
 		comperr("upput bad op %d size %d", p->n_op, size);
@@ -722,6 +722,35 @@ cbgen(int o, int lab)
 	printf("	%s " LABFMT "\n", ccbranches[o-EQ], lab);
 }
 
+/*
+ * gcc xasm has the ability to generate different asm types
+ * via some magic.
+ *
+ * Only support AT&T asm for now.
+ */
+static char *
+adjustname(char *s)
+{
+	int len = strlen(s);
+	char *d = tmpalloc(len+1);
+	int i, j, flvl, tlvl;
+
+	flvl = tlvl = 0;
+	for (i = j = 0; i < len; i++) {
+		switch (s[i]) {
+		case '{': tlvl++; break;
+		case '}': if (tlvl)tlvl--; else flvl--; break;
+		case '|': tlvl--; flvl++; break;
+		default:
+			if (flvl == 0)
+				d[j++] = s[i];
+			break;
+		}
+	}
+	d[j] = 0;
+	return d;
+}
+
 static void
 fixcalls(NODE *p, void *arg)
 {
@@ -731,6 +760,9 @@ fixcalls(NODE *p, void *arg)
 	case USTCALL:
 		if (p->n_stsize+p2autooff > stkpos)
 			stkpos = p->n_stsize+p2autooff;
+		break;
+	case XASM:
+		p->n_name = adjustname(p->n_name);
 		break;
 	}
 }
@@ -1089,6 +1121,8 @@ targarg(char *w, void *arg, int n)
 	if (q->n_op == REG) {
 		if (*w == 'k') {
 			q->n_type = INT;
+		} else if (*w == 'q') {
+			q->n_type = LONG;
 		} else if (*w == 'h' || *w == 'b') {
 			/* Can do this only because we know dx is used */
 			printf("%%d%c", *w == 'h' ? 'h' : 'l');

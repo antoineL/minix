@@ -75,8 +75,7 @@ addstub(struct stub *list, char *name)
         }
 
         s = permalloc(sizeof(struct stub));
-        s->name = permalloc(strlen(name) + 1);
-        strcpy(s->name, name);
+	s->name = newstring(name, strlen(name));
         DLIST_INSERT_BEFORE(list, s, link);
 }
 
@@ -138,9 +137,14 @@ picext(NODE *p)
 
 #if defined(ELFABI)
 
+	struct attr *ga;
 	NODE *q, *r;
 	struct symtab *sp;
 	char *name;
+
+	if ((ga = attr_find(p->n_sp->sap, GCC_ATYP_VISIBILITY)) &&
+	    strcmp(ga->sarg(0), "hidden") == 0)
+		return p; /* no GOT reference */
 
 	q = tempnode(gotnr, PTR|VOID, 0, 0);
 	if ((name = p->n_sp->soname) == NULL)
@@ -489,6 +493,54 @@ clocal(NODE *p)
 			
 		break;
 
+#if defined(os_openbsd)
+/*
+ * The called function returns structures according to their aligned size:
+ *  Structures 1, 2 or 4 bytes in size are placed in EAX.
+ *  Structures 8 bytes in size are placed in: EAX and EDX.
+ */
+	case UMUL:
+		o = 0;
+		l = p->n_left;
+		if (l->n_op == PLUS)
+			l = l->n_left, o++;
+		if (l->n_op != PCONV)
+			break;
+		l = l->n_left;
+		if (l->n_op != STCALL && l->n_op != USTCALL)
+			break;
+		m = tsize(DECREF(l->n_type), l->n_df, l->n_ap);
+		if (m != SZCHAR && m != SZSHORT &&
+		    m != SZINT && m != SZLONGLONG)
+			break;
+		/* This is a direct reference to a small struct return */
+		l->n_op -= (STCALL-CALL);
+		if (o == 0) {
+			/* first element in struct */
+			p->n_left = nfree(p->n_left); /* free PCONV */
+			l->n_ap = p->n_ap;
+			l->n_df = p->n_df;
+			l->n_type = p->n_type;
+			if (p->n_type < INT) {
+				/* Need to add SCONV */
+				p->n_op = SCONV;
+			} else
+				p = nfree(p); /* no casts needed */
+		} else {
+			/* convert PLUS to RS */
+			o = p->n_left->n_right->n_lval;
+			l->n_type = (o > 3 ? ULONGLONG : UNSIGNED);
+			nfree(p->n_left->n_right);
+			p->n_left = nfree(p->n_left);
+			p->n_left = nfree(p->n_left);
+			p->n_left = buildtree(RS, p->n_left, bcon(o*8));
+			p->n_left = makety(p->n_left, p->n_type, p->n_qual,
+			    p->n_df, p->n_ap);
+			p = nfree(p);
+		}
+		break;
+#endif
+
 #ifdef notyet
 	/* XXX breaks sometimes */
 	case CBRANCH:
@@ -518,40 +570,16 @@ clocal(NODE *p)
 #endif
 
 	case PCONV:
-		/* Remove redundant PCONV's. Be careful */
 		l = p->n_left;
-		if (l->n_op == ICON) {
-			l->n_lval = (unsigned)l->n_lval;
-			goto delp;
-		}
+
+		/* Make int type before pointer */
 		if (l->n_type < INT || l->n_type == LONGLONG || 
 		    l->n_type == ULONGLONG || l->n_type == BOOL) {
 			/* float etc? */
-			p->n_left = block(SCONV, l, NIL,
-			    UNSIGNED, 0, 0);
-			break;
+			p->n_left = block(SCONV, l, NIL, UNSIGNED, 0, 0);
 		}
-		/* if left is SCONV, cannot remove */
-		if (l->n_op == SCONV)
-			break;
-
-		/* avoid ADDROF TEMP */
-		if (l->n_op == ADDROF && l->n_left->n_op == TEMP)
-			break;
-
-		/* if conversion to another pointer type, just remove */
-		if (p->n_type > BTMASK && l->n_type > BTMASK)
-			goto delp;
 		break;
 
-	delp:	l->n_type = p->n_type;
-		l->n_qual = p->n_qual;
-		l->n_df = p->n_df;
-		l->n_ap = p->n_ap;
-		nfree(p);
-		p = l;
-		break;
-		
 	case SCONV:
 		if (p->n_left->n_op == COMOP)
 			break;  /* may propagate wrong type later */
@@ -758,9 +786,8 @@ fixnames(NODE *p, void *arg)
 			return; /* function pointer */
 
 		if (isu) {
-			*c = 0;
 			addstub(&stublist, sp->soname+1);
-			strcpy(c, "$stub");
+			memcpy(c, "$stub", sizeof("$stub"));
 		} else 
 			*c = 0;
 
@@ -806,23 +833,15 @@ myp2tree(NODE *p)
 	defloc(sp);
 	ninval(0, tsize(sp->stype, sp->sdf, sp->sap), p);
 
-	if (kflag) {
-#if defined(ELFABI)
-		sp->sname = sp->soname = inlalloc(32);
-		snprintf(sp->sname, 32, LABFMT "@GOTOFF", (int)sp->soffset);
-#elif defined(MACHOABI)
-		char *s = cftnsp->soname ? cftnsp->soname : cftnsp->sname;
-		size_t len = strlen(s) + 40;
-		sp->sname = sp->soname = IALLOC(len);
-		snprintf(sp->soname, len, LABFMT "-L%s$pb", (int)sp->soffset, s);
-#endif
-		sp->sclass = EXTERN;
-		sp->sflags = sp->slevel = 0;
-	}
-
 	p->n_op = NAME;
 	p->n_lval = 0;
 	p->n_sp = sp;
+
+	if (kflag) {
+		NODE *q = optim(picstatic(tcopy(p)));
+		*p = *q;
+		nfree(q);
+	}
 }
 
 /*ARGSUSED*/
@@ -1038,18 +1057,18 @@ defzero(struct symtab *sp)
 }
 
 static char *
-section2string(char *name, int len)
+section2string(char *name)
 {
-#if defined(ELFABI)
-	char *s;
-	int n;
+	int len = strlen(name);
 
+#if defined(ELFABI)
 	if (strncmp(name, "link_set", 8) == 0) {
-		const char *postfix = ",\"aw\",@progbits";
-		n = len + strlen(postfix) + 1;
-		s = IALLOC(n);
-		strlcpy(s, name, n);
-		strlcat(s, postfix, n);
+		const char postfix[] = ",\"aw\",@progbits";
+		char *s;
+
+		s = IALLOC(len + sizeof(postfix));
+		memcpy(s, name, len);
+		memcpy(s + len, postfix, sizeof(postfix));
 		return s;
 	}
 #endif
@@ -1116,7 +1135,7 @@ mypragma(char *str)
 	}
 #endif
 	if (strcmp(str, "section") == 0 && a2 != NULL) {
-		nextsect = section2string(a2, strlen(a2));
+		nextsect = section2string(a2);
 		return 1;
 	}
 	if (strcmp(str, "alias") == 0 && a2 != NULL) {
@@ -1202,59 +1221,6 @@ fixdef(struct symtab *sp)
 #endif
 }
 
-NODE *
-i386_builtin_return_address(NODE *f, NODE *a, TWORD rt)
-{
-	int nframes;
-
-	if (a == NULL || a->n_op != ICON)
-		goto bad;
-
-	nframes = (int)a->n_lval;
-
-	tfree(f);
-	tfree(a);
-
-	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);
-	regno(f) = FPREG;
-
-	while (nframes--)
-		f = block(UMUL, f, NIL, PTR+VOID, 0, 0);
-
-	f = block(PLUS, f, bcon(4), INCREF(PTR+VOID), 0, 0);
-	f = buildtree(UMUL, f, NIL);
-
-	return f;
-bad:
-        uerror("bad argument to __builtin_return_address");
-        return bcon(0);
-}
-
-NODE *
-i386_builtin_frame_address(NODE *f, NODE *a, TWORD rt)
-{
-	int nframes;
-
-	if (a == NULL || a->n_op != ICON)
-		goto bad;
-
-	nframes = (int)a->n_lval;
-
-	tfree(f);
-	tfree(a);
-
-	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);
-	regno(f) = FPREG;
-
-	while (nframes--)
-		f = block(UMUL, f, NIL, PTR+VOID, 0, 0);
-
-	return f;
-bad:
-        uerror("bad argument to __builtin_frame_address");
-        return bcon(0);
-}
-
 /*
  *  Postfix external functions with the arguments size.
  */
@@ -1314,9 +1280,9 @@ mangle(NODE *p)
 				else
 					size += szty(t) * SZINT / SZCHAR;
 			}
-			snprintf(buf, 256, "%s@%d", l->n_name, size);
-	        	l->n_name = IALLOC(strlen(buf) + 1);
-			strcpy(l->n_name, buf);
+			size = snprintf(buf, 256, "%s@%d", l->n_name, size) + 1;
+	        	l->n_name = IALLOC(size);
+			memcpy(l->n_name, buf, size);
 		}
 	}
 #endif
