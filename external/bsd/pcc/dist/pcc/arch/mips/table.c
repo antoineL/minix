@@ -1,5 +1,4 @@
-/*	Id: table.c,v 1.14 2010/09/19 13:54:41 ragge Exp 	*/	
-/*	$NetBSD: table.c,v 1.1.1.3 2011/09/01 12:46:40 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

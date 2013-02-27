@@ -1,5 +1,4 @@
-/*	Id: ccconfig.h,v 1.4 2011/06/04 19:27:26 plunky Exp 	*/	
-/*	$NetBSD: ccconfig.h,v 1.1.1.4 2011/09/01 12:47:18 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2008 Adam Hoka.

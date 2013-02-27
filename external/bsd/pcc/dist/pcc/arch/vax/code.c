@@ -1,5 +1,4 @@
-/*	Id: code.c,v 1.17 2011/07/30 08:10:36 ragge Exp 	*/	
-/*	$NetBSD: code.c,v 1.1.1.4 2011/09/01 12:46:51 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

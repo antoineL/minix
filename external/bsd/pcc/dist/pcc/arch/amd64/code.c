@@ -1,5 +1,4 @@
-/*	Id: code.c,v 1.63 2011/09/27 08:10:45 plunky Exp 	*/	
-/*	$NetBSD: code.c,v 1.1.1.4 2012/01/11 20:32:40 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2008 Michael Shalayeff
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).

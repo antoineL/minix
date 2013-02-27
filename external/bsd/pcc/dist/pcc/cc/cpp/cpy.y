@@ -1,5 +1,4 @@
-/*	Id: cpy.y,v 1.18 2010/02/25 15:49:00 ragge Exp 	*/	
-/*	$NetBSD: cpy.y,v 1.1.1.3 2010/06/03 18:57:35 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2004 Anders Magnusson (ragge@ludd.luth.se).

@@ -1,5 +1,4 @@
-/*	Id: mkext.c,v 1.50 2011/06/05 08:54:43 plunky Exp 	*/	
-/*	$NetBSD: mkext.c,v 1.1.1.4 2011/09/01 12:47:13 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Generate defines for the needed hardops.

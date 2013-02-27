@@ -1,5 +1,4 @@
-#	Id: Makefile.in,v 1.40 2012/03/15 09:22:12 plunky Exp 	
-#	$NetBSD: Makefile.in,v 1.1.1.5 2012/03/26 14:26:43 plunky Exp $
+#	$Id$
 #
 # Makefile.in for cpp
 #

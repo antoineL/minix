@@ -1,5 +1,4 @@
-/*	Id: lex.c,v 1.12 2008/05/11 15:28:03 ragge Exp 	*/	
-/*	$NetBSD: lex.c,v 1.1.1.2 2010/06/03 18:57:50 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

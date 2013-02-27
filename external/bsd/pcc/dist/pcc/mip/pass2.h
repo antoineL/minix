@@ -1,5 +1,4 @@
-/*	Id: pass2.h,v 1.131 2012/03/22 18:51:41 plunky Exp 	*/	
-/*	$NetBSD: pass2.h,v 1.1.1.5 2012/03/26 14:27:14 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
