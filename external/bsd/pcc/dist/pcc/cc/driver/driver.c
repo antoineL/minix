@@ -1,5 +1,4 @@
-/*	Id: driver.c,v 1.7 2011/06/03 15:34:01 plunky Exp 	*/	
-/*	$NetBSD: driver.c,v 1.1.1.1 2011/09/01 12:47:04 plunky Exp $	*/
+/*	$Id$	*/
 
 /*-
  * Copyright (c) 2011 Joerg Sonnenberger <joerg@NetBSD.org>.

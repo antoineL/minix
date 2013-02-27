@@ -1,5 +1,4 @@
-/*	Id: strlist.c,v 1.2 2011/05/26 16:48:40 plunky Exp 	*/	
-/*	$NetBSD: strlist.c,v 1.1.1.1 2011/09/01 12:47:05 plunky Exp $	*/
+/*	$Id$	*/
 
 /*-
  * Copyright (c) 2011 Joerg Sonnenberger <joerg@NetBSD.org>.

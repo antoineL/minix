@@ -1,5 +1,4 @@
-/*	Id: local.c,v 1.66 2012/03/23 17:03:09 ragge Exp 	*/	
-/*	$NetBSD: local.c,v 1.1.1.4 2012/03/26 14:26:17 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2008 Michael Shalayeff
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).

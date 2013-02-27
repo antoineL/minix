@@ -1,5 +1,4 @@
-/*	Id: local.c,v 1.36 2011/09/23 18:19:35 plunky Exp 	*/	
-/*	$NetBSD: local.c,v 1.1.1.5 2012/01/11 20:32:45 plunky Exp $	*/
+/*	$Id$	*/
 /*	$OpenBSD: local.c,v 1.2 2007/11/18 17:39:55 ragge Exp $	*/
 
 /*

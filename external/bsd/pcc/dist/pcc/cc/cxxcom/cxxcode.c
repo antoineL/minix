@@ -1,5 +1,4 @@
-/*	Id: cxxcode.c,v 1.3 2012/01/04 19:04:08 ragge Exp 	*/	
-/*	$NetBSD: cxxcode.c,v 1.1.1.1 2012/01/11 20:33:18 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2011 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

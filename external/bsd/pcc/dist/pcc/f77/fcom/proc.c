@@ -1,5 +1,4 @@
-/*	Id: proc.c,v 1.14 2008/12/24 17:40:41 sgk Exp 	*/	
-/*	$NetBSD: proc.c,v 1.1.1.3 2010/06/03 18:57:51 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

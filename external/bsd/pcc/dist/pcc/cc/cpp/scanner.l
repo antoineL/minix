@@ -1,6 +1,5 @@
 %{
-/*	Id: scanner.l,v 1.50 2011/06/03 15:42:45 plunky Exp    */	
-/*	$NetBSD: scanner.l,v 1.1.1.4 2011/09/01 12:46:55 plunky Exp $   */
+/*	$Id$   */
 
 /*
  * Copyright (c) 2004 Anders Magnusson. All rights reserved.

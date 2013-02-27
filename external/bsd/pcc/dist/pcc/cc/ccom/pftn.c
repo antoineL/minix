@@ -1,5 +1,4 @@
-/*	Id: pftn.c,v 1.342 2012/03/22 18:51:40 plunky Exp 	*/	
-/*	$NetBSD: pftn.c,v 1.8 2012/03/26 14:30:46 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.

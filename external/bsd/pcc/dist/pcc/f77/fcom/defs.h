@@ -1,5 +1,4 @@
-/*	Id: defs.h,v 1.23 2011/12/12 09:18:25 plunky Exp 	*/	
-/*	$NetBSD: defs.h,v 1.1.1.4 2012/01/11 20:33:25 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

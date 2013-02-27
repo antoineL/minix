@@ -1,5 +1,4 @@
-#	Id: Makefile.in,v 1.29 2012/03/15 09:22:12 plunky Exp 	
-#	$NetBSD: Makefile.in,v 1.1.1.4 2012/03/26 14:26:42 plunky Exp $
+#	$Id$
 #
 # Makefile.in for the cc part of pcc.
 #

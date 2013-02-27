@@ -1,5 +1,4 @@
-/*	Id: softfloat.c,v 1.4 2009/07/29 12:32:34 ragge Exp 	*/	
-/*	$NetBSD: softfloat.c,v 1.1.1.2 2010/06/03 18:57:43 plunky Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2008 Anders Magnusson. All rights reserved.

@@ -1,5 +1,4 @@
-/*	Id: putscj.c,v 1.18 2008/12/19 08:08:48 ragge Exp 	*/	
-/*	$NetBSD: putscj.c,v 1.1.1.3 2010/06/03 18:57:52 plunky Exp $	*/
+/*	$Id$	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
