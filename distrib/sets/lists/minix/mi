@@ -502,7 +502,7 @@
 ./usr/include/compat/machine		minix-sys
 ./usr/include/compat			minix-sys
 ./usr/include/complex.h			minix-sys
-./usr/include/configfile.h		minix-sys
+./usr/include/configfile.h		minix-sys	obsolete
 ./usr/include/cpio.h			minix-sys
 ./usr/include/ctype.h			minix-sys
 ./usr/include/curses.h			minix-sys
