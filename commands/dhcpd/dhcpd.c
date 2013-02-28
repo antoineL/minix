@@ -13,7 +13,6 @@
 #include <string.h>
 #include <time.h>
 #include <limits.h>
-#include <configfile.h>
 #include <sys/ioctl.h>
 #include <sys/asynchio.h>
 #include <net/hton.h>

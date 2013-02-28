@@ -23,7 +23,7 @@
 #include <ctype.h>
 #endif
 #define _c /* not const */
-#include <configfile.h>
+#include "configfile.h"
 
 typedef struct configfile {	/* List of (included) configuration files. */
 	struct configfile *next;	/* A list indeed. */
