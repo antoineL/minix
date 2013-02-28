@@ -8,9 +8,6 @@ USE_SHLIBDIR= yes
 # std_err()
 SRCS+= stderr.c
 
-# Configfile Library.
-SRCS+= configfile.c
-
 # Minix 'mtab' handling functions.
 #
 # These should be changed when we switch to
