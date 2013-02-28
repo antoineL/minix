@@ -130,8 +130,8 @@ CPPFLAGS.sched_start.c+=	-I${NETBSDSRCDIR}
 # during the build, libc.so has been build yet, so cannot be referenced:
 LDFLAGS+= -nostdlib
 # Libminc has all the needed pieces; it is not built as a shared object
-# however; so we use the PIC version of it, and expose it completely:
-LDADD+=	-Wl,--whole-archive -lminc_pic -Wl,--no-whole-archive 
+# however; so we use it, in its position-independant variant:
+LDADD+=	-lminc_pic
 # If/when libminc is made an independant shared object instead,
 # replace with LIBDPLIBS+=	minc	${.CURDIR}/../libminc
 .endif
