@@ -7,6 +7,7 @@ INCSDIR= /usr/include
 LIB=	minlib
 
 USE_SHLIBDIR= yes
+LDFLAGS+= -nostdlib	# force .so to not depend on libc (not yet build)
 
 CPPFLAGS.fslib.c+= -I${NETBSDSRCDIR}/servers
 CPPFLAGS.fsversion.c+= -I${NETBSDSRCDIR}/servers
