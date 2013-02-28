@@ -23,7 +23,7 @@
 #include <minix/dmap.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <configfile.h>
+#include "configfile.h"
 
 #include <machine/archtypes.h>
 #include <timers.h>
