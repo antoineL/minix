@@ -2,6 +2,8 @@
 PROGS=	service printconfig
 SRCS.service=service.c parse.c util.c
 SRCS.printconfig=print.c parse.c util.c
+# Configfile Library.
+SRCS+= configfile.c
 
 BINDIR= /bin
 MAN.service=	service.8
