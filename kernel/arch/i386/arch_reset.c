@@ -80,7 +80,14 @@ reset(void)
 	}
 }
 
-void
+static __dead void
+halt(void)
+{
+	for ( ; ; )
+		halt_cpu();
+}
+
+static __dead void
 poweroff(void)
 {
 	const char *shutdown_str;
@@ -88,9 +95,12 @@ poweroff(void)
 	/* Bochs/QEMU poweroff */
 	shutdown_str = "Shutdown";
         while (*shutdown_str) outb(0x8900, *(shutdown_str++));
-	
-	/* fallback option: reset */
-	reset();
+
+	/* VMware magic power off; likely to halt CPU */
+	poweroff_vmware_clihlt();
+
+	/* fallback option: halt */
+	halt();
 }
 
 __dead void arch_shutdown(int how)
@@ -121,11 +131,11 @@ __dead void arch_shutdown(int how)
 	switch (how) {
 		case RBT_HALT:
 			/* Stop */
-			for (; ; ) halt_cpu();
+			halt();
 			NOT_REACHABLE;
 			
 		case RBT_POWEROFF:
-			/* Power off if possible, reset otherwise */
+			/* Power off if possible, halt otherwise */
 			poweroff();
 			NOT_REACHABLE;
 
