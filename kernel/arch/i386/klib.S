@@ -389,12 +389,27 @@ ENTRY(halt_cpu)
  * PUBLIC void poweroff_vmware_clihlt(void);
  * VMware detects this peculiar sequence and forces the virtual machine off
  * when the parameter gui.exitOnCLIHLT is set to TRUE.
- * In usual cases this just hangs the CPU, requiring a power down action.
+ * Otherwise this sequence just hangs the CPU, requiring a power down action.
  */
 ENTRY(poweroff_vmware_clihlt)
+#ifndef NO_VMWARE_DETECTION
+	mov	$1, %eax
+	cpuid
+	test	$[1<<31], %ecx /* "virtualized" */
+	jz	1f	/* always 0 on real hardware */
+	mov	$0x40000000, %eax /* select hypervisor-use leaf */
+	cpuid
+	cmp	$0x61774D56, %ebx /* ASCII "VMwa" */
+	jne	1f
+	cmp	$0x4D566572, %edx /* ASCII "reVM" */
+	jne	1f
+	cmp	$0x65726177, %ecx /* ASCII "ware" */
+	jne	1f
+	/* we are virtualized by some VMware product! */
+#endif
 	cli
 	hlt
-	ret
+1:	ret
 
 /*===========================================================================*/
 /*			      read_flags				     */
