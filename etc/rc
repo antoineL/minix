@@ -136,7 +136,7 @@ start)
     fi
   
 
-    # Initialize files.
+    # Initialize [Bfiles.
     >/etc/utmp				# /etc/utmp keeps track of logins
 
     # Use MFS binary only from kernel image?
@@ -247,6 +247,35 @@ esac
 # Further initialization.
 test -f /usr/etc/rc && sh /usr/etc/rc $action
 test -f /usr/local/etc/rc && sh /usr/local/etc/rc $action
+
+# Let packages run their own scripts
+d=
+for d in /usr/local/etc/rc.d /usr/pkg/etc/rc.d
+do
+if [ -d "$d" -a -z "$bootcd" ]
+then	( if cd $d
+	then
+		echo -n "Local packages ($action): "
+		for possible_core in core.*
+		do # coredumps from previous crashes are executable, filter out
+			if test "$(file $possible_core \
+				| sed -n -e 's/.* core file.*/yes/p')" = "yes"
+			then
+				rm $possible_core
+			fi
+		done
+		for f in *
+		do
+			if [ -x "$f" ]
+			then	echo -n "$f "
+				sh "$f" "$action"
+			fi
+		done
+		echo " done."
+	fi
+	)
+fi
+done
 
 # Any messages?
 test "$action" = start -a -f /etc/issue && cat /etc/issue
