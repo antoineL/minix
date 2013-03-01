@@ -395,23 +395,3 @@ stop|down)
 	fi
 esac
 
-d=
-# Let packages run their own scripts
-for d in /usr/local/etc/rc.d /usr/pkg/etc/rc.d
-do
-if [ -d "$d" -a -z "$bootcd" ]
-then	( if cd $d
-	then
-		echo -n "Local packages ($action): "
-		for f in *
-		do
-			if [ -x "$f" ]
-			then	echo -n "$f "
-				sh "$f" "$action"
-			fi
-		done
-		echo " done."
-	fi
-	)
-fi
-done
