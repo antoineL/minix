@@ -380,6 +380,20 @@ ENTRY(halt_cpu)
 	ret
 
 /*===========================================================================*/
+/*			poweroff_vmware_clihlt				     */
+/*===========================================================================*/
+/*
+ * PUBLIC void poweroff_vmware_clihlt(void);
+ * VMware detects this peculiar sequence and forces the virtual machine off
+ * when the parameter gui.exitOnCLIHLT is set to TRUE.
+ * In usual cases this just hangs the CPU, requiring a power down action.
+ */
+ENTRY(poweroff_vmware_clihlt)
+	cli
+	hlt
+	ret
+
+/*===========================================================================*/
 /*			      read_flags				     */
 /*===========================================================================*/
 /*
