@@ -906,8 +906,21 @@ ext2fs_ls(struct open_file *f, const char *pattern,
 		entry_t *p_names = names;
 		do {
 			n = p_names;
-			printf("%d: %s (%s)\n",
-				n->e_ino, n->e_name, typestr[n->e_type]);
+			if (funcp) {
+				/*
+				 * Call handler for each file instead of
+				 * printing. Used by load_mods command.
+				 */
+				char namebuf[MAXPATHLEN+1];
+				namebuf[0] = '\0';
+				if (path && path != pattern)
+					snprintf(namebuf, MAXPATHLEN, "%s/", path);
+				strlcat(namebuf, n->e_name, MAXPATHLEN+1);
+
+				funcp(namebuf);
+			} else
+				printf("%d: %s (%s)\n",
+					n->e_ino, n->e_name, typestr[n->e_type]);
 			p_names = n->e_next;
 		} while (p_names);
 	} else {
