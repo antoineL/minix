@@ -83,7 +83,7 @@
  * a struct direct at the front of it, containing its inode number,
  * the length of the entry, and the length of the name contained in
  * the entry.  These are followed by the name padded to a 4 byte boundary
- * with null bytes.  All names are guaranteed null terminated.
+ * with null bytes.  Names are NOT null terminated (difference from ffs.)
  * The maximum length of a name in a directory is EXT2FS_MAXNAMLEN.
  *
  * The macro EXT2FS_DIRSIZ(fmt, dp) gives the amount of space required to
