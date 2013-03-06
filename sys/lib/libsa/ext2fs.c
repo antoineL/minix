@@ -873,20 +873,25 @@ ext2fs_ls(struct open_file *f, const char *pattern,
 				 * handle this case specially, if
 				 * there were a pressing need...
 				 */
+				/* XXX carried over from ufs.c, maybe irrelevant */
 				printf("bad dir entry\n");
 				goto out;
 			}
-			if (pattern && !fnmatch(dp->e2d_name, pattern))
+			if (pattern
+			 && !fnmatch(dp->e2d_name, dp->e2d_namlen, pattern))
 				continue;
-			n = alloc(sizeof *n + strlen(dp->e2d_name));
+			n = alloc(sizeof *n + dp->e2d_namlen);
 			if (!n) {
+				/* Blindly cut non-null-terminated names */
+				if (dp->e2d_namlen % 4 == 0)
+					dp->e2d_name[dp->e2d_namlen-1] = '\0';
 				printf("%d: %s (%s)\n",
 					fs2h32(dp->e2d_ino), dp->e2d_name, t);
 				continue;
 			}
 			n->e_ino = fs2h32(dp->e2d_ino);
 			n->e_type = dp->e2d_type;
-			strcpy(n->e_name, dp->e2d_name);
+			strlcpy(n->e_name, dp->e2d_name, dp->e2d_namlen+1);
 			for (np = &names; *np; np = &(*np)->e_next) {
 				if (strcmp(n->e_name, (*np)->e_name) < 0)
 					break;

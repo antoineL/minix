@@ -322,7 +322,7 @@ off_t	olseek(int, off_t, int);
 
 extern const char hexdigits[];
 
-int	fnmatch(const char *, const char *);
+int	fnmatch(const char *, size_t, const char *);
 
 /* XXX: These should be removed eventually. */
 void	bcopy(const void *, void *, size_t);
