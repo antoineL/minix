@@ -926,7 +926,7 @@ ufs_ls(struct open_file *f, const char *pattern,
 				printf("bad dir entry\n");
 				goto out;
 			}
-			if (pattern && !fnmatch(dp->d_name, pattern))
+			if (pattern && !fnmatch(dp->d_name, (size_t)-1, pattern))
 				continue;
 			n = alloc(sizeof *n + strlen(dp->d_name));
 			if (!n) {

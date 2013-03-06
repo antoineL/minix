@@ -865,9 +865,6 @@ minixfs3_ls(struct open_file *f, const char *pattern,
 			if (fs2h32(dp->mfsd_ino) == 0)
 				continue;
 
-			if (pattern && !fnmatch(dp->mfsd_name, pattern))
-				continue;
-
 			/* Compute the length of the name,
 			 * We don't use strlen and strcpy, because original MFS
 			 * code doesn't.
@@ -878,15 +875,20 @@ minixfs3_ls(struct open_file *f, const char *pattern,
 			else
 				namlen = cp - (dp->mfsd_name);
 
+			if (pattern
+			 && !fnmatch(dp->mfsd_name, namlen, pattern))
+				continue;
+
 			n = alloc(sizeof *n + namlen);
 			if (!n) {
+				/* Blindly cut non-null-terminated names */
+				dp->mfsd_name[sizeof(dp->mfsd_name)-1] = '\0';
 				printf("%d: %s\n",
 					fs2h32(dp->mfsd_ino), dp->mfsd_name);
 				continue;
 			}
 			n->e_ino = fs2h32(dp->mfsd_ino);
-			strncpy(n->e_name, dp->mfsd_name, namlen);
-			n->e_name[namlen] = '\0';
+			strlcpy(n->e_name, dp->mfsd_name, namlen+1);
 			for (np = &names; *np; np = &(*np)->e_next) {
 				if (strcmp(n->e_name, (*np)->e_name) < 0)
 					break;
