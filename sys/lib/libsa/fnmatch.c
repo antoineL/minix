@@ -63,11 +63,13 @@
 
 #if defined(LIBSA_ENABLE_LS_OP)
 int
-fnmatch(const char *fname, const char *pattern)
+fnmatch(const char *fname, size_t maxlen, const char *pattern)
 {
-	char fc, pc;
+	char fc, pc, *np;
 
 	do {
+		if (--maxlen == 0)
+			return 0;
 		fc = *fname++;
 		pc = *pattern++;
 		if (!fc && !pc)
@@ -85,9 +87,12 @@ fnmatch(const char *fname, const char *pattern)
 	pc = *pattern++;
 	if (!pc)
 		return 1;
-	while ((fname = strchr(fname, pc)))
-		if (fnmatch(++fname, pattern))
+	while ((np = memchr(fname, pc, maxlen))) {
+		maxlen -= np-fname;
+		fname = ++np;
+		if (--maxlen == 0 || fnmatch(fname, maxlen, pattern))
 			return 1;
+	}
 	return 0;
 }
 #endif /* LIBSA_ENABLE_LS_OP */
