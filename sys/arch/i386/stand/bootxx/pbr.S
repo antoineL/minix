@@ -172,7 +172,7 @@ scan_ptn_tbl:
 	je	5f
 	cmpb	$MBR_PTYPE_FAT16L, %al
 	je	5f
-#elif BOOT_FROM_MINIXFS3
+#elif BOOT_FROM_MINIXSUBP
 	cmpb    $MBR_PTYPE_MINIX_14B, %al
 	je      5f
 #else
