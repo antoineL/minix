@@ -71,6 +71,10 @@ const char *
 boot1(uint32_t biosdev, uint64_t *sector)
 {
 	struct stat sb;
+#ifdef BOOT_FROM_MINIXSUBP
+	extern struct mbr_sector *start;
+	int i;
+#endif
 	int fd;
 
 	bios_sector = *sector;
@@ -103,6 +107,28 @@ boot1(uint32_t biosdev, uint64_t *sector)
 	if (fd != -1)
 		goto done;
 
+#ifdef BOOT_FROM_MINIXSUBP
+	bios_sector -= RF_PROTECTED_SECTORS;
+	for (i=0; i<MBR_PART_COUNT; ++i) {
+		struct mbr_partition *p = &start->mbr_parts[i];
+
+		if (p->mbrp_flag & 0x80
+		 && p->mbrp_type == MBR_PTYPE_MINIX_14B
+		 && p->mbrp_start >= bios_sector+MINIX3_FIRST_SUBP_OFFSET
+		 && p->mbrp_start < bios_sector+64
+		 && p->mbrp_size > 400) {
+			bios_sector = p->mbrp_start;
+			*sector = bios_sector;
+
+putstr("detected active MINIX sub part \r\n");
+			fd = ob();
+			if (fd != -1)
+				goto done;
+		}
+	}
+putstr("no detected active MINIX sub part \r\n");
+
+#endif
 #ifdef BOOT_FROM_MINIXFS3
 	bios_sector -= RF_PROTECTED_SECTORS;
 	bios_sector += MINIX3_FIRST_SUBP_OFFSET;
@@ -111,6 +137,7 @@ boot1(uint32_t biosdev, uint64_t *sector)
 	fd = ob();
 	if (fd != -1)
 		goto done;
+putstr("no detected MINIX sub part ofs32\r\n");
 #endif
 
 	/*
