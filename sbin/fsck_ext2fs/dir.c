@@ -272,9 +272,13 @@ dircheck(struct inodesc *idesc, struct ext2fs_direct *dp)
 	if (dp->e2d_ino == 0)
 		return (1);
 	if (sblock.e2fs.e2fs_rev < E2FS_REV1 ||
-	    (sblock.e2fs.e2fs_features_incompat & EXT2F_INCOMPAT_FTYPE) == 0)
+	    (sblock.e2fs.e2fs_features_incompat & EXT2F_INCOMPAT_FTYPE) == 0) {
 		if (dp->e2d_type != 0)
 			return (0);
+	} else {
+		if (dp->e2d_type >= EXT2_FT_MAX)
+			return (0);
+	}
 	size = EXT2FS_DIRSIZ(dp->e2d_namlen);
 	if (reclen < size ||
 	    idesc->id_filesize < size /* ||
