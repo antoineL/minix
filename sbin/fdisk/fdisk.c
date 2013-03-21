@@ -2661,7 +2661,7 @@ guess_geometry(daddr_t _sectors)
 static int
 minix_partition2disklabel(int dfd, struct disklabel *dlp)
 {
-  struct partition part;
+  struct part_geom part;
   int r;
 
 	memset(dlp, 0, sizeof(struct disklabel));
