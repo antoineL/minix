@@ -1,4 +1,4 @@
-/*	$NetBSD: stat.h,v 1.63 2011/09/04 10:02:33 christos Exp $	*/
+/*	$NetBSD: stat.h,v 1.65 2012/12/01 08:20:55 skrll Exp $	*/
 
 /*-
  * Copyright (c) 1982, 1986, 1989, 1993
@@ -67,10 +67,10 @@ struct stat {
   big_dev_t     st_rdev;              /* device type */
 #if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
     defined(_NETBSD_SOURCE)
-  struct timespec st_atim;            /* time of last access */
-  struct timespec st_mtim;            /* time of last data modification */
-  struct timespec st_ctim;            /* time of last file status change */
-  struct timespec st_birthtim;        /* time of creation */
+	struct    timespec st_atim;	/* time of last access */
+	struct    timespec st_mtim;	/* time of last data modification */
+	struct    timespec st_ctim;	/* time of last file status change */
+	struct    timespec st_birthtim;	/* time of creation */
 #else
 	time_t	  st_atime;		/* time of last access */
 	long	  st_atimensec;		/* nsec of last access */
@@ -87,25 +87,11 @@ struct stat {
 #else
   big_off_t st_size;		/* file size, in bytes */
 #endif
-  blkcnt_t  st_blocks;		/* blocks allocated for file */
-  blksize_t st_blksize;		/* optimal blocksize for I/O */
-  u32_t     st_flags;		/* user defined flags for file */
-  u32_t     st_gen;		/* file generation number */
-  u32_t     st_spare[2];
-};
-
-struct minix_prev_stat {
-  short st_dev;			/* major/minor device number */
-  ino_t st_ino;			/* i-node number */
-  mode_t st_mode;		/* file mode, protection bits, etc. */
-  nlink_t st_nlink;		/* # links; */
-  short st_uid;			/* uid of the file's owner */
-  short int st_gid;		/* gid; TEMPORARY HACK: should be gid_t */
-  short st_rdev;
-  off_t st_size;		/* file size */
-  time_t st_atime;		/* time of last access */
-  time_t st_mtime;		/* time of last data modification */
-  time_t st_ctime;		/* time of last file status change */
+	blkcnt_t  st_blocks;		/* blocks allocated for file */
+	blksize_t st_blksize;		/* optimal blocksize for I/O */
+	uint32_t  st_flags;		/* user defined flags for file */
+	uint32_t  st_gen;		/* file generation number */
+	uint32_t  st_spare[2];
 };
 
 #if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
@@ -240,17 +226,8 @@ struct minix_prev_stat {
 /*
  * Special values for utimensat and futimens
  */
-#define	UTIME_NOW	((1 << 30) - 1)
-#define	UTIME_OMIT	((1 << 30) - 2)
-#endif
-
-#if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
-    defined(_NETBSD_SOURCE)
-/*
- * Special values for utimensat and futimens
- */
-#define	UTIME_NOW	((1 << 30) - 1)
-#define	UTIME_OMIT	((1 << 30) - 2)
+#define UTIME_NOW	((1 << 30) - 1)
+#define UTIME_OMIT	((1 << 30) - 2)
 #endif
 
 #if defined(__minix)
@@ -284,16 +261,23 @@ int	mknod(const char *, mode_t, dev_t) __RENAME(__mknod50);
 #endif
 #endif /* defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE) */
 
-#if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
-    defined(_NETBSD_SOURCE)
 #ifndef __LIBC12_SOURCE__
 /*
  * X/Open Extended API set 2 (a.k.a. C063)
  */
-#if defined(_INCOMPLETE_XOPEN_C063) || defined(_MINIX)
-int	utimensat(int, const char *, const struct timespec *, int);
+#if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
+    defined(_INCOMPLETE_XOPEN_C063) || defined(_NETBSD_SOURCE)
+int     fstatat(int, const char *, struct stat *, int);
+int     utimensat(int, const char *, const struct timespec *, int);
 #endif
-int	futimens(int, const struct timespec *);
+
+#ifdef _NETBSD_SOURCE
+int utimens(const char *, const struct timespec *);
+int lutimens(const char *, const struct timespec *);
+#endif
+#if (_POSIX_C_SOURCE - 0) >= 200809L || (_XOPEN_SOURCE - 0) >= 700 || \
+    defined(_NETBSD_SOURCE)
+int futimens(int, const struct timespec *);
 #endif
 #endif
 __END_DECLS
