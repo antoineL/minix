@@ -13,15 +13,8 @@ ENTRY(_cpuid)
 
 /* set eax parameter to cpuid and execute cpuid */
 	movl	12(%esp), %ebp
-	mov	(%ebp), %eax
-	movl	16(%esp), %ebp
-	mov	(%ebp), %ebx
-	movl	20(%esp), %ebp
-	mov	(%ebp), %ecx
-	movl	24(%esp), %ebp
-	mov	(%ebp), %edx
-
-.byte	0x0F, 0xA2	/* CPUID */
+	movl	(%ebp), %eax
+	cpuid
 
 /* store results in pointer arguments */
 	movl	12(%esp), %ebp
