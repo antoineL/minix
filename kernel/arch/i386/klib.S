@@ -1,6 +1,3 @@
-/* sections */
-
-
 #include <minix/config.h>
 #include <minix/const.h>
 #include <machine/asm.h>
@@ -455,8 +452,6 @@ ENTRY(clts)
 /* store status word (non-waiting) */
 ENTRY(fnstsw)
 	xor     %eax, %eax
-
-	/* DO NOT CHANGE THE OPERAND!!! gas2ack does not handle it yet */
 	fnstsw	%ax
 	ret
 
@@ -616,79 +611,6 @@ ENTRY(refresh_tlb)
 #ifdef CONFIG_SMP
 
 /*===========================================================================*/
-/*			      smp_get_htt				     */
-/*===========================================================================*/
-/*  PUBLIC int smp_get_htt(void); */
-/*  return true if the processor is hyper-threaded. */
-ENTRY(smp_get_htt)
-	push	%ebp
-	mov	%esp, %ebp
-	pushf
-	pop	%eax
-	mov	%eax, %ebx
-	and	$0x200000, %eax
-	je	0f
-	mov	$0x1, %eax
-/* FIXME don't use the byte code */
-.byte	0x0f, 0xa2	/*  opcode for cpuid  */
-	mov	%edx, %eax
-	pop	%ebp
-	ret
-0:
-	xor	%eax, %eax
-	pop	%ebp
-	ret
-
-/*===========================================================================*/
-/*			      smp_get_num_htt				     */
-/*===========================================================================*/
-/*  PUBLIC int smp_get_num_htt(void); */
-/*  Get the number of hyper-threaded processor cores */
-ENTRY(smp_get_num_htt)
-	push	%ebp
-	mov	%esp, %ebp
-	pushf
-	pop	%eax
-	mov	%eax, %ebx
-	and	$0x200000, %eax
-	je	0f
-	mov	$0x1, %eax
-/* FIXME don't use the byte code */
-.byte	0x0f, 0xa2	/*  opcode for cpuid  */
-	mov	%ebx, %eax
-	pop	%ebp
-	ret
-0:
-	xor	%eax, %eax
-	pop	%ebp
-	ret
-
-/*===========================================================================*/
-/*			      smp_get_cores				    */
-/*===========================================================================*/
-/*  PUBLIC int smp_get_cores(void); */
-/*  Get the number of cores. */
-ENTRY(smp_get_cores)
-	push	%ebp
-	mov	%esp, %ebp
-	pushf
-	pop	%eax
-	mov	%eax, %ebx
-	and	$0x200000, %eax
-	je	0f
-	push	%ecx
-	xor	%ecx, %ecx
-	mov	$0x4, %eax
-/* FIXME don't use the byte code */
-.byte	0x0f, 0xa2	/*  opcode for cpuid  */
-	pop	%ebp
-	ret
-0:
-	xor	%eax, %eax
-	pop	%ebp
-	ret
-
-/*===========================================================================*/
 /*				arch_spinlock_lock				    */
 /*===========================================================================*/
 /* void arch_spinlock_lock (u32_t  *lock_data)
@@ -758,7 +680,6 @@ ENTRY(arch_pause)
 /*===========================================================================*/
 /*			      read_ebp				     	     */
 /*===========================================================================*/
-/*  PUBLIC u16_t cpuid(void) */
 ENTRY(read_ebp)
 	mov	%ebp, %eax
 	ret
@@ -789,10 +710,3 @@ ENTRY(switch_k_stack)
 	/* NOT_REACHABLE */
 0:	jmp	0b
 
-.data
-idt_ptr:
-	.short 0x3ff
-	.long 0x0
-
-ldtsel:
-	.long LDT_SELECTOR
