@@ -613,9 +613,6 @@ ENTRY(startup_ap_32)
 /*				data					     */
 /*===========================================================================*/
 
-.data
-.short	0x526F	/* this must be the first data entry (magic #) */
-
 .bss
 k_initial_stack:
 .space	K_STACK_SIZE
