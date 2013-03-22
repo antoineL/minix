@@ -8,33 +8,19 @@
 
 ENTRY(_cpuid)
 /* save work registers */
-	push	%ebp
 	push	%ebx
 
 /* set eax parameter to cpuid and execute cpuid */
-	movl	12(%esp), %ebp
-	mov	(%ebp), %eax
-	movl	16(%esp), %ebp
-	mov	(%ebp), %ebx
-	movl	20(%esp), %ebp
-	mov	(%ebp), %ecx
-	movl	24(%esp), %ebp
-	mov	(%ebp), %edx
-
-.byte	0x0F, 0xA2	/* CPUID */
+	movl	8(%esp), %eax
+	cpuid
 
 /* store results in pointer arguments */
-	movl	12(%esp), %ebp
-	movl	%eax, (%ebp)
-	movl	16(%esp), %ebp
-	movl	%ebx, (%ebp)
-	movl	20(%esp), %ebp
-	movl	%ecx, (%ebp)
-	movl	24(%esp), %ebp
-	movl	%edx, (%ebp)
+	movl	%eax, 8(%esp)
+	movl	%ebx, 12(%esp)
+	movl	%ecx, 16(%esp)
+	movl	%edx, 20(%esp)
 
 /* restore registers */
 	pop	%ebx
-	pop	%ebp
 
 	ret
