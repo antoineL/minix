@@ -36,7 +36,6 @@
 #include "kernel/const.h"
 #include "kernel/proc.h"
 #include "sconst.h"
-#include <machine/multiboot.h>
 
 #include "arch_proto.h" /* K_STACK_SIZE */
 
@@ -52,7 +51,6 @@ IMPORT(copr_not_available_handler)
 IMPORT(params_size)
 IMPORT(params_offset)
 IMPORT(switch_to_user)
-IMPORT(multiboot_init)
 
 .text
 /*===========================================================================*/
@@ -612,9 +610,6 @@ ENTRY(startup_ap_32)
 /*===========================================================================*/
 /*				data					     */
 /*===========================================================================*/
-
-.data
-.short	0x526F	/* this must be the first data entry (magic #) */
 
 .bss
 k_initial_stack:

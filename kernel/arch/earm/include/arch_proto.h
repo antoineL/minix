@@ -24,9 +24,6 @@ void __copy_msg_from_user_end(void);
 void __copy_msg_to_user_end(void);
 void __user_copy_msg_pointer_failure(void);
 
-/* multiboot.c */
-void multiboot_init(void);
-
 /* protect.c */
 struct tss_s {
   reg_t sp0;                    /* stack pointer to use during interrupt */
