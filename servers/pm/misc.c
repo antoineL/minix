@@ -36,26 +36,35 @@ struct utsname uts_val = {
   "noname",		/* node/network name */
   OS_RELEASE,		/* O.S. release (e.g. 1.5) */
   OS_VERSION,		/* O.S. version (e.g. 10) */
-  "xyzzy",		/* machine (cpu) type (filled in later) */
 #if defined(__i386__)
+  "i386",		/* machine type */
   "i386",		/* architecture */
 #elif defined(__arm__)
+  "arm",		/* machine type */
   "arm",		/* architecture */
 #else
-#error			/* oops, no 'uname -mk' */
+#error			/* oops, no 'uname -mp' */
 #endif
 };
+char uts_hardware[64] = 
+#if defined(__i386__)
+  "i586";		/* machine processor */
+#elif defined(__arm__)
+  "arm";		/* machine processor */
+#else
+#error			/* oops */
+#endif
 
 static char *uts_tbl[] = {
   uts_val.arch,
-  NULL,			/* No kernel architecture */
-  uts_val.machine,
+  uts_val.machine,	/* "kernel architecture" = machine type */
+  uts_hardware,		/* hardware processor; previously sent as machine */
   NULL,			/* No hostname */
   uts_val.nodename,
   uts_val.release,
   uts_val.version,
   uts_val.sysname,
-  NULL,			/* No bus */			/* No bus */
+  NULL,			/* No bus */
 };
 
 #if ENABLE_SYSCALL_STATS
@@ -74,7 +83,7 @@ int do_sysuname()
   char *string;
 #if 0 /* for updates */
   char tmp[sizeof(uts_val.nodename)];
-  static short sizes[] = {
+  static short sizes[_UTS_MAX] = {
 	0,	/* arch, (0 = read-only) */
 	0,	/* kernel */
 	0,	/* machine */
@@ -83,6 +92,7 @@ int do_sysuname()
 	0,	/* release */
 	0,	/* version */
 	0,	/* sysname */
+	0,	/* bus */
   };
 #endif
 

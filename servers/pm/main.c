@@ -23,7 +23,6 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/resource.h>
-#include <sys/utsname.h>
 #include <string.h>
 #include <machine/archtypes.h>
 #include <env.h>
@@ -285,11 +284,11 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 	panic("can't sync up with VFS");
 
 #if defined(__i386__)
-        uts_val.machine[0] = 'i';
-        strcpy(uts_val.machine + 1, itoa(getprocessor()));
+        uts_hardware[0] = 'i';
+        strlcpy(uts_hardware + 1, itoa(getprocessor()), sizeof(uts_hardware));
 #elif defined(__arm__)
-        strcpy(uts_val.machine, "arm");
-#endif  
+        strcpy(uts_hardware, "arm");
+#endif
 
  system_hz = sys_hz();
 

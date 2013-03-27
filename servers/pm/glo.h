@@ -11,7 +11,7 @@ EXTERN char monitor_params[MULTIBOOT_PARAM_BUF_SIZE];
 EXTERN struct kinfo kinfo;	/* kernel information */
 
 /* Misc.c */
-extern struct utsname uts_val;	/* uname info */
+extern char uts_hardware[64];	/* sysuname MACHINE info */
 
 /* The parameters of the call are kept here. */
 EXTERN message m_in;		/* the incoming message itself is kept here. */
