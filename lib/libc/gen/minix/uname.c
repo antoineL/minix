@@ -33,9 +33,17 @@ int uname(struct utsname *name)
 	uts_get(_UTS_NODENAME, nodename);
 	uts_get(_UTS_RELEASE, release);
 	uts_get(_UTS_VERSION, version);
-	uts_get(_UTS_MACHINE, machine);
-	uts_get(_UTS_ARCH, arch);
 #if 0
+	uts_get(_UTS_MACHINE, machine);
+#else
+	/* Try KERNEL (better match with NetBSD) then MACHINE (trad.MINIX) */
+	if (sysuname(_UTS_GET, _UTS_KERNEL, name->machine, sizeof(name->machine)) < 0
+	 && sysuname(_UTS_GET, _UTS_MACHINE, name->machine, sizeof(name->machine)) < 0)
+		return -1;
+	name->machine[sizeof(name->machine)-1]= 0;
+#endif
+	uts_get(_UTS_ARCH, arch);
+#if 0 /* Those fields do not exist in struct utsname */
 	uts_get(_UTS_KERNEL, kernel);
 	uts_get(_UTS_HOSTNAME, hostname);
 	uts_get(_UTS_BUS, bus);
