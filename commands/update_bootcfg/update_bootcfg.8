@@ -1,5 +1,5 @@
 .\" Written by Antoine Leca
-.Dd February 8, 2013
+.Dd March 28, 2013
 .Dt UPDATE_BOOTCFG 8
 .Os MINIX
 .Sh NAME
@@ -9,8 +9,8 @@
 .Nm
 .Op Fl lx
 .Op Fl r Ar rootdev
+.Op Fl b Ar bootdir
 .Op Fl t Ar target
-.Op Fl a Ar supps_args
 .Sh DESCRIPTION
 The
 .Nm
@@ -40,12 +40,12 @@ points to last image, selected by the
 .Cm default=
 command. The
 .Fl x
-option will cause the lastest image to be dropped,
+option will cause the former lastest image to be dropped,
 and the
-.Fl d
+.Fl l
 option will reset
 .Pa /boot/minix_latest
-points to most recent image (measured with the time stamp of the
+to point to most recent image (measured with the time stamp of the
 .Va kernel
 file.) Besides the directory to which points
 .Pa /boot/minix_latest ,
@@ -70,32 +70,38 @@ substituted by
 .Nm
 at run time. They are preceded by the dollar sign.
 .Sy $rootdevname
-is replaced with the name of the device holding the (current)
-root file system; this can be overriden with the
+is replaced with the name of the device holding the
+root file system. What is considered the root file system is
+determined from its device name, as indicated either by the value
+of the
+.Sy $ROOT
+setting in the
+.Pa /etc/boot.cfg.args
+file if set, else from the currently mounted device;
+this can be overriden with the
 .Fl r
-option.
+option, for example if / is mounted as ramdisk.
 .Sy $args ,
 which is intended to be at the end of the menu lines, is replaced
-by the system environement values; the
-.Nm
-utility carries over automatically the
-.Va ahci , acpi ,
-and
-.Va no_apic
-from the current system environment (see
-.Xr sysenv 1 .)
-The
-.Fl a
-option allows to append
-.Ar supps_args
-as arbitrary options in addition to the inherited ones.
+by the system environement values, as determined at install time
+by the
+.Xr setup 8
+utility and stored in
+.Pa /etc/boot.cfg.args
+file.
 .Pp
 The
 .Nm
-command updates the root file system; to act upon another
-file system, use
+command updates the root file system, which it assumes to be the file
+system the
+.Xr boot 8
+monitor starts from; to act upon another file system, use the
+.Fl b
+option to override; also it reads the configuration files from the
+.Pa /etc
+directory; both references to the root can be changed using
 .Bd -unfilled -option indent -compact
-.Cm chroot \fIdestdir\fB update_bootcfg
+.Cm chroot \fIdestdir\fB update_bootcfg \fIoptions...\fB
 .Ed
 .Sh FILES
 .Bl -tag -width /etc/boot.cfg.default -compact
@@ -110,6 +116,10 @@ time.
 .It Pa /boot/minix_latest
 Symbolic link to the directory with the latest release, usually
 taken by default
+.It Pa /etc/boot.cfg.args
+Locally-defined system environment variables, initialised at
+.Xr setup 8
+time.
 .It Pa /etc/boot.cfg.default
 Default template
 .It Pa /etc/boot.cfg.local
@@ -123,11 +133,38 @@ as a
 .Cm menu=
 entry is not checked; it is assumed than one or several entries refer to it.
 .Pp
+Using the
+.Fl b
+option allows to update the (previously mounted) disk image used as base when
+.Pa /
+is actually mounted on a ramdisk; however any change will not be reflected
+in the current
+.Pa / ,
+which can be confusing.
+.Pp
+While the script is intended to be portable among POSIX implementations,
+it still uses
+.Xr stat 1
+and
+.Xr readlink 1
+which are not defined in the Standard.
+.Pp
+The
+.Nm
+does not provide a
+.Fl N
+option (similar to
+.Xr install 1
+or
+.Xr mtree 8 )
+to override the place where
+.Pa /etc
+configuration files are searched.
+.Pp
 The naming conventions, particularly the use of
 .Em "default" ,
 are not consistent.
 .Sh SEE ALSO
 .Xr boot 8 ,
 .Xr boot.cfg 5 ,
-.Xr setup 8 ,
-.Xr sysenv 1
+.Xr setup 8 .

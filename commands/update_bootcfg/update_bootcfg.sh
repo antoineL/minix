@@ -2,12 +2,19 @@
 set -e
 
 # Default values can be overriden from environment
+: ${d:=} # where are currently the boot monitor files?
+# Filepaths as seen from the boot monitor, or from $d here:
 : ${BOOTCFG:=/boot.cfg}
-: ${DEFAULTCFG:=/etc/boot.cfg.default}
-: ${LOCALCFG:=/etc/boot.cfg.local}
 : ${DIRSBASE:=/boot/minix} # Without final /, please!
 : ${LATEST:=/boot/minix_latest}
-: ${INHERIT:="acpi ahci debug_fkeys kernelclr nobeep no_apic"}
+# Files used by this utility:
+: ${ARGSCFG:=/etc/boot.cfg.args}
+: ${DEFAULTCFG:=/etc/boot.cfg.default}
+: ${LOCALCFG:=/etc/boot.cfg.local}
+
+# This script aims at being portable among any POSIX shell, in order to be
+# run in cross-building cases (with chroot or jails.)
+# XXX Currently makes use of readlink(1) and stat(1)
 
 filter_entries()
 {
@@ -30,7 +37,7 @@ filter_entries()
 
 		# Check if the referenced kernel is present
 		kernel=`echo "$line" | sed -n 's/.*multiboot[[:space:]]*\(\/[^[:space:];]*\).*/\1/p'`
-		if [ ! -r "$kernel" ]
+		if [ ! -r "$d$kernel" ]
 		then
 			echo "Warning: config contains entry for \"$kernel\" which is missing! Entry skipped." 1>&2
 			echo "menu=SKIP"
@@ -88,110 +95,62 @@ count_entries()
 	printf "BASE="; grep -cs '^menu=' "$1"
 }
 
-# Which device holds the root file system?
-find_target_root()
-{
-	if test -r /etc/fstab
-	then
-		ROOT=$(awk '$2=="/" { print $1; }' /etc/fstab)
-	# else	# ... do nothing, and hope the caller knows what it does;
-		# at any rate a warning will be issued later
-	fi
-}
-
-find_real_root()
-{
-	ROOT=$(awk '$3=="/" { print $1; }' /etc/mtab)
-	if test "x$ROOT" = "x/dev/ram"
-	then # The root device is the ramdisk; try to find the original file system
-		ramimagename=$(sysenv ramimagename)
-		if test -n "$ramimagename" -a -b "/dev/$ramimagename"
-		then # Found! Now try to find the mounting point
-			ROOT="/dev/$ramimagename"
-			ramdisk_dir=`awk "\$1=\"\$ROOT\" {print \$3;}" /etc/mtab`
-			if test -z "$ramdisk_dir"
-			then # Not yet mounted; mount it temporarily to /mnt
-				umount /mnt 2>/dev/null || true
-				mount $ROOT /mnt
-				mounted_ramdisk=/mnt
-				DESTDIR=$mounted_ramdisk
-			else # Already mounted; redirect the script
-				DESTDIR=$ramdisk_dir
-			fi
-			unset ramdisk_dir
-		fi
-		unset ramimagename # Do not pollute variable substitution
-	fi
-}
-
-# Restore /boot/minix_latest pointing at the directory with the lastest kernel
-restore_latest()
-{
-	[ ! -h $LATEST ] || rm $LATEST
-	[ -z "$DESTDIR" -o ! -h $DESTDIR$LATEST ] || rm $DESTDIR$LATEST
-
-	target=$(ls -t $DIRSBASE/*/kernel 2>/dev/null | sed -ne '1s|.*/\([^/]*\)/kernel$|\1|p')
-	if test -z "$target" -o ! -d $DIRSBASE/"$target"
-	then
-		echo Warning! No MINIX kernels found at $DIRSBASE, cannot set $LATEST>&2
-		return
-	fi
-	# XXX Consider a warning if test "$target" = ".temp"
-	ln -s $(basename $DIRSBASE)/"$target" $LATEST
-
-	# Also update the real file system
-	if test -n "$DESTDIR"
-	then
-		if test ! -d "$DESTDIR$DIRSBASE$target"
-		then
-			cp -pfR "$DIRSBASE$target" $DESTDIR$DIRSBASE/
-		fi
-		ln -s $(basename $DIRSBASE)/"$target" $DESTDIR$LATEST
-	fi
-}
-
 usage()
 {
 	cat >&2 <<'EOF'
 Usage:
-  update_bootcfg [-lx] [-r rootdev] [-t dest] [-a supps_args]
+  update_bootcfg [-lx] [-r rootdev] [-b bootdir] [-t dest]
 
   Recreates the configuration file used by MINIX boot monitor.
 
   Options:
+     -x Remove "minix_latest/*", for example if broken; then fix the link
      -l Restore "minix_latest" to point to lastest kernel
-     -x Remove "minix_latest", for example if broken
      -r Root device name; default is current device for /
-     -t New configuration file to create; default is $BOOTCFG
-     -a Additional arguments to menu lines
+     -b Boot directory (where boot_monitor is); default is /
+     -t New configuration file to create; default is $BOOTCFG (in bootdir)
 EOF
 	exit 1
 }
 
-# This script is designed to run directly against a MINIX installation
-if test "x$DESTDIR" != "x"
-then
-	echo Warning: DESTDIR is set! Unset it or try "  chroot \$DESTDIR $0"
-fi
-
-args=""
-
-while getopts "a:lr:t:x" c
+while getopts "b:lr:t:x" c
 do
 	case "$c" in
-	a)	args="$args $OPTARG" ;;
+	b)	d="$OPTARG" ;;
 	l)	do_restore_latest=1 ;;
-	r)	ROOT=$OPTARG ;;
-	t)	dryrun=1; BOOTCFGTMP=$OPTARG ;;
+	r)	ROOT="$OPTARG" ;;
+	t)	keepexist=1; BOOTCFGTMP="$OPTARG" ;;
 	x)	do_remove_latest=1 ;;
 	*)	usage ;;
 	esac
 done
-
 shift `expr $OPTIND - 1`
 
-DESTDIR=
-[ -n "$ROOT" ] || find_real_root
+# Sanity check
+if test -n "$d" -a ! -d "$d$DIRSBASE"
+then
+	echo -b$d option used but does not seem to point at some MINIX system!?
+	usage
+fi
+
+# Let see if ROOT was initialized by setup:
+if test -z "$ROOT" -a -r "$ARGSCFG"
+then
+	if grep -q "^ROOT=" $ARGSCFG
+	then
+		: ${ROOT:-$(sed -n "s/^ROOT=//p" $ARGSCFG)}
+	fi
+fi
+# Last chance: search which device holds the current / file system:
+if test -z "$ROOT"
+then
+	ROOT=$(awk '$3=="/" { print $1; }' /etc/mtab)
+	if test "x$ROOT" = "x/dev/ram"
+	then # The root device is the ramdisk!
+		# Avoid $(sysenv ramimagename) as being MINIX-specific
+		echo Warning: \$ROOT is a ramdisk; consider -r option
+	fi
+fi
 
 if [ ! -b "$ROOT" ]
 then
@@ -199,47 +158,67 @@ then
 	exit 1
 fi
 
+rootdevname=`echo $ROOT | sed 's/\/dev\///'`
+
+# Construct a list of additional arguments for boot options to use, based
+# on a user-editable file /etc/boot.cfg.args initialized during setup.
+# Note that rootdevname is not be passed on this way, as it is handled
+# manually by this script to allow menu lines like
+#   menu=Root FS in RAM: [...] ;multiboot /boot/minix_latest/kernel \
+#           rootdevname=ram ramimagename=$rootdevname $args
+# Also, avoid passing the ROOT variable which is handled above.
+args=""
+[ -r "$ARGSCFG" ] && egrep -v "^ROOT=|^#" $ARGSCFG | while read k
+do
+	args="$args $k"
+done
+args="${args# }"
+
 # Remove the directory pointed to as /boot/minix_latest
 # Useful when one realizes the last release does not work...
 if test -n "$do_remove_latest"
 then
-	rm -rf $(readlink -f $DESTDIR$LATEST)
-	[ ! -h $DESTDIR$LATEST ] || rm $DESTDIR$LATEST
-	# Also clean up the / file system
-	rm -rf $(readlink -f $LATEST)
-	[ ! -h $LATEST ] || rm $LATEST
+	rm -rf $(readlink -f $d$LATEST)
+	[ ! -h $d$LATEST ] || rm $d$LATEST
+
 	do_restore_latest=1
 fi
-[ -z "$do_restore_latest" ] || restore_latest
 
-rootdevname=`echo $ROOT | sed 's/\/dev\///'`
+# Restore /boot/minix_latest pointing at the directory with the lastest kernel
+if test -n "$do_restore_latest"
+then
+	[ ! -h $d$LATEST ] || rm $d$LATEST
 
-# Construct a list of inherited arguments for boot options to use. Note that
-# rootdevname must not be passed on this way, as it is changed during setup.
-for k in $INHERIT; do
-	if sysenv | grep -sq "^$k="; then
-		kv=$(sysenv | grep "^$k=")
-		args="$args $kv"
+	target=$(ls -t $d$DIRSBASE/*/kernel 2>/dev/null \
+		| sed -ne '1s|.*/\([^/]*\)/kernel$|\1|p')
+	if test -z "$target" -o ! -d $d$DIRSBASE/"$target"
+	then
+		echo Warning! No MINIX kernels found at $d$DIRSBASE, cannot set $LATEST>&2
+		return
 	fi
-done
+	# XXX Consider a warning if test "$target" = ".temp"
+
+	# XXX Blindly assume $DIRSBASE and $LATEST are sharing the same base
+	ln -s $(basename $DIRSBASE)/"$target" $d$LATEST
+fi
 
 # All is in place; let's proceed
-[ -n "$dryrun" ] || BOOTCFGTMP=$DESTDIR$BOOTCFG.temp
+[ -n "$keepexist" ] || BOOTCFGTMP=$d$BOOTCFG.temp
 
-echo \# Generated file. Edit $LOCALCFG ! > $BOOTCFGTMP
+echo "# Generated file. Edit $LOCALCFG and run $0 !" > $BOOTCFGTMP
 
-if [ -r $DEFAULTCFG ]
+if test -r "$DEFAULTCFG"
 then
 	echo \# Template is "$DEFAULTCFG" >> $BOOTCFGTMP
 	filter_entries < $DEFAULTCFG >> $BOOTCFGTMP
 fi
 
-if [ -d $LATEST -o -h $LATEST ]
+if [ -d $d$LATEST -o -h $d$LATEST ]
 then
-	latest=$(basename $(stat -f "%Y" $DESTDIR$LATEST))
+	latest=$(basename $(stat -f "%Y" $d$LATEST))
 fi
 
-[ -d $DIRSBASE ] && for i in `ls $DIRSBASE/`
+[ -d $d$DIRSBASE ] && for i in `ls $d$DIRSBASE/`
 do
 	build_name="`basename $i`"
 	if [ "$build_name" != "$latest" ]
@@ -251,7 +230,7 @@ do
 	fi
 done
 
-if [ -r $LOCALCFG ]
+if test -r "$LOCALCFG"
 then
 	echo \# Local options from "$LOCALCFG" >> $BOOTCFGTMP
 
@@ -263,7 +242,12 @@ then
 	(count_entries $BOOTCFGTMP; cat $LOCALCFG) | filter_entries >> $BOOTCFGTMP
 fi
 
-[ -n "$dryrun" ] || mv $BOOTCFGTMP $DESTDIR$BOOTCFG
+if test -z "$keepexist"
+then
+	mv $BOOTCFGTMP $d$BOOTCFG
+	# Be nice and also update the / file system
+	[ -z "$d" ] || cp -p $d$BOOTCFG $BOOTCFG
+fi
 
 sync || true
 [ -z "$mounted_ramdisk" ] || umount $mounted_ramdisk
