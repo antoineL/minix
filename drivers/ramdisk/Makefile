@@ -65,7 +65,7 @@ PROG_DRIVERS+=	acpi
 PROG_DRIVERS+=	mmc
 .endif # ${MACHINE_ARCH} == "earm"
 
-.if ${LDSTATIC} == "-dynamic"
+.if ${LDSTATIC:U} == "-dynamic"
 RAMDISK_DYNAMIC= 1
 PROG_LIBEXEC+=	ld.elf_so
 PROG_LIBS+=	libc libminlib libcompat_minix libterminfo
