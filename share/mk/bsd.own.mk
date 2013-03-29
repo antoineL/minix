@@ -14,7 +14,6 @@ MAKECONF?=	/etc/mk.conf
 .if defined(__MINIX)
 
 # Some Minix deviations from NetBSD
-LDSTATIC?=	-static
 MKDYNAMICROOT?=	no
 
 BINMODE?=	755
