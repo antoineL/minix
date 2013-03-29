@@ -48,7 +48,8 @@ CFLAGS+=       ${${HAVE_LLVM:U"0.0"} != "2.9":? -Wa,--fatal-warnings:}
 .if (!defined(MKPIC) || ${MKPIC} != "no") && \
     (!defined(LDSTATIC) || ${LDSTATIC} != "-static")
 # XXX there are some strange problems not yet resolved
-. if !defined(HAVE_GCC) || defined(HAVE_LLVM)
+# AL130329: on MINIX gets() is linked in in libc.so and it results in a fatal warning
+. if (!defined(HAVE_GCC) || defined(HAVE_LLVM)) && !defined(__MINIX)
 LDFLAGS+=	-Wl,--fatal-warnings
 . endif
 .endif
