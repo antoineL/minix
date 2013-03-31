@@ -105,21 +105,25 @@ usage()
 {
 	cat >&2 <<'EOF'
 Usage:
-  update_bootcfg [-r rootdev] [-o dest]
+  update_bootcfg [-xl] [-r rootdev] [-o dest]
 
   Recreates the configuration file used by MINIX boot monitor.
 
   Options:
+     -x Remove "minix_latest/*", for example if broken; then fix the link
+     -l Restore "minix_latest" to point to lastest kernel
      -r Root device name; default is current device for /
      -o New configuration file to create; default is $BOOTCFG
 EOF
 	exit 1
 }
 
-while getopts "o:r:" c
+while getopts "lo:r:x" c
 do
 	case "$c" in
+	l)	do_restore_latest=1 ;;
 	o)	keepexist=1; BOOTCFGTMP="$OPTARG" ;;
+	r)	ROOT="$OPTARG" ;;
 	x)	do_remove_latest=1 ;;
 	*)	usage ;;
 	esac
@@ -165,6 +169,35 @@ then
 	args=$( egrep -v "^ROOT=|^#" $ARGSCFG | xargs echo )
 fi
 
+# Remove the directory pointed to as /boot/minix_latest
+# Useful when one realizes the last release does not work...
+if test -n "$do_remove_latest"
+then
+	rm -rf $(readlink -f $mboot$minix_latest)
+	[ ! -h $mboot$minix_latest ] || rm $mboot$minix_latest
+
+	do_restore_latest=1
+fi
+
+# Restore /boot/minix_latest pointing at the directory with the lastest kernel
+if test -n "$do_restore_latest"
+then
+	[ ! -h $mboot$minix_latest ] || rm $mboot$minix_latest
+
+	target=$(ls -t $mboot$DIRSBASE/*/kernel 2>/dev/null \
+		| sed -ne '1s|.*/\([^/]*\)/kernel$|\1|p')
+	if test -z "$target" -o ! -d $mboot$DIRSBASE/"$target"
+	then
+		echo Warning! No MINIX kernels found at $mboot$DIRSBASE, cannot set $minix_latest>&2
+		return
+	fi
+	# XXX Consider a warning if test "$target" = ".temp"
+
+	# XXX Blindly assume $DIRSBASE and $minix_latest are sharing the same base
+	ln -s $(basename $DIRSBASE)/"$target" $mboot$minix_latest
+fi
+
+# All is in place; let's proceed
 [ -n "$keepexist" ] || BOOTCFGTMP=$BOOTCFG.temp
 
 echo "# Generated file. Edit $LOCALCFG and run $0 !" > $BOOTCFGTMP
