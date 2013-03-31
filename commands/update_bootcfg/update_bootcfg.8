@@ -7,6 +7,7 @@
 .Nd Create or udpate the configuration for the boot monitor
 .Sh SYNOPSIS
 .Nm
+.Op Fl lx
 .Op Fl r Ar rootdev
 .Op Fl o Ar target
 .Sh DESCRIPTION
@@ -36,7 +37,16 @@ directory, and that
 .Pa /boot/minix_latest
 points to last image, selected by the
 .Cm default=
-command. Besides the directory to which points
+command. The
+.Fl x
+option will cause the former lastest image to be dropped,
+and the
+.Fl l
+option will reset
+.Pa /boot/minix_latest
+to point to most recent image (measured with the time stamp of the
+.Va kernel
+file.) Besides the directory to which points
 .Pa /boot/minix_latest ,
 all the directory entries within 
 .Pa /boot/minix
