@@ -124,6 +124,7 @@ make-bootable:
 	# XXX stripping is already done as part of MINIX_INSTALL_FILE above
 	${STRIP} -s ${_tempDIR}/*
 	${TOOL_GZIP} ${_tempDIR}/mod*
+	${HOST_SH} ${.CURDIR}/mkboot rotate ${DESTDIR}
 	${HOST_SH} ${.CURDIR}/mkboot hdboot ${DESTDIR}
 	${HOST_SH} ${.CURDIR}/../commands/update_bootcfg/update_bootcfg.sh
 .endif
