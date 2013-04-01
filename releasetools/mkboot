@@ -41,33 +41,16 @@ find_real_root()
 	fi
 }
 
-rotate_oldest() {
-	base_dir="$1"
-	set -- `ls -t "$DESTDIR/$base_dir"`
-
-	[ "x$1" != "x.temp" ] || shift # do not consider recently added .temp
-	case $# in
-	0|1|2|3)
-		# Not much there, do not remove a thing.
-		;;
-	*)
-		# Remove the third-newest image in /boot/minix/, but
-		# only if there's an older one (which is kept). 
-		echo "rm $root:$base_dir/$3"
-		rm -rf "$DESTDIR/$base_dir/$3"
-	esac
-}
-
 # If no DESTDIR specified, then act on / or on the current chroot
 DESTDIR=
 # Check arguments.
 case "$#:$1" in
-1:hdboot )
+1:hdboot|1:rotate )
 	action=$1
 	rootfs=1
 	find_real_root
 	;;
-2:hdboot )
+2:hdboot|2:rotate )
 	action=$1 DESTDIR=$2
 	rootfs=0 # Do not try to guess where the real root FS is...
 	;;
@@ -75,6 +58,28 @@ case "$#:$1" in
 esac
 
 case $action in
+rotate)
+	# Rotate system processes. We assume latest ones are in
+	# /boot/minix/.temp and we maintain /boot/minix/ by ourselves.
+	# Note that a "known-good" old image is kept in /boot/minix_default
+	# and is not touched by this action.
+
+	set -- `ls -t "$DESTDIR/boot/minix"`
+
+	[ "x$1" != "x.temp" ] || shift # do not consider recently added .temp
+
+	case $# in
+	0|1|2)
+		# Not much there, do not remove a thing.
+		;;
+	*)
+		# Remove the third-newest and older image(s) in /boot/minix/
+		shift; shift # Keep two most recent images
+		echo "rm /boot/minix/$*"
+		cd $DESTDIR/boot/minix && rm -rf "$@"
+	esac
+	;;
+
 hdboot)
 	version=`${HOST_SH} $(dirname $0)/../sys/conf/osrelease.sh`
 
@@ -100,10 +105,6 @@ hdboot)
 	fi
 
 	target="${version}${rrevision}${gitrev}"
-
-	# Rotate system processes. We assume latest ones are in
-	# /boot/minix/.temp and we maintain /boot/minix/ by ourselves.
-	rotate_oldest "/boot/minix"
 
 	[ -d $DESTDIR/boot/minix/.temp ] || exit 1
 	rm -rf $DESTDIR/boot/minix/"$target"/
