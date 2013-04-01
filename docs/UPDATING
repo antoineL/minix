@@ -1,3 +1,11 @@
+201304xx:
+	Update_bootcfg does not read the existing system environment
+	any more; system settings like "ahci=yes" are now read from
+	a configuration file, which you can edit if needed.
+	If you want to "inherit" your actual settings, run
+
+	# sysenv | grep -v "^rootdevname=" > /etc/boot.cfg.args
+
 20130312:
 	/bin/ksh was imported and needs to be added to your /etc/shells.
 	Run this command to add it:
