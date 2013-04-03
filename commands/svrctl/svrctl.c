@@ -1,4 +1,4 @@
-#include <sys/svrctl.h>
+#include <minix/svrctl.h>
 #include <sys/types.h>
 #include <ctype.h>
 #include <lib.h>
@@ -55,8 +55,6 @@ int main (int argc, char *argv[])
 
 	if (proc_e == VFS_PROC_NR)
 		param = VFSSETPARAM;
-	else if (proc_e == PM_PROC_NR)
-		param = PMSETPARAM;
 	else
 		usage();
 
@@ -112,7 +110,7 @@ int main (int argc, char *argv[])
 static void usage()
 {
   fprintf(stderr, "Usage:\n");
-  fprintf(stderr, "  %s <vfs|pm> set <request> <value>\n", bin_name);
+  fprintf(stderr, "  %s <vfs>    set <request> <value>\n", bin_name);
   fprintf(stderr, "  %s <vfs|pm> get <request>\n", bin_name);
   exit(EXIT_FAILURE);
 }

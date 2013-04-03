@@ -16,7 +16,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <sys/ioc_memory.h>
-#include <sys/svrctl.h>
 #include <sys/select.h>
 #include <minix/callnr.h>
 #include <minix/com.h>

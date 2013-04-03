@@ -1,6 +1,5 @@
 #include <unistd.h>
 #include <timers.h>
-#include <sys/svrctl.h>
 #include <minix/ds.h>
 #include <minix/endpoint.h>
 #include <errno.h>

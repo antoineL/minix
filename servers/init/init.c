@@ -17,7 +17,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <sys/svrctl.h>
+#include <minix/svrctl.h>
 #include <ttyent.h>
 #include <errno.h>
 #include <fcntl.h>
