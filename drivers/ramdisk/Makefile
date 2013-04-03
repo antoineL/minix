@@ -130,7 +130,8 @@ dir.sh:= ash
 .for srcdir in bin sbin commands drivers libexec servers usr.bin usr.sbin
 .for prog in ${PROG_${srcdir:tu}}
 ${prog}: ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}
-	cp -p $> $@
+	# copy stripped-down version
+	${STRIP} -po $@ $> || cp -p $> $@
 
 ${PROGROOT}/${srcdir}/${dir.${prog}:U${prog}}/${prog}:
 	${MAKE} -C ${NETBSDSRCDIR}/${srcdir}/${dir.${prog}:U${prog}} all
@@ -162,7 +163,6 @@ pwd.db spwd.db passwd: etc/master.passwd
 	${INSTALL} etc/${@F} ${@F}
 
 proto.gen: ${PROTO} ${PROTO_FILES} ${PROGRAMS}
-	${STRIP} ${PROGRAMS}
 	# We are using the c preprocessor to generate proto.gen
 	# used in the mkfs tool.
 	${HOST_CPP} ${RAMDISK_DEFINES} ${PROTO} | \
