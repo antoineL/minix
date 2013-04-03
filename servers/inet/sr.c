@@ -54,7 +54,6 @@
 
 #include "inet.h"
 
-#include <sys/svrctl.h>
 #include <minix/callnr.h>
 
 #include "mq.h"

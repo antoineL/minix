@@ -1,4 +1,4 @@
-#include <sys/svrctl.h>
+#include <minix/svrctl.h>
 #include <sys/types.h>
 #include <ctype.h>
 #include <lib.h>
