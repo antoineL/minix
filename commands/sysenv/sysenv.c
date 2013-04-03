@@ -4,7 +4,7 @@
 #define nil ((void*)0)
 #include <minix/type.h>
 #include <sys/types.h>
-#include <sys/svrctl.h>
+#include <minix/svrctl.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>

@@ -29,7 +29,7 @@
 #include <minix/sysinfo.h>
 #include <minix/u64.h>
 #include <sys/ptrace.h>
-#include <sys/svrctl.h>
+#include <minix/svrctl.h>
 #include "file.h"
 #include "fproc.h"
 #include "scratchpad.h"
@@ -580,11 +580,18 @@ int do_svrctl()
 
   svrctl = job_m_in.svrctl_req;
   ptr = (vir_bytes) job_m_in.svrctl_argp;
-  if (((svrctl >> 8) & 0xFF) != 'M') return(EINVAL);
+#ifdef _VFSSETPARAM_M /* compatibility with old (incorrect) encoding, shunting svrctl() */
+  if (((svrctl >> 8) & 0xFF) != 'F'
+   && ((svrctl >> 8) & 0xFF) != 'M') return(EINVAL);
+#else
+  if (((svrctl >> 8) & 0xFF) != 'F') return(EINVAL);
+#endif
 
   switch (svrctl) {
     case VFSSETPARAM:
+    case _VFSSETPARAM_M:
     case VFSGETPARAM:
+    case _VFSGETPARAM_M:
 	{
 		struct sysgetenv sysgetenv;
 		char search_key[64];
@@ -597,7 +604,11 @@ int do_svrctl()
 			return(EFAULT);
 
 		/* Basic sanity checking */
+#ifdef _VFSSETPARAM_M /* compat */
+		if (svrctl == VFSSETPARAM || svrctl == _VFSSETPARAM_M) {
+#else
 		if (svrctl == VFSSETPARAM) {
+#endif
 			if (sysgetenv.keylen <= 0 ||
 			    sysgetenv.keylen > (sizeof(search_key) - 1) ||
 			    sysgetenv.vallen <= 0 ||
@@ -614,7 +625,11 @@ int do_svrctl()
 		search_key[sysgetenv.keylen] = '\0'; /* Limit string */
 
 		/* Is it a parameter we know? */
+#ifdef _VFSSETPARAM_M /* compat */
+		if (svrctl == VFSSETPARAM || svrctl == _VFSSETPARAM_M) {
+#else
 		if (svrctl == VFSSETPARAM) {
+#endif
 			if (!strcmp(search_key, "verbose")) {
 				int verbose_val;
 				if ((s = sys_datacopy(who_e,

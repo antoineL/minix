@@ -37,7 +37,6 @@ from DL_ETH:
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <sys/svrctl.h>
 #include <minix/ds.h>
 #include <minix/endpoint.h>
 #include <minix/chardriver.h>
