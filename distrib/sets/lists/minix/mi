@@ -664,6 +664,7 @@
 ./usr/include/minix/sffs.h		minix-sys
 ./usr/include/minix/sound.h		minix-sys
 ./usr/include/minix/spin.h		minix-sys
+./usr/include/minix/svrctl.h		minix-sys
 ./usr/include				minix-sys
 ./usr/include/minix/sys_config.h	minix-sys
 ./usr/include/minix/sysinfo.h		minix-sys
@@ -895,7 +896,7 @@
 ./usr/include/sys/statvfs.h		minix-sys
 ./usr/include/sys/stdarg.h		minix-sys
 ./usr/include/sys/stdint.h		minix-sys
-./usr/include/sys/svrctl.h		minix-sys
+./usr/include/sys/svrctl.h		minix-sys	obsolete
 ./usr/include/sys/sysctl.h		minix-sys
 ./usr/include/sys/syslimits.h		minix-sys
 ./usr/include/sys/syslog.h		minix-sys

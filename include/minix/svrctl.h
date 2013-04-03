@@ -1,11 +1,11 @@
 /*
-sys/svrctl.h
+minix/svrctl.h
 
 Created:	Feb 15, 1994 by Philip Homburg <philip@cs.vu.nl>
 */
 
-#ifndef _SYS__SVRCTL_H
-#define _SYS__SVRCTL_H
+#ifndef _MINIX_SVRCTL_H
+#define _MINIX_SVRCTL_H
 
 #include <sys/types.h>
 
@@ -14,11 +14,14 @@ Created:	Feb 15, 1994 by Philip Homburg <philip@cs.vu.nl>
 
 /* PM controls. */
 #define PMGETPARAM	_IOW('M',  5, struct sysgetenv)
-#define PMSETPARAM	_IOR('M',  7, struct sysgetenv)
+	/* XXX really   _IORW('M', 5,... */
+/*define PMSETPARAM	_IOR('M',  7, struct sysgetenv) * dropped 2013-04-02 */
 
 /* VFS controls */
-#define VFSSETPARAM	_IOR('M', 130, struct sysgetenv)
-#define VFSGETPARAM	_IOR('M', 131, struct sysgetenv)
+#define VFSSETPARAM	_IOR('F', 130, struct sysgetenv)
+#define _VFSSETPARAM_M	_IOR('M', 130, struct sysgetenv) /* compat 2013-04-02 */
+#define VFSGETPARAM	_IORW('F',131, struct sysgetenv)
+#define _VFSGETPARAM_M	_IOR('M', 131, struct sysgetenv) /* compat 2013-04-02 */
 
 struct sysgetenv {
 	char		*key;		/* Name requested. */
@@ -29,4 +32,4 @@ struct sysgetenv {
 
 int svrctl(int _request, void *_data);
 
-#endif /* _SYS__SVRCTL_H */
+#endif /* _MINIX_SVRCTL_H */
