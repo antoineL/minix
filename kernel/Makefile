@@ -13,16 +13,16 @@ SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
 	table.c utility.c usermapped_data.c
 
 DPADD+=	${LIBTIMERS} ${LIBSYS} ${LIBEXEC} ${LIBMINLIB}
-LDADD+=	-ltimers -lsys -lexec -lminlib -L/usr/lib
+LDADD+=	-ltimers -lsys -lexec -lminlib -L${DESTDIR}/usr/lib
 
-LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/kernel.lds
+LINKERSCRIPT?= ${.CURDIR}/arch/${MACHINE_ARCH}/kernel.lds
 
 .if ${HAVE_GOLD:U} != ""
-GOLDLINKERSCRIPT=${LINKERSCRIPT}
+GOLDLINKERSCRIPT?=${LINKERSCRIPT}
 LDFLAGS+= -Wl,--allow-multiple-definition
 CFLAGS += -fno-common
 .else
-LDFLAGS+= -T ${LINKERSCRIPT}
+LDFLAGS+= -T ${LINKERSCRIPT} -Wl,-Map,${PROG}.map -Wl,-cref
 .endif
 LDFLAGS+= -nostdlib 
 CFLAGS += -fno-stack-protector
