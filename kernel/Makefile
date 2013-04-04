@@ -11,11 +11,11 @@ SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
 	table.c utility.c usermapped_data.c
 
 DPADD+=	${LIBTIMERS} ${LIBSYS} ${LIBEXEC} ${LIBMINLIB}
-LDADD+=	-ltimers -lsys -lexec -lminlib -L/usr/lib
+LDADD+=	-ltimers -lsys -lexec -lminlib -L${DESTDIR}/usr/lib
 
 LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/kernel.lds
 
-LDFLAGS+= -T ${LINKERSCRIPT}
+LDFLAGS+= -T ${LINKERSCRIPT} -Wl,-Map,${PROG}.map -Wl,-cref
 LDFLAGS+= -nostdlib 
 CFLAGS += -fno-stack-protector
 
