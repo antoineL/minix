@@ -1717,8 +1717,17 @@ int mayflush;
     			panic("Error; call to sys_kill failed: %d", status);
 	}
 	else {
+#if 0
 		status = kill(-tp->tty_fg_pgid, sig);
-		if (OK != status) {
+#else
+/* kill() is not any more included in libminc.a :-/
+ * so for the moment I work around this faking the effect of sys_killpg()
+ * but there is not the counterpart code to handle this in PM/kernel/elsewhere
+ * so this needs further work NOW!
+ */
+		status = sys_kill(-tp->tty_fg_pgid, sig);
+#endif
+	if (OK != status) {
 			printf("TTY: kill(%d, %d) failed, errno=%d\n",
 				-tp->tty_fg_pgid, sig, errno);
 			/* try to work around bad mood */
