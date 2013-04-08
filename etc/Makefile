@@ -301,6 +301,7 @@ CONFIGSYMLINKS+=	\
 			/usr/lib/cpp		/lib/cpp \
 			/usr/log		/var/log \
 			/usr/tmp		/var/tmp \
+			/usr/local/man		/usr/local/share/man \
 			/usr/pkg/bin/clang	/usr/bin/cc \
 			/usr/pkg/bin/strip	/usr/bin/strip \
 			/dev/kbdaux		/dev/mouse \

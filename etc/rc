@@ -7,7 +7,7 @@ exec </dev/null
 umask 022
 FSTAB=/etc/fstab
 TERM="${TERM-minix}"
-PATH=/usr/local/bin:/bin:/usr/bin:/usr/sbin:/usr/pkg/bin:/usr/pkg/sbin:/sbin
+PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/usr/pkg/bin:/usr/pkg/sbin:/sbin
 RC_TZ=/etc/rc.timezone
 export TERM PATH
 

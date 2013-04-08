@@ -67,6 +67,11 @@
 ./usr/include/ufs/lfs
 ./usr/include/ufs/mfs
 ./usr/include/ufs/ufs
+./usr/local
+./usr/local/etc
+./usr/local/etc/rc.d
+./usr/local/man
+./usr/local/share
 ./usr/lib
 ./usr/lib/cawf
 ./usr/lib/dict
@@ -165,5 +170,6 @@
 ./dev/mouse
 ./usr/bin/cc
 ./usr/bin/strip
+./usr/local/share/man
 ./var/log
 ./var/tmp
