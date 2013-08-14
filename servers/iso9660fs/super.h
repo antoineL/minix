@@ -1,4 +1,7 @@
 /* This file contains the definitions of a ISO9660 structures */
+#ifndef _SUPER_H_
+#define _SUPER_H_
+
 #include "inode.h"
 
 #define VD_BOOT_RECORD 0
@@ -46,3 +49,5 @@ struct iso9660_vd_pri {
   /* The rest is either not specified or reserved */
   u8_t count;
 } v_pri;
+
+#endif

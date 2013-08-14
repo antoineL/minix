@@ -38,18 +38,18 @@ static int stat_dir_record(
   blocks = blocks * (v_pri.logical_block_size_l >> 9);
 
   memset(&statbuf, 0, sizeof(struct stat));
-
+  
   statbuf.st_dev = fs_dev;	/* the device of the file */
   statbuf.st_ino = ID_DIR_RECORD(dir); /* the id of the dir record */
   statbuf.st_mode = dir->d_mode; /* flags of the file */
   statbuf.st_nlink = dir->d_count; /* times this file is used */
-  statbuf.st_uid = 0;		/* user root */
-  statbuf.st_gid = 0;		/* group operator */
-  statbuf.st_rdev = NO_DEV;
+  statbuf.st_uid = dir->d_uid;		/* user root */
+  statbuf.st_gid = dir->d_gid;		/* group operator */
+  statbuf.st_rdev = dir->d_rdev;
   statbuf.st_size = dir->d_file_size;	/* size of the file */
   statbuf.st_blksize = v_pri.logical_block_size_l;
   statbuf.st_blocks = blocks;
-
+  
   ltime.tm_year = dir->rec_date[0];
   ltime.tm_mon = dir->rec_date[1] - 1;
   ltime.tm_mday = dir->rec_date[2];

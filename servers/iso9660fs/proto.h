@@ -24,6 +24,7 @@ struct dir_record *get_free_dir_record(void);
 struct ext_attr_rec *get_free_ext_attr(void);
 struct dir_record *load_dir_record_from_disk(u32_t address);
 int release_dir_record(struct dir_record *dir);
+void get_file_name(struct dir_record *dir, char* name);
 
 /* misc.c */
 int fs_sync(void);
@@ -51,6 +52,8 @@ int fs_getdents(void);
 int read_chunk(struct dir_record *rip, u64_t position, unsigned off, int
 	chunk, unsigned left, cp_grant_id_t gid, unsigned buf_off, int
 	block_size, int *completed, int rw);
+/* link.c */
+int fs_rdlink(void);
 
 /* stadir.c */
 int fs_stat(void);
@@ -67,3 +70,5 @@ int create_v_pri(struct iso9660_vd_pri *v_pri, char *buffer, unsigned
 int do_noop(void);
 int no_sys(void);
 
+/*  rrip.c */
+void create_rrip_attr(struct dir_record *dir, char *buffer, u32_t length_sysuse);

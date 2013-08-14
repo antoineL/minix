@@ -2,12 +2,13 @@
 #include <string.h>
 #include <minix/com.h>
 #include <minix/vfsif.h>
+#include <sys/stat.h>
 
 #include "buf.h"
 
 static char *get_name(char *name, char string[NAME_MAX+1]);
 static int parse_path(ino_t dir_ino, ino_t root_ino, int flags, struct
-	dir_record **res_inop, size_t *offsetp);
+	dir_record **res_inop, size_t *offsetp, int *syml_loops);
 
 
 /*===========================================================================*
@@ -15,7 +16,7 @@ static int parse_path(ino_t dir_ino, ino_t root_ino, int flags, struct
  *===========================================================================*/
 int fs_lookup() {
   cp_grant_id_t grant;
-  int r, len, flags;
+  int r, len, flags, syml_loops;
   size_t offset;
   ino_t dir_ino, root_ino;
   struct dir_record *dir;
@@ -47,8 +48,7 @@ int fs_lookup() {
   /* Lookup inode */
   dir = NULL;
   offset = 0;
-  r = parse_path(dir_ino, root_ino, flags, &dir, &offset);
-
+  r = parse_path(dir_ino, root_ino, flags, &dir, &offset, &syml_loops);
   if (r == ELEAVEMOUNT) {
 	/* Report offset and the error */
 	fs_m_out.RES_OFFSET = offset;
@@ -88,7 +88,6 @@ int search_dir(ldir_ptr,string,numb)
   struct dir_record *dir_tmp;
   register struct buf *bp;
   int pos;
-  char* comma_pos = NULL;
   char tmp_string[NAME_MAX];
 
   /* This function search a particular element (in string) in a inode and
@@ -118,7 +117,7 @@ int search_dir(ldir_ptr,string,numb)
 
   if (bp == NULL)
     return EINVAL;
-
+ 
   while (pos < v_pri.logical_block_size_l) {
     if ((dir_tmp = get_free_dir_record()) == NULL) {
       put_block(bp);
@@ -134,18 +133,11 @@ int search_dir(ldir_ptr,string,numb)
       put_block(bp);
       return EINVAL;
     }
-    
-    memcpy(tmp_string,dir_tmp->file_id,dir_tmp->length_file_id);
-    comma_pos = strchr(tmp_string,';');
-    if (comma_pos != NULL)
-      *comma_pos = 0;
-    else
-      tmp_string[dir_tmp->length_file_id] = 0;
-    if (tmp_string[strlen(tmp_string) - 1] == '.')
-      tmp_string[strlen(tmp_string) - 1] = '\0';
-    
+ 
+    get_file_name(dir_tmp, tmp_string);
+ 
     if (strcmp(tmp_string,string) == 0 ||
-	(dir_tmp->file_id[0] == 1 && strcmp(string,"..") == 0)) {
+        (dir_tmp->file_id[0] == 1 && strcmp(string,"..") == 0)) {
 
       /* If the element is found or we are searchig for... */
 
@@ -182,12 +174,13 @@ int search_dir(ldir_ptr,string,numb)
 /*===========================================================================*
  *                             parse_path				     *
  *===========================================================================*/
-static int parse_path(dir_ino, root_ino, flags, res_inop, offsetp)
+static int parse_path(dir_ino, root_ino, flags, res_inop, offsetp, psym_loops)
 ino_t dir_ino;
 ino_t root_ino;
 int flags;
 struct dir_record **res_inop;
 size_t *offsetp;
+int *psym_loops;
 {
   int r;
   char string[NAME_MAX+1];
@@ -196,84 +189,134 @@ size_t *offsetp;
 
   /* Find starting inode inode according to the request message */
   if ((start_dir = get_dir_record(dir_ino)) == NULL) {
-    printf("ISOFS: couldn't find starting inode %u\n", dir_ino);
-    return(ENOENT);
+	printf("ISOFS: couldn't find starting inode %u\n", dir_ino);
+	return(ENOENT);
   }
   
   cp = user_path;
-
+  *psym_loops = 0;
   /* Scan the path component by component. */
   while (TRUE) {
-    if (cp[0] == '\0') {
-      /* Empty path */
-      *res_inop= start_dir;
-      *offsetp += cp-user_path;
+	if (cp[0] == '\0') {
+	  /* Empty path */
+	  *res_inop= start_dir;
+	  *offsetp += cp-user_path;
 
-      /* Return EENTERMOUNT if we are at a mount point */
-      if (start_dir->d_mountpoint)
-       	return EENTERMOUNT;
+	  /* Return EENTERMOUNT if we are at a mount point */
+	  if (start_dir->d_mountpoint)
+		return EENTERMOUNT;
 
-      return OK;
-    }
+	  return OK;
+	}
 
-    if (cp[0] == '/') {
-      /* Special case code. If the remaining path consists of just
-       * slashes, we need to look up '.'
-       */
-      while(cp[0] == '/')
-	cp++;
-      if (cp[0] == '\0') {
-	strlcpy(string, ".", NAME_MAX + 1);
-	ncp = cp;
-      }
-      else
-	ncp = get_name(cp, string);
-    } else
-      /* Just get the first component */
-      ncp = get_name(cp, string);
-  
-    /* Special code for '..'. A process is not allowed to leave a chrooted
-     * environment. A lookup of '..' at the root of a mounted filesystem
-     * has to return ELEAVEMOUNT.
-     */
-    if (strcmp(string, "..") == 0) {
+	if (cp[0] == '/') {
+	  /* Special case code. If the remaining path consists of just
+	   * slashes, we need to look up '.'
+	   */
+	  while(cp[0] == '/')
+		 cp++;
+	  if (cp[0] == '\0') {
+		strlcpy(string, ".", NAME_MAX + 1);
+		ncp = cp;
+	  } else
+		ncp = get_name(cp, string);
+	} else
+	  /* Just get the first component */
+	  ncp = get_name(cp, string);
+	/* Special code for '..'. A process is not allowed to leave a chrooted
+	 * environment. A lookup of '..' at the root of a mounted filesystem
+	 * has to return ELEAVEMOUNT.
+	 */
+	if (strcmp(string, "..") == 0) {
 
-      /* This condition is not necessary since it will never be the root filesystem */
-      /*       if (start_dir == dir_records) { */
-      /* 	cp = ncp; */
-      /* 	continue;	/\* Just ignore the '..' at a process' */
-      /* 			 * root. */
-      /* 			 *\/ */
-      /*       } */
+	  /* This condition is not necessary since it will never be the root filesystem */
+	  /*	   if (start_dir == dir_records) { */
+	  /*	cp = ncp; */
+	  /*	continue;	/\* Just ignore the '..' at a process' */
+	  /*			 * root. */
+	  /*			 *\/ */
+	  /*	   } */
 
-      if (start_dir == dir_records) {
-	/* Climbing up mountpoint */
-	release_dir_record(start_dir);
-	*res_inop = NULL;
-	*offsetp += cp-user_path;
-	return ELEAVEMOUNT;
-      }
-    } else {
-      /* Only check for a mount point if we are not looking for '..'. */
-      if (start_dir->d_mountpoint) {
-	*res_inop= start_dir;
-	*offsetp += cp-user_path;
-	return EENTERMOUNT;
-      }
-    }
+	  if (start_dir == dir_records) {
+		/* Climbing up mountpoint */
+		release_dir_record(start_dir);
+		*res_inop = NULL;
+		*offsetp += cp-user_path;
+		return ELEAVEMOUNT;
+	  }
+	} else {
+	  /* Only check for a mount point if we are not looking for '..'. */
+	  if (start_dir->d_mountpoint) {
+		*res_inop= start_dir;
+		*offsetp += cp-user_path;
+		return EENTERMOUNT;
+	  }
+	}
  
-    /* There is more path.  Keep parsing. */
-    old_dir = start_dir;
+	/* There is more path.	Keep parsing. */
+	old_dir = start_dir;
 
-    r = advance(old_dir, string, &start_dir);
+	r = advance(old_dir, string, &start_dir);
+	if (r != OK) {
+	  release_dir_record(old_dir);
+	  return r;
+	}
 
-    if (r != OK) {
-      release_dir_record(old_dir);
-      return r;
-    }
+	if(S_ISLNK(start_dir->d_mode) ) {
+		size_t llen = 0; 
+		size_t slen = strlen(ncp);
 
-    release_dir_record(old_dir);
-    cp = ncp;
+		if(!(start_dir->d_rrip.s_link))
+			return ENOLINK;
+
+		llen = strlen(start_dir->d_rrip.s_link);
+		
+		if ( ncp[0] == '\0') {
+			if (flags & PATH_RET_SYMLINK) {
+				*res_inop= start_dir;
+				*offsetp += cp-user_path;
+				release_dir_record(old_dir);
+				return(OK);
+			}
+			if (llen + 1 > sizeof(user_path)) 
+				return(ENAMETOOLONG);
+			user_path[llen]= '\0';
+		} else if (ncp[0] != '/')
+			return ENOENT;
+		else {
+			if (slen + llen + 1 > sizeof(user_path))
+				return(ENAMETOOLONG);
+
+			if ((unsigned) (ncp - user_path) != llen)
+				memmove(&user_path[llen], ncp, slen+1);
+		}
+
+		memmove(user_path, start_dir->d_rrip.s_link, llen);
+	  
+		ncp = user_path;
+	   *offsetp = 0;
+
+	   /* Symloop limit reached? */
+	   if (++(*psym_loops) > SYMLOOP_MAX)
+	   {
+		   r = ELOOP;
+		   release_dir_record(old_dir);
+		   release_dir_record(start_dir);
+		   return r;
+	   }
+
+	   if (ncp[0] == '/') {
+		   release_dir_record(old_dir);
+		   release_dir_record(start_dir);
+		   return(ESYMLINK);
+	   }
+	   release_dir_record(start_dir);
+	   start_dir  = old_dir;
+	   cp = ncp;
+	} else {
+	   release_dir_record(old_dir);
+	   cp = ncp;
+	}
   }
 }
 
@@ -309,7 +352,7 @@ struct dir_record **resp;		/* resulting inode */
   if ( (r = search_dir(dirp, string, &numb)) != OK) {
     return r;
   }
-
+ 
   /* The component has been found in the directory.  Get inode. */
   if ( (rip = get_dir_record((int) numb)) == NULL)  {
     return(err_code);

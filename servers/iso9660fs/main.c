@@ -59,7 +59,7 @@ int main(void) {
 	}
 
 	ind = req_nr-VFS_BASE;
-
+   
 	if (ind < 0 || ind >= NREQS) {
 		error = EINVAL; 
 	} else

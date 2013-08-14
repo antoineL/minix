@@ -4,8 +4,9 @@
 
 #include "inc.h"
 #include "buf.h"
-#include <minix/vfsif.h>
 
+#include <minix/vfsif.h>
+#include <sys/stat.h>
 
 /*===========================================================================*
  *				fs_putnode				     *
@@ -57,7 +58,18 @@ struct dir_record *dir;
 	if (dir->d_next != NULL)
 		release_dir_record(dir);
 	dir->d_next = NULL;
+
+	if(dir->d_rrip.s_link) {
+		free(dir->d_rrip.s_link);
+		dir->d_rrip.s_link = NULL;
+	}
+
+	if(dir->d_rrip.f_name) {
+    	free(dir->d_rrip.f_name);
+		dir->d_rrip.f_name = NULL;
+	}
   }
+
   return(OK);
 }
 
@@ -159,7 +171,7 @@ int create_ext_attr(struct ext_attr_rec *ext,char *buffer)
 
 
 /*===========================================================================*
- *				create_ext_attr				     *
+ *				create_dir_record 				     *
  *===========================================================================*/
 int create_dir_record(dir,buffer,address)
 struct dir_record *dir;
@@ -170,6 +182,7 @@ u32_t address;
 /* If the flag assign id is active it will return the id associated;
  * otherwise it will return OK. */
   short size;
+  short sys_use;
 
   size = buffer[0];
   if (dir == NULL) return(EINVAL);
@@ -211,6 +224,16 @@ u32_t address;
   dir->d_phy_addr = address;
   dir->d_ino_nr = (ino_t) address; /* u32_t e ino_t are the same datatype so
 				   * the cast is safe */
+
+  dir->d_rdev = 0;
+  dir->d_uid = 0;
+  dir->d_gid = 0;
+
+  sys_use = 34 + dir->length_file_id;
+  sys_use +=  (dir->length_file_id & 0x01) ? 0 : 1;
+  if(dir->length > sys_use)
+      create_rrip_attr(dir, buffer + sys_use-1, dir->length-sys_use);
+
   return(OK);
 }
 
@@ -256,12 +279,9 @@ u32_t address;
 	create_dir_record(dir_next, b_data(bp) + new_pos, new_address);
 
 	if (dir_next->length > 0) {
-		strncpy(name,dir_next->file_id,dir_next->length_file_id);
-		name[dir_next->length_file_id] = '\0';
-		strncpy(old_name, dir_parent->file_id,
-			dir_parent->length_file_id);
-		old_name[dir_parent->length_file_id] = '\0';
-      
+		get_file_name(dir_next, name);
+		get_file_name(dir_parent, old_name);
+
 		if (strcmp(name, old_name) == 0) {
 			dir_parent->d_next = dir_next;
 			dir_next->d_prior = dir_parent;
@@ -292,5 +312,34 @@ u32_t address;
 
   put_block(bp);		/* Release the block read. */
   return(dir);
+}
+
+
+void get_file_name(struct dir_record *dir, char* name)
+{
+    char *cp;
+
+    if (dir->file_id[0] == 0)
+        strlcpy(name, ".", NAME_MAX + 1);
+    else if (dir->file_id[0] == 1)
+        strlcpy(name, "..", NAME_MAX + 1);
+    else {
+        if(dir->d_rrip.f_name) {
+            strcpy(name, dir->d_rrip.f_name);
+        } else {
+            /* Extract the name from the field file_id */
+            strncpy(name, dir->file_id, dir->length_file_id);
+            name[dir->length_file_id] = 0;
+			
+            /* Tidy up file name */
+            cp = memchr(name, ';', NAME_MAX); 
+            if (cp != NULL) name[cp - name] = 0;
+            
+            /*If no file extension, then remove final '.'*/
+            if (name[strlen(name) - 1] == '.')
+                name[strlen(name) - 1] = '\0';
+        }
+    }
+    
 }
 

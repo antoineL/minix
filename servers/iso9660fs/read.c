@@ -195,26 +195,9 @@ int fs_getdents(void) {
 			done = TRUE;
 			release_dir_record(dir_tmp);
 		} else { 	/* The dir record is valid. Copy data... */
-			if (dir_tmp->file_id[0] == 0)
-				strlcpy(name, ".", NAME_MAX + 1);
-			else if (dir_tmp->file_id[0] == 1)
-				strlcpy(name, "..", NAME_MAX + 1);
-			else {
-				/* Extract the name from the field file_id */
-				strncpy(name, dir_tmp->file_id,
-					dir_tmp->length_file_id);
-				name[dir_tmp->length_file_id] = 0;
-	  
-				/* Tidy up file name */
-				cp = memchr(name, ';', NAME_MAX); 
-				if (cp != NULL) name[cp - name] = 0;
-	  
-				/*If no file extension, then remove final '.'*/
-				if (name[strlen(name) - 1] == '.')
-					name[strlen(name) - 1] = '\0';
-			}
-
-			if (strcmp(name_old, name) == 0) {
+            get_file_name(dir_tmp, name);
+		
+            if (strcmp(name_old, name) == 0) {
 				cur_pos += dir_tmp->length;
 				release_dir_record(dir_tmp);
 				continue;

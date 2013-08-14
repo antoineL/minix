@@ -38,7 +38,7 @@ int (*fs_call_vec[])(void) = {
   fs_mountpoint,		/* 27 */
   fs_readsuper,	                /* 28 */
   no_sys,			/* 29: not used */
-  no_sys,			/* 30: not used */
+  fs_rdlink,			/* 30: not used */
   fs_getdents,			/* 31 */
   fs_statvfs,			/* 32 */
 #if 0

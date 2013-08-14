@@ -1,4 +1,8 @@
+#ifndef _INODE_H_
+#define _INODE_H_
+
 #include "const.h"
+#include "rrip.h"
 
 struct dir_record {
   u8_t length;			/* The length of the record */
@@ -14,12 +18,13 @@ struct dir_record {
   u32_t vol_seq_number;		/* volume sequence number: not used */
   u8_t length_file_id;		/* Length name file */
   char file_id[ISO9660_MAX_FILE_ID_LEN]; /* file name */
+
   struct ext_attr_rec *ext_attr;
 
   /* Memory attrs */
   u8_t d_count;			/* Count if the dir_record is in use or not */
-  mode_t d_mode;		/* file type, protection, etc. */
-/*   struct hash_idi_entry *id; */	/* id associated */
+
+	/*   struct hash_idi_entry *id; */	/* id associated */
   u32_t d_phy_addr;		/* physical address of this dir record */
   ino_t d_ino_nr;		/* inode number (identical to the address) */
   char d_mountpoint;		/* true if mounted on */
@@ -28,6 +33,14 @@ struct dir_record {
   struct dir_record *d_prior;	/* The same as before, this points to the dir parent */
   u32_t d_file_size;		/* Total size of the file */
 
+  /* posix attritutes */
+  mode_t d_mode;
+  dev_t d_rdev;
+  u32_t d_uid;
+  u32_t d_gid;
+
+  struct rrip_attr d_rrip;
+  
 } dir_records[NR_DIR_RECORDS];
 
 struct ext_attr_rec {
@@ -63,5 +76,9 @@ struct ext_attr_rec {
 /* #define ID_DIR_RECORD(id) id - hash_idi + 1 */
 #define ID_DIR_RECORD(dir) dir->d_ino_nr
 
+#define DIR_RRIP_ATTR(dir) &(dir->d_rrip)
+
 /* #define ASSIGN_ID 1 */
 /* #define NOT_ASSIGN_ID 0 */
+
+#endif

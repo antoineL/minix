@@ -260,7 +260,9 @@ int *symlinkp;
                         put_inode(rip);
                         return(ESYMLINK);
 		}
-	
+
+		put_inode(rip);
+		dup_inode(dir_ip);	
 		put_inode(rip);
 		dup_inode(dir_ip);
 		rip = dir_ip;
