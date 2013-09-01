@@ -111,7 +111,14 @@ OBJS.${o} += common.o
 
 # LSC Make sure there is not leftover after a failed testrun
 clean: .PHONY .MAKE
-	$(MAKE) -C select clean
+	$(MAKE) -C select $@
 	rm -rf DIR*
+
+# AL130831: FIXME test/select/Makefile does not follow NetBSD style...
+.if ${MKOBJ:Uno} == "yes"
+obj: do_obj_in_test
+do_obj_in_test:
+	mkdir -p $$($(MAKE) print-objdir)/select
+.endif
 
 .include <bsd.prog.mk>
