@@ -6,10 +6,10 @@
 
 #include <getopt.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
 #define MAX_ENTRIES 100000
 #define MAX_LINE_SIZE 0xfff
@@ -105,7 +105,12 @@ convert_to_entry(char *line, struct entry *entry)
 				sscanf(value,"%o",&entry->mode);
 			} else if (strncmp(key, "uid", 4) == 0) {
 				entry->uid = strndup(value, MAX_LINE_SIZE);
+			} else if (strncmp(key, "uname", 6) == 0) {
+#error Not yet done. Use getpwent(). Consider uid to numeric first...
+				entry->uid = strndup(value, MAX_LINE_SIZE);
 			} else if (strncmp(key, "gid", 4) == 0) {
+				entry->gid = strndup(value, MAX_LINE_SIZE);
+			} else if (strncmp(key, "gname", 6) == 0) {
 				entry->gid = strndup(value, MAX_LINE_SIZE);
 			} else if (strncmp(key, "time", 5) == 0) {
 				entry->time = strndup(value, MAX_LINE_SIZE);
@@ -113,6 +118,10 @@ convert_to_entry(char *line, struct entry *entry)
 				entry->size = strndup(value, MAX_LINE_SIZE);
 			} else if (strncmp(key, "link", 5) == 0) {
 				entry->link = strndup(value, MAX_LINE_SIZE);
+			} else if (strncmp(key, "sha256", 7) == 0) {
+				/* nothing, just keep silent */ ;
+			} else if (strncmp(key, "tags", 5) == 0) {
+				/* nothing, just keep silent */ ;
 			} else {
 				fprintf(stderr,
 				    "\tunknown attribute %s -> %s\n", key,
