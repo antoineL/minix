@@ -4,12 +4,14 @@
 #include <errno.h>
 #include <assert.h>
 
+#include <fcntl.h>
 #include <getopt.h>
+#include <grp.h>
+#include <pwd.h>
 #include <unistd.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
 #define MAX_ENTRIES 100000
 #define MAX_LINE_SIZE 0xfff
@@ -23,7 +25,7 @@
  */
 
 enum entry_type
-{ ENTRY_DIR, ENTRY_FILE, ENTRY_LINK };
+{ ENTRY_DIR, ENTRY_FILE, ENTRY_LINK, ENTRY_BLOCK, ENTRY_CHAR };
 
 
 struct entry
@@ -32,10 +34,11 @@ struct entry
 	char *filename;		/* point to last component in the path */
 	enum entry_type type;	/* entry type */
 	int mode;		/* unix mode e.g. 0755 */
-	char *uid;
-	char *gid;
+	int uid;
+	int gid;
 	char *time;		/* time 1365836670.000000000 */
 	char *size;
+	int dev;
 	char *link;
 
 	/* just internal variables used to create a tree */
@@ -53,6 +56,9 @@ convert_to_entry(char *line, struct entry *entry)
 	/* convert a input line from sanitized input into an entry */
 	char *saveptr;
 	char *key, *value;
+	struct passwd *pw;
+	struct group *gr;
+	int maj,min;
 
 	saveptr = NULL;
 
@@ -96,6 +102,10 @@ convert_to_entry(char *line, struct entry *entry)
 					entry->type = ENTRY_FILE;
 				} else if (strncmp(value, "link", 5) == 0) {
 					entry->type = ENTRY_LINK;
+				} else if (strncmp(value, "block", 6) == 0) {
+					entry->type = ENTRY_BLOCK;
+				} else if (strncmp(value, "char", 5) == 0) {
+					entry->type = ENTRY_CHAR;
 				} else {
 					fprintf(stderr,
 					    "\tunknown type %s -> '%s'\n", key,
@@ -104,15 +114,49 @@ convert_to_entry(char *line, struct entry *entry)
 			} else if (strncmp(key, "mode", 5) == 0) {
 				sscanf(value,"%o",&entry->mode);
 			} else if (strncmp(key, "uid", 4) == 0) {
-				entry->uid = strndup(value, MAX_LINE_SIZE);
+				sscanf(value,"%i",&entry->uid);
+			} else if (strncmp(key, "uname", 6) == 0) {
+				if ( (pw = getpwnam(value)) == NULL)
+					fprintf(stderr,
+					        "\tunknown uname %s -> '%s'\n",
+					        key, value);
+				else
+					entry->uid = pw->pw_uid;
 			} else if (strncmp(key, "gid", 4) == 0) {
-				entry->gid = strndup(value, MAX_LINE_SIZE);
+				sscanf(value,"%i",&entry->gid);
+			} else if (strncmp(key, "gname", 6) == 0) {
+				if ( (gr = getgrnam(value)) == NULL)
+					fprintf(stderr,
+					        "\tunknown gname %s -> '%s'\n",
+					        key, value);
+				else
+					entry->gid = gr->gr_gid;
 			} else if (strncmp(key, "time", 5) == 0) {
 				entry->time = strndup(value, MAX_LINE_SIZE);
 			} else if (strncmp(key, "size", 5) == 0) {
 				entry->size = strndup(value, MAX_LINE_SIZE);
 			} else if (strncmp(key, "link", 5) == 0) {
 				entry->link = strndup(value, MAX_LINE_SIZE);
+			} else if (strncmp(key, "device", 7) == 0) {
+				if (sscanf(value, "netbsd,%d,%d", &maj,&min) == 2) {
+					entry->dev = makedev(maj,min);
+				} else if (sscanf(value, "minix,%d,%d",
+				                  &maj, &min) == 2) {
+					entry->dev = makedev(maj,min);
+#ifndef HAVE_NBTOOL_CONFIG_H
+				} else if (sscanf(value, "native,%d,%d",
+				                  &maj, &min) == 2) {
+					entry->dev = makedev(maj,min);
+#endif
+				} else if (sscanf(value, "%i",
+				                  &entry->dev) != 1)
+					fprintf(stderr,
+					        "\tunknown device %s -> '%s'\n",
+					        key, value);
+			} else if (strncmp(key, "sha256", 7) == 0) {
+				/* nothing, just keep silent */ ;
+			} else if (strncmp(key, "tags", 5) == 0) {
+				/* nothing, just keep silent */ ;
 			} else {
 				fprintf(stderr,
 				    "\tunknown attribute %s -> %s\n", key,
@@ -305,9 +349,7 @@ dump_entry(FILE * out, int index, const char *base_dir)
 			fprintf(out, "%s ", entry->filename);
 		}
 		fprintf(out, "d%s", parse_mode(entry->mode));
-		fprintf(out, " %s", (entry->uid) ? entry->uid : "0");
-		fprintf(out, " %s", (entry->gid) ? entry->gid : "0");
-		fprintf(out, "\n");
+		fprintf(out, " %d %d\n", entry->uid, entry->gid);
 		for (i = 0; i < entry_total_count; i++) {
 			if (entries[i].parent == entry) {
 				dump_entry(out, i, base_dir);
@@ -322,7 +364,7 @@ dump_entry(FILE * out, int index, const char *base_dir)
 			fprintf(out, " ");
 		}
 		/* hack skipping the first . in the path */
-		fprintf(out, "%s -%s %s %s %s%s\n", entry->filename,
+		fprintf(out, "%s -%s %d %d %s%s\n", entry->filename,
 		    parse_mode(entry->mode), entry->uid, entry->gid, base_dir,
 		    &entry->path[1]);
 	} else if (entry->type == ENTRY_LINK) {
@@ -332,8 +374,24 @@ dump_entry(FILE * out, int index, const char *base_dir)
 		/* hack skipping the first . in the path */
 		fprintf(out, "%s s%s 0 0 %s\n", entry->filename, parse_mode(entry->mode),
 		    entry->link);
+	} else if (entry->type == ENTRY_BLOCK) {
+		for (space = 0; space < entries[index].depth; space++) {
+			fprintf(out, " ");
+		}
+		/* FIXME?: the (optional) number of blocks is missing */
+		fprintf(out, "%s b%s %d %d %d %d %s%s\n", entry->filename,
+		        parse_mode(entry->mode), entry->uid, entry->gid,
+		        major(entry->dev), minor(entry->dev), base_dir,
+		        &entry->path[1]);
+	} else if (entry->type == ENTRY_CHAR) {
+		for (space = 0; space < entries[index].depth; space++) {
+			fprintf(out, " ");
+		}
+		fprintf(out, "%s b%s %d %d %d %d %s%s\n", entry->filename,
+		        parse_mode(entry->mode), entry->uid, entry->gid,
+		        major(entry->dev), minor(entry->dev), base_dir,
+		        &entry->path[1]);
 	} else {
-		/* missing "b" and "c" for block and char device? */
 		fprintf(out, "# ");
 		for (space = 1; space < entries[index].depth; space++) {
 			fprintf(out, " ");
