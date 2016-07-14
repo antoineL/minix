@@ -555,7 +555,7 @@ initdefaults()
 	do_live_image=false
 	do_install_image=false
 	do_disk_image=false
-	do_show_params=false
+	do_params=false
 	do_rump=false
 
 	# done_{operation}=true if given operation has been done.
@@ -582,17 +582,21 @@ initdefaults()
 		;;
 	esac
 
-	# Find the version of NetBSD
+	# Find the version of MINIX
 	#
 	DISTRIBVER="$(${HOST_SH} ${TOP}/sys/conf/osrelease.sh)"
 
-	# Set the BUILDSEED to NetBSD-"N"
+	# Set the BUILDSEED to MINIX-"N"
 	#
 	setmakeenv BUILDSEED "MINIX-$(${HOST_SH} ${TOP}/sys/conf/osrelease.sh -m)"
 
 	# Set MKARZERO to "yes"
 	#
 	setmakeenv MKARZERO "yes"
+
+	# MINIX-specific: Set MKINSTALLBOOT to "no"
+	#
+	setmakeenv MKINSTALLBOOT "no"
 
 }
 
@@ -612,7 +616,7 @@ initdefaults()
 # MACHINE, then there should be a line with the "NO_DEFAULT" keyword,
 # and with a blank MACHINE_ARCH.
 #
-valid_MACHINE_ARCH='
+valid_NetBSD_MACHINE_ARCH='
 MACHINE=acorn26		MACHINE_ARCH=arm
 MACHINE=acorn32		MACHINE_ARCH=arm
 MACHINE=algor		MACHINE_ARCH=mips64el	ALIAS=algor64
@@ -718,6 +722,28 @@ MACHINE=vax		MACHINE_ARCH=vax
 MACHINE=x68k		MACHINE_ARCH=m68k
 MACHINE=zaurus		MACHINE_ARCH=arm	ALIAS=ozaurus
 MACHINE=zaurus		MACHINE_ARCH=earm	ALIAS=ezaurus DEFAULT
+'
+
+# Impressive! However, the real MINIX list is quite shorter:
+valid_MACHINE_ARCH='
+MACHINE=evbarm		MACHINE_ARCH=earm	ALIAS=evbearm-el DEFAULT
+MACHINE=evbarm		MACHINE_ARCH=earmeb	ALIAS=evbearm-eb
+MACHINE=evbarm		MACHINE_ARCH=earmhf	ALIAS=evbearmhf-el
+MACHINE=evbarm		MACHINE_ARCH=earmhfeb	ALIAS=evbearmhf-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv4	ALIAS=evbearmv4-el
+MACHINE=evbarm		MACHINE_ARCH=earmv4eb	ALIAS=evbearmv4-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv5	ALIAS=evbearmv5-el
+MACHINE=evbarm		MACHINE_ARCH=earmv5eb	ALIAS=evbearmv5-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv6	ALIAS=evbearmv6-el
+MACHINE=evbarm		MACHINE_ARCH=earmv6hf	ALIAS=evbearmv6hf-el
+MACHINE=evbarm		MACHINE_ARCH=earmv6eb	ALIAS=evbearmv6-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv6hfeb	ALIAS=evbearmv6hf-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv7	ALIAS=evbearmv7-el
+MACHINE=evbarm		MACHINE_ARCH=earmv7eb	ALIAS=evbearmv7-eb
+MACHINE=evbarm		MACHINE_ARCH=earmv7hf	ALIAS=evbearmv7hf-el
+MACHINE=evbarm		MACHINE_ARCH=earmv7hfeb	ALIAS=evbearmv7hf-eb
+MACHINE=evbarm64	MACHINE_ARCH=aarch64	ALIAS=evbarm64-el DEFAULT
+MACHINE=i386		MACHINE_ARCH=i386
 '
 
 # getarch -- find the default MACHINE_ARCH for a MACHINE,
@@ -915,8 +941,6 @@ nobomb_getmakevar()
 	"${make}" -m ${TOP}/share/mk -s -B -f- _x_ <<EOF || return 1
 _x_:
 	echo \${$1}
-# LSC FIXME: We are cross compiling, so overwrite default and build tools
-USETOOLS:=yes
 .include <bsd.prog.mk>
 .include <bsd.kernobj.mk>
 EOF
@@ -1321,10 +1345,6 @@ parseoptions()
 			exit $?
 			;;
 
-		show-params)
-			op=show_params	# used as part of a variable name
-			;;
-
 		kernel=*|releasekernel=*|kernel.gdb=*)
 			arg=${op#*=}
 			op=${op%%=*}
@@ -1373,6 +1393,19 @@ parseoptions()
 			;;
 
 		esac
+
+		# Filter out the commands not supported with MINIX
+		case "${op}" in
+		*kernel*|\
+		*modules|\
+		rump|rumptest|\
+		syspkgs)
+			bomb "MINIX does not support operation \`${op}'"
+			;;
+		*)
+			;;
+		esac
+
 		# ${op} may contain chars that are not allowed in variable
 		# names.  Replace them with '_' before setting do_${op}.
 		op="$( echo "$op" | tr -s '.-' '__')"
@@ -1380,7 +1413,7 @@ parseoptions()
 	done
 	[ -n "${operations}" ] || usage "Missing operation to perform."
 
-	# Set up MACHINE*.  On a NetBSD host, these are allowed to be unset.
+	# Set up MACHINE*.  On a MINIX host, these are allowed to be unset.
 	#
 	if [ -z "${MACHINE}" ]; then
 		[ "${uname_s}" = "Minix" ] ||
@@ -1759,7 +1792,7 @@ validatemakeparams()
 
 	if [ -z "${DESTDIR}" ] || [ "${DESTDIR}" = "/" ]; then
 		if ${do_distribution} || ${do_release} || \
-		   ( [ "${uname_s}" != "NetBSD" ] && [ "${uname_s}" != "Minix" ] ) || \
+		   [ "${uname_s}" != "Minix" ] || \
 		   [ "${uname_m}" != "${MACHINE}" ]; then
 			bomb "DESTDIR must != / for cross builds, or ${progname} 'distribution' or 'release'."
 		fi
@@ -1894,17 +1927,22 @@ EOF
 			fi
 		done
 
-		eval cat <<EOF
-MAKEWRAPPERMACHINE=${makewrappermachine:-${MACHINE}}; export MAKEWRAPPERMACHINE
-USETOOLS=yes; export USETOOLS
-# LSC We are cross compiling, so do not install to root!
-MKINSTALLBOOT=no; export MKINSTALLBOOT
-EOF
-	} | eval sort -u "${makewrapout}"
-	eval cat <<EOF "${makewrapout}"
+#		eval cat <<EOF
+#MAKEWRAPPERMACHINE=${makewrappermachine:-${MACHINE}}; export MAKEWRAPPERMACHINE
+#USETOOLS=yes; export USETOOLS
+## LSC We are cross compiling, so do not install to root!
+#MKINSTALLBOOT=no; export MKINSTALLBOOT
+#EOF
+#	} | eval sort -u "${makewrapout}"
+#	eval cat <<EOF "${makewrapout}"
+#
+#exec "\${TOOLDIR}/bin/${toolprefix}make" \${1+"\$@"}
+#
+		cat <<EOF
 
 exec "\${TOOLDIR}/bin/${toolprefix}make" \${1+"\$@"}
 EOF
+	} | eval cat "${makewrapout}"
 	[ "${runcmd}" = "echo" ] && echo EOF
 	${runcmd} chmod +x "${makewrapper}"
 	statusmsg2 "Updated makewrapper:" "${makewrapper}"
@@ -2228,7 +2266,7 @@ main()
 			statusmsg "Built sets to ${setdir}"
 			;;
 
-		cleandir|obj|build|distribution|release|sourcesets|syspkgs|show-params)
+		cleandir|obj|build|distribution|release|sourcesets|syspkgs|params)
 			${runcmd} "${makewrapper}" ${parallel} ${op} ||
 			    bomb "Failed to make ${op}"
 			statusmsg "Successful make ${op}"
@@ -2292,7 +2330,7 @@ main()
 		install=*)
 			arg=${op#*=}
 			if [ "${arg}" = "/" ] && \
-			    (	( [ "${uname_s}" != "NetBSD" ] && [ "${uname_s}" != "Minix" ] ) || \
+			    (	[ "${uname_s}" != "Minix" ] || \
 				[ "${uname_m}" != "${MACHINE}" ] ); then
 				bomb "'${op}' must != / for cross builds."
 			fi
