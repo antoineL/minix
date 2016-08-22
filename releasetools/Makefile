@@ -1,7 +1,7 @@
 # Makefile for the kernel image.
 .include <bsd.own.mk>
 
-GEN_FILES=	*.bak image kernel *.iso *.iso.gz cdfdimage rootimage src
+GEN_FILES=	*.bak *.iso *.iso.gz cdfdimage rootimage src
 
 # LSC detect where were built the objects files
 PROGROOT:= ..
@@ -10,21 +10,28 @@ PROGROOT:= ${MAKEOBJDIR:S,releasetools,,}
 .endif
 
 # Specify the programs that are part of the system image.
-KERNEL= ${PROGROOT}/minix/kernel/kernel
+KERNEL_OBJDIR!=	cd ${NETBSDSRCDIR}/minix/kernel; ${PRINTOBJDIR}
+KERNEL= ${KERNEL_OBJDIR}/kernel
 
-# PROGRAMS are in the order they should be loaded by boot
-PROGRAMS+= ${PROGROOT}/minix/servers/ds/ds
-PROGRAMS+= ${PROGROOT}/minix/servers/rs/rs
-PROGRAMS+= ${PROGROOT}/minix/servers/pm/pm
-PROGRAMS+= ${PROGROOT}/minix/servers/sched/sched
-PROGRAMS+= ${PROGROOT}/minix/servers/vfs/vfs
-PROGRAMS+= ${PROGROOT}/minix/drivers/storage/memory/memory
-PROGRAMS+= ${PROGROOT}/minix/drivers/tty/tty/tty
-PROGRAMS+= ${PROGROOT}/minix/servers/mib/mib
-PROGRAMS+= ${PROGROOT}/minix/servers/vm/vm
-PROGRAMS+= ${PROGROOT}/minix/fs/pfs/pfs
-PROGRAMS+= ${PROGROOT}/minix/fs/mfs/mfs
-PROGRAMS+= ${PROGROOT}/sbin/init/init
+# PROGRAMS, in the order they should be loaded by boot
+PROGRAMS=
+.for dir file in \
+		minix/servers/ds	ds \
+		minix/servers/rs	rs \
+		minix/servers/pm	pm \
+		minix/servers/sched	sched \
+		minix/servers/vfs	vfs \
+		minix/drivers/storage/memory memory \
+		minix/drivers/tty/tty	tty \
+		minix/servers/mib	mib \
+		minix/servers/vm	vm \
+		minix/fs/pfs		pfs \
+		minix/fs/mfs		mfs \
+		sbin/init		init
+  _$(file)_OBJDIR!=	cd ${NETBSDSRCDIR}/$(dir); ${PRINTOBJDIR}
+  PROGRAMS+= ${_$(file)_OBJDIR}/$(file)
+.endfor
+
 
 all usage help:
 	@echo " " >&2
@@ -69,27 +76,26 @@ sbin: libraries
 drivers: libraries
 	${MAKE} -C ${NETBSDSRCDIR}/minix/drivers all install
 
-services: kernel servers drivers sbin
+services: kernel servers sbin .WAIT drivers
 
+# AL20160822: gzip disabled becuase it breaks the distrib/sets building logic
 do-hdboot: 
-	@rm -rf ${DESTDIR}/boot/minix/.temp/
-	${INSTALL_DIR} ${DESTDIR}/boot/minix/.temp
+	@rm -rf ${DESTDIR}/boot/minix_latest
+	${INSTALL_DIR} ${DESTDIR}/boot/minix_latest
 # mod_0 is used to make alphabetical order equal to the boot order
 	@n=0;							\
 	for i in ${PROGRAMS};					\
 	do							\
 	n=`expr $$n + 1`;					\
 	[ "$$n" -ge 10 ] && prefix="mod" || prefix="mod0";	\
-	newname="${DESTDIR}/boot/minix/.temp/$${prefix}$${n}_`basename $$i`"; \
+	newname="${DESTDIR}/boot/minix_latest/$${prefix}$${n}_`basename $$i`"; \
 	${INSTALL_FILE} $$i $$newname;				\
 	echo ${INSTALL_FILE} $$i $$newname;			\
 	done
-	@${INSTALL_FILE} ${KERNEL} ${DESTDIR}/boot/minix/.temp/
+	@${INSTALL_FILE} ${KERNEL} ${DESTDIR}/boot/minix_latest
 	@if [ "${MKINSTALLBOOT:Uno}" != "no" ] ; then		\
-	${STRIP} -s ${DESTDIR}/boot/minix/.temp/* ;		\
-	gzip ${DESTDIR}/boot/minix/.temp/mod* ;			\
-	${HOST_SH} mkboot hdboot ${DESTDIR};			\
-	${HOST_SH} ../minix/commands/update_bootcfg/update_bootcfg.sh;\
+	  ${STRIP} -s ${DESTDIR}/boot/minix_latest/* ;		\
+	  : gzip ${DESTDIR}/boot/minix_latest/mod* ;		\
 	fi
 
 hdboot: services .WAIT do-hdboot
@@ -104,6 +110,9 @@ clean:
 	${MAKE} -C ${NETBSDSRCDIR}/sbin $@
 	${MAKE} -C ${NETBSDSRCDIR}/minix/sbin $@
 	rm -rf ${GEN_FILES}
+
+cleandir: clean
+	rm -rf .gitignore
 
 # LSC: For STRIP and HOST_SH
 .include <bsd.sys.mk>

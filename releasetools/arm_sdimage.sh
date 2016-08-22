@@ -106,9 +106,6 @@ ROOTSIZEARG="-b $((${ROOT_SIZE} / 512 / 8))"
 USRSIZEARG="-b $((${USR_SIZE} / 512 / 8))"
 HOMESIZEARG="-b $((${HOME_SIZE} / 512 / 8))"
 
-# where the kernel & boot modules will be
-MODDIR=${DESTDIR}/boot/minix/.temp
-
 echo "Building work directory..."
 build_workdir "$SETS"
 

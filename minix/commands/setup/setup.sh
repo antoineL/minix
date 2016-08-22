@@ -553,12 +553,12 @@ cp /usr/mdec/boot_monitor /mnt/
 minixdir=/mnt/boot/minix_default
 if [ ! -f $minixdir/kernel ]
 then	rm -rf $minixdir
-	cp -r /mnt/boot/minix/.temp $minixdir
+	cp -r /mnt/boot/minix_latest $minixdir
 fi
 if [ ! -e /mnt/boot/minix_latest ]
 then	ln -sf minix_default /mnt/boot/minix_latest
 fi
-chroot /mnt update_bootcfg
+sed -e 's/$rootdevname/'$root'/; s/ $args//' /mnt/etc/boot.cfg.default >/mnt/boot.cfg
 
 # Save name of CD drive
 cddrive="`mount | fgrep ' /usr ' | awk '{ print $1 }' | sed 's/p.*//'`"

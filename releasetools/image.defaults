@@ -22,4 +22,4 @@
 : ${ASR_HACK=0}
 
 # where the kernel & boot modules will be
-MODDIR=${DESTDIR}/boot/minix/.temp
+MODDIR=${DESTDIR}/boot/minix_latest

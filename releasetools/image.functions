@@ -196,8 +196,8 @@ workdir_add_kernel()
 		add_dir_spec "boot/$1" extra.kernel
 	fi
 
-	mv ${ROOT_DIR}/boot/minix/.temp/* ${ROOT_DIR}/boot/$1
-	rm -rf ${ROOT_DIR}/boot/minix/.temp
+	mv ${ROOT_DIR}/boot/minix_latest/* ${ROOT_DIR}/boot/$1
+	rm -rf ${ROOT_DIR}/boot/minix_latest
 	for i in $(cd ${ROOT_DIR}/boot/$1 && echo *)
 	do
 		add_file_spec "boot/$1/$i" extra.kernel

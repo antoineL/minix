@@ -27,9 +27,6 @@ fi
 . releasetools/image.defaults
 . releasetools/image.functions
 
-# where the kernel & boot modules will be
-MODDIR=${DESTDIR}/boot/minix/.temp
-
 echo "Building work directory..."
 build_workdir "$SETS"
 

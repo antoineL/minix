@@ -14,8 +14,8 @@
 .
 ./bin
 ./boot
-./boot/minix
 ./boot/minix_default
+./boot/minix_latest
 ./dev
 ./dev/pts
 ./etc
