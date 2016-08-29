@@ -1,18 +1,16 @@
-# LSC FIXME: Hackish way to trigger the fetch phase from here
-# 	     in the same way as from tools.
+# Trigger the fetch phase even when not building tools
 
 .include <bsd.own.mk>
 
 MODULE=	texinfo
+GNUHOSTDIST=	${.CURDIR}/${MODULE}
 
-.include "${.CURDIR}/../../tools/Makefile.gnuhost"
+.include "${.CURDIR}/../../minix/Makefile.fetchgnu"
 
-# Force the mapping to standard targets even when not building tools
 # We considere work to be done as soon as the fetch step is done,
 # as everything else has to be triggered from /tools or ../usr.bin
 
 .if ${USETOOLS} != "yes"
-realall realinstall: ${GNUHOSTDIST:H}/.gitignore
-
+realdepend realall realinstall: ${fetch_done}
 .endif
 
