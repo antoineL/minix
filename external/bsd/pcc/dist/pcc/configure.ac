@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([pcc], [1.2.0.DEVEL], [pcc@lists.ludd.ltu.se])
+AC_INIT([Portable C Compiler], [1.2.0.DEVEL], [pcc@lists.ludd.ltu.se], [pcc], [http://pcc.ludd.ltu.se/])
 AC_CONFIG_HEADER([config.h])
 
 AC_CANONICAL_TARGET
@@ -89,11 +89,25 @@ case "$target_os" in
 	esac
 	;;
 
+    linux-android*)
+	targos=android
+	abi=elf
+	stabs=yes
+	case "$target_cpu" in
+	    arm*) targmach=arm ;;
+	    i?86) targmach=i386 ;;
+	    x86_64) targmach=amd64 ;;
+	    mipseb) targmach=mips endian=big ;;
+	    mips*) targmach=mips ;;
+	esac
+	;;
+
     linux*)
 	targos=linux
 	abi=elf
 	stabs=yes
 	case "$target_cpu" in
+	    arm*) targmach=arm ;;
 	    i?86) targmach=i386 ;;
 	    powerpc*) targmach=powerpc endian=big ;;
 	    x86_64) targmach=amd64 ;;
@@ -102,6 +116,15 @@ case "$target_os" in
 	esac
 	case "$target_os" in
 	    *-musl*) ADD_CPPFLAGS="$ADD_CPPFLAGS -DUSE_MUSL" ;;
+	esac
+	;;
+
+    litebsd*)
+	targos=litebsd
+	abi=elf
+	wchar_type=USHORT
+	case "$target_cpu" in
+	    mips*) targmach=mips ;;
 	esac
 	;;
 
@@ -174,6 +197,8 @@ case "$target_os" in
 	    mips*) targmach=mips ;;
 	    pdp10) targmach=pdp10 ;;
 	    powerpc) targmach=powerpc endian=big ;;
+	    riscv32) targmach=riscv32 ;;
+	    riscv64) targmach=riscv64 ;;
 	    sparc64) targmach=sparc64 endian=big ;;
 	    vax) targmach=vax ;;
 	    x86_64) targmach=amd64 ;;
@@ -254,10 +279,6 @@ case "$host_os" in
         hostos=bsd
 	;;
     darwin*)
-	echo $targosver
-	if test "$targosver" -ge 10 ; then
-		targmach=amd64
-	fi
 	hostos=darwin
 	;;
     dragonfly*)
@@ -267,7 +288,11 @@ case "$host_os" in
         hostos=freebsd
 	;;
     linux*)
+	ADD_CPPFLAGS="$ADD_CPPFLAGS -D_BSD_SOURCE"
         hostos=linux
+	;;
+    litebsd*)
+	hostos=litebsd
 	;;
     midnightbsd*)
         hostos=midnightbsd
@@ -381,6 +406,18 @@ AC_ARG_ENABLE(pcc-debug,
 	[pccdebug=$enableval], [])
 if test "$pccdebug" = "yes"; then
 	ADD_CPPFLAGS="$ADD_CPPFLAGS -DPCC_DEBUG";
+fi
+AC_ARG_ENABLE(twopass,
+	AS_HELP_STRING([--enable-twopass],
+		[Link PCC as a two-pass compiler]),
+	[twopass=$enableval], [])
+if test "$twopass" = "yes"; then
+	ADD_CPPFLAGS="$ADD_CPPFLAGS -DTWOPASS";
+	CCNAMES='$(BINPREFIX)cc0$(EXEEXT) $(BINPREFIX)cc1$(EXEEXT)'
+	CF0='-DPASS1'
+	CF1='-DPASS2'
+else
+	CCNAMES='$(BINPREFIX)ccom$(EXEEXT)'
 fi
 
 AC_ARG_ENABLE(stripping,
@@ -579,7 +616,8 @@ AC_HEADER_SYS_WAIT
 ##  AC_FUNC_STRTOD
 # AC_FUNC_VPRINTF
 # AC_CHECK_FUNCS([memset strchr strdup strrchr strtol])
-AC_CHECK_FUNCS([strtold vsnprintf snprintf mkstemp strlcat strlcpy basename getopt ffs vfork])
+AC_CHECK_FUNCS([strtold vsnprintf snprintf mkstemp strlcat strlcpy getopt ffs vfork])
+AC_FUNC_ALLOCA
 
 AC_EXEEXT
 
@@ -594,6 +632,9 @@ AC_SUBST(includedir)
 AC_SUBST(PACKAGE_VERSION)
 AC_SUBST(ADD_CFLAGS)
 AC_SUBST(ADD_CPPFLAGS)
+AC_SUBST(CCNAMES)
+AC_SUBST(CF0)
+AC_SUBST(CF1)
 
 pcc_major=`echo $PACKAGE_VERSION | awk -F. '{print $1}'`
 pcc_minor=`echo $PACKAGE_VERSION | awk -F. '{print $2}'`

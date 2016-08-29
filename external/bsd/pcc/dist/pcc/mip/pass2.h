@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: pass2.h,v 1.142 2015/08/13 11:56:03 ragge Exp 	*/	
+/*	$NetBSD: pass2.h,v 1.1.1.7 2016/02/09 20:29:17 plunky Exp $	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *
@@ -308,9 +309,9 @@ int tlen(NODE *p);
 int setbin(NODE *);
 int notoff(TWORD, int, CONSZ, char *);
 int fldexpand(NODE *, int, char **);
-void p2tree(NODE *p); 
 int flshape(NODE *p);
 int ncnt(int needs);
+void mainp2(void);
 
 extern	char *rnames[];
 
@@ -411,7 +412,7 @@ callop(int o)
  *
  * These values should be synced with FOREFF/FORCC.
  */
-#define LREG		001
+#define ISMOPS		001
 #define RREG		002
 #define	RVEFF		004
 #define	RVCC		010
@@ -534,3 +535,12 @@ extern struct p2env p2env;
  * C compiler second pass extra defines.
  */
 #define PHI (MAXOP + 1)		/* Used in SSA trees */
+
+enum {
+	ATTR_P2_FIRST = ATTR_MI_MAX + 1,
+	ATTR_P2STRUCT,
+#ifdef ATTR_P2_TARGET
+	ATTR_P2_TARGET,
+#endif
+	ATTR_P2_MAX
+};

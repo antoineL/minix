@@ -37,7 +37,7 @@ echo "====> Fixing RCS tags..."
 for f in $(grep -RL '\$(NetBSD|Id).*\$' work); do
     sed -e '/\$NetBSD\$/d'				\
 	-e 's,\$\(NetBSD[[:>:]].*\)\$,\1,'		\
-	-e 's,\(.*\)\$\(Id[[:>:]].*\)\$\(.*\),\1\2\3\
+	-e 's,\(.*\)\$\(Id[[:>:]].*\)\$\(.*\),\1\2\3	\
 \1\$NetBSD\$\3,'					\
 	< ${f} > ${f}_tmp
     mv ${f}_tmp ${f}
@@ -46,6 +46,8 @@ done
 echo "====> Creating pcc \"config.h\" file..."
 mkdir work/tmp
 cd work/tmp
+#AL - modified for MINIX:
+#env -i PATH=/bin:/usr/bin /bin/sh ../pcc/configure --enable-tls
 env -i PATH=/bin:/usr/bin /bin/sh ../pcc/configure --disable-tls "$@"
 cd ../..
 #

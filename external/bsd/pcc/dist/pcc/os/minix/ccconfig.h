@@ -1,4 +1,5 @@
-/*	 Id */
+/*	 Id: ccconfig.h,v 1.6 2014/12/24 08:43:28 plunky Exp  */	
+/*	 $NetBSD: ccconfig.h,v 1.1.1.2 2016/02/09 20:29:21 plunky Exp $ */
 /*
  * Escrit per Antoine Leca pel projecte PCC, 2011-03.
  * Copyright (C) 2011 Anders Magnusson (ragge@ludd.luth.se).

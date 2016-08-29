@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: code.c,v 1.85 2015/12/13 09:00:04 ragge Exp 	*/	
+/*	$NetBSD: code.c,v 1.3 2016/02/09 20:37:32 plunky Exp $	*/
 /*
  * Copyright (c) 2008 Michael Shalayeff
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
@@ -29,6 +30,15 @@
 
 
 # include "pass1.h"
+
+#ifndef LANG_CXX
+#undef NIL
+#define	NIL NULL
+#define	NODE P1ND
+#define	nfree p1nfree
+#define	ccopy p1tcopy
+#define	tfree p1tfree
+#endif
 
 static int nsse, ngpr, nrsp, rsaoff;
 static int thissse, thisgpr, thisrsp;
@@ -127,8 +137,7 @@ defloc(struct symtab *sp)
 {
 	char *name;
 
-	if ((name = sp->soname) == NULL)
-		name = exname(sp->sname);
+	name = getexname(sp);
 
 	if (sp->sclass == EXTDEF) {
 		printf("\t.globl %s\n", name);
@@ -725,7 +734,7 @@ movtomem(NODE *p, int off, int reg)
 	s.sclass = AUTO;
 
 	l = block(REG, NIL, NIL, PTR+STRTY, 0, 0);
-	l->n_lval = 0;
+	slval(l, 0);
 	regno(l) = reg;
 
 	r = block(NAME, NIL, NIL, p->n_type, p->n_df, p->n_ap);
@@ -786,6 +795,7 @@ classifystruct(struct symtab *sp, int off)
 				sps[i].sdf = df;
 				sps[i].snext = &sps[i+1];
 				sps[i].soffset = i * tsize(t, df, sp->sap);
+				sps[i].soffset += sp->soffset;
 			}
 			sps[i-1].snext = sp->snext;
 			sp = &sps[0];
@@ -950,6 +960,8 @@ argput(NODE *p)
 	case INTMEM:
 		r = nrsp;
 		nrsp += SZLONG;
+		if (p->n_type < INT || p->n_type == BOOL)
+			p = cast(p, INT, 0);
 		p = movtomem(p, r, STKREG);
 		break;
 
@@ -1012,7 +1024,7 @@ argput(NODE *p)
 		nrsp += tsize(p->n_type, p->n_df, p->n_ap);
 
 		l = block(REG, NIL, NIL, PTR+STRTY, 0, 0);
-		l->n_lval = 0;
+		slval(l, 0);
 		regno(l) = STKREG;
 
 		t = block(NAME, NIL, NIL, p->n_type, p->n_df, p->n_ap);
@@ -1173,7 +1185,7 @@ builtin_return_address(const struct bitable *bt, NODE *a)
 	int nframes;
 	NODE *f;
 
-	nframes = a->n_lval;
+	nframes = glval(a);
 	tfree(a);
 
 	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);
@@ -1197,7 +1209,7 @@ builtin_frame_address(const struct bitable *bt, NODE *a)
 	int nframes;
 	NODE *f;
 
-	nframes = a->n_lval;
+	nframes = glval(a);
 	tfree(a);
 
 	f = block(REG, NIL, NIL, PTR+VOID, 0, 0);

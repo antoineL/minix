@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: table.c,v 1.13 2015/10/27 14:48:50 ragge Exp 	*/	
+/*	$NetBSD: table.c,v 1.1.1.2 2016/02/09 20:28:35 plunky Exp $	*/
 /*
  * Copyright (c) 2014 Anders Magnusson (ragge@ludd.ltu.se).
  * All rights reserved.
@@ -687,14 +688,14 @@ struct optab table[] = {
 { MOD,	INAREG,
 	SAREG,			TINT,
 	SAREG|SNAME|SOREG,	TINT,
-		NAREG,	RESC1,
-		"	divsl.l AR,A1:AL\n", },
+		NAREG*2,	RESC1,
+		"mov.l AL,A2\n	divsl.l AR,A1:A2\n", },
 
 { MOD,	INAREG,
 	SAREG,			TUNSIGNED,
 	SAREG|SNAME|SOREG,	TUNSIGNED,
-		NAREG,	RESC1,
-		"	divul.l AR,A1:AL\n", },
+		NAREG*2,	RESC1,
+		"mov.l AL,A2\n	divul.l AR,A1:A2\n", },
 
 { MUL,	INAREG,
 	SAREG|SNAME|SOREG,	TWORD,
@@ -934,7 +935,7 @@ struct optab table[] = {
 		"ZD", },
 #endif
 
-{ OPLOG,	FORCC,
+{ OPLOG,	INCREG|FORCC,
 	SCREG,	TLL,
 	SCREG,	TLL,
 		0,	RESCC|RLEFT, /* trash left nodes */

@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: main.c,v 1.6 2014/10/12 11:52:13 ragge Exp 	*/	
+/*	$NetBSD: main.c,v 1.1.1.4 2016/02/09 20:28:59 plunky Exp $	*/
 
 /*
  * Copyright (c) 2002 Anders Magnusson. All rights reserved.

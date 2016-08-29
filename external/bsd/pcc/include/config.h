@@ -25,9 +25,6 @@
 /* Using ELF ABI */
 #define ELFABI 1
 
-/* Define to 1 if you have the `basename' function. */
-#define HAVE_BASENAME 1
-
 /* Define to 1 if printf supports C99 size specifiers */
 #define HAVE_C99_FORMAT 1
 
@@ -116,16 +113,16 @@
 #define PACKAGE_BUGREPORT "pcc@lists.ludd.ltu.se"
 
 /* Define to the full name of this package. */
-#define PACKAGE_NAME "pcc"
+#define PACKAGE_NAME "Portable C Compiler"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "pcc 1.2.0.DEVEL"
+#define PACKAGE_STRING "Portable C Compiler 1.2.0.DEVEL"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "pcc"
 
 /* Define to the home page for this package. */
-#define PACKAGE_URL ""
+#define PACKAGE_URL "http://pcc.ludd.ltu.se/"
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "1.2.0.DEVEL"
@@ -164,7 +161,7 @@
 /* #undef TLS */
 
 /* Version string */
-/* #define VERSSTR "pcc 1.2.0.DEVEL 20141228 for i386-pc-minix" */
+/* #define VERSSTR "Portable C Compiler 1.2.0.DEVEL 20160208 for i386-pc-minix" */
 
 /* Size of wide-character type in chars */
 #define WCHAR_SIZE 4

@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: ccconfig.h,v 1.19 2014/12/24 12:35:38 plunky Exp 	*/	
+/*	$NetBSD: ccconfig.h,v 1.1.1.6 2016/02/09 20:29:21 plunky Exp $	*/
 
 /*
  * Currently only supports console applications.

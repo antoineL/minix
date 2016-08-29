@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: table.c,v 1.28 2014/10/12 10:05:28 ragge Exp 	*/	
+/*	$NetBSD: table.c,v 1.1.1.5 2016/02/09 20:28:37 plunky Exp $	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

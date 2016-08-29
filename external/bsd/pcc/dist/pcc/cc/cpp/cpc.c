@@ -1,4 +1,5 @@
-/*      Id      */
+/*      Id: cpc.c,v 1.7 2016/01/10 16:17:45 ragge Exp       */	
+/*      $NetBSD: cpc.c,v 1.1.1.1 2016/02/09 20:28:42 plunky Exp $      */
 
 /*
  * Copyright (c) 2014 Anders Magnusson (ragge@ludd.luth.se).
@@ -69,7 +70,7 @@ yyparse(void)
 	expr(&n1);
 	if (n1.op == 0)
 		error("division by zero");
-	if (ctok != '\n')
+	if (ctok != WARN)
 		error("junk after expression");
 	return (int)n1.nd_val;
 }
@@ -187,7 +188,7 @@ qloop(void (*fun)(ND *), ND *n1, int a0, int a1, int a2, int a3)
 static void
 gnum(int o, ND *n1)
 {
-	n1->op = o;
+	n1->op = yynode.op;
 	n1->nd_val = yynode.nd_val;
 	shft();
 }
@@ -215,22 +216,6 @@ eterm(ND *n1)
 		gnum(o, n1);
 		break;
 
-	case DEFINED:
-		shft();
-		if (ctok == '(') {
-			shft();
-			if (ctok != NUMBER)
-				error("bad defined");
-			gnum(ctok, n1);
-			if (ctok != ')')
-				error("bad defined");
-			shft();
-			break;
-		} else if (ctok != NUMBER)
-			error("bad defined");
-		gnum(ctok, n1);
-		break;
-
 	case '(':
 		shft();
 		expr(n1);
@@ -240,7 +225,7 @@ eterm(ND *n1)
 		}
 		/* FALLTHROUGH */
 	default:
-		error("bad terminal %s (%d)", yytext, o);
+		error("bad terminal (%d)", o);
 		break;
 	}
 }
@@ -268,7 +253,18 @@ eval(int op, ND *n1, ND *n2)
 		case '!': n1->nd_val = !n1->nd_val; n1->op = NUMBER; break;
 		}
 		return;
-	} else if (n2->op == 0) {
+	} 
+
+	if (op == OROR && n1->nd_val) {
+		n1->nd_val = 1, n1->op = NUMBER;
+		return;
+	}
+	if (op == ANDAND && n1->nd_val == 0) {
+		n1->op = NUMBER;
+		return;
+	}
+
+	if (n2->op == 0) {
 		n1->op = 0;
 		return;
 	}
@@ -283,7 +279,7 @@ eval(int op, ND *n1, ND *n2)
 		n1->op = NUMBER;
 		break;
 	case ANDAND:
-		n1->nd_val = (n1->nd_val && n2->nd_val);
+		n1->nd_val = n2->nd_val != 0;
 		n1->op = NUMBER;
 		break;
 	case '+': n1->nd_val += n2->nd_val; break;

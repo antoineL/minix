@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: local.c,v 1.16 2016/01/30 17:26:19 ragge Exp 	*/	
+/*	$NetBSD: local.c,v 1.1.1.2 2016/02/09 20:28:34 plunky Exp $	*/
 /*
  * Copyright (c) 2014 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -27,6 +28,22 @@
 
 #include "pass1.h"
 
+#undef NIL
+#define NIL NULL
+
+#ifdef LANG_CXX
+#define P1ND NODE
+#define p1nfree nfree
+#define p1fwalk fwalk
+#define p1tcopy tcopy
+#define p1alloc talloc
+#else
+#define	NODE P1ND
+#define	nfree p1nfree
+#define	fwalk p1fwalk
+#endif
+
+
 /*	this file contains code which is dependent on the target machine */
 
 int gotnr;
@@ -37,14 +54,15 @@ int gotnr;
 static struct symtab *
 picsymtab(char *p, char *s, char *s2)
 {
-	struct symtab *sp = inlalloc(sizeof(struct symtab));
+	struct symtab *sp = permalloc(sizeof(struct symtab));
 	size_t len = strlen(p) + strlen(s) + strlen(s2) + 1;
 	
-	sp->sname = sp->soname = inlalloc(len);
-	strlcpy(sp->soname, p, len);
-	strlcat(sp->soname, s, len);
-	strlcat(sp->soname, s2, len);
-	sp->sap = NULL;
+	sp->sname = permalloc(len);
+	strlcpy(sp->sname, p, len);
+	strlcat(sp->sname, s, len);
+	strlcat(sp->sname, s2, len);
+	sp->sap = attr_new(ATTR_SONAME, 1);
+	sp->sap->sarg(0) = sp->sname;
 	sp->sclass = EXTERN;
 	sp->sflags = sp->slevel = 0;
 	sp->stype = 0xdeadbeef;
@@ -62,8 +80,7 @@ picext(NODE *p)
 	char *name;
 
 	q = tempnode(gotnr, PTR|VOID, 0, 0);
-	if ((name = p->n_sp->soname) == NULL)
-		name = p->n_sp->sname;
+	name = getexname(p->n_sp);
 
 #ifdef notdef
 	struct attr *ga;
@@ -90,6 +107,16 @@ picext(NODE *p)
 	return q;
 }
 
+static char *
+getsoname(struct symtab *sp)
+{
+	struct attr *ap;
+	return (ap = attr_find(sp->sap, ATTR_SONAME)) ?
+	    ap->sarg(0) : sp->sname;
+	
+}
+
+
 static NODE *
 picstatic(NODE *p)
 {
@@ -99,20 +126,19 @@ picstatic(NODE *p)
 	q = tempnode(gotnr, PTR|VOID, 0, 0);
 	if (p->n_sp->slevel > 0) {
 		char buf[32];
+		if ((p->n_sp->sflags & SMASK) == SSTRING)
+			p->n_sp->sflags |= SASG;
 		snprintf(buf, 32, LABFMT, (int)p->n_sp->soffset);
 		sp = picsymtab("", buf, "@GOT");
 	} else {
-		char *name;
-		if ((name = p->n_sp->soname) == NULL)
-			name = p->n_sp->sname;
-		sp = picsymtab("", name, "@GOT");
+		sp = picsymtab("", getsoname(p->n_sp), "@GOT");
 	}
 	
 	sp->sclass = STATIC;
 	sp->stype = p->n_sp->stype;
 	r = xbcon(0, sp, INT);
 	q = buildtree(PLUS, q, r);
-	q = block(UMUL, q, 0, p->n_type, p->n_df, p->n_ap);
+	q = block(UMUL, q, 0, PTR|VOID, 0, 0);
 	q = block(UMUL, q, 0, p->n_type, p->n_df, p->n_ap);
 	q->n_sp = p->n_sp; /* for init */
 	nfree(p);
@@ -157,25 +183,23 @@ clocal(NODE *p)
 		case AUTO:
 			/* fake up a structure reference */
 			r = block(REG, NIL, NIL, PTR+STRTY, 0, 0);
-			r->n_lval = 0;
+			slval(r, 0);
 			r->n_rval = FPREG;
 			p = stref(block(STREF, r, p, 0, 0, 0));
 			break;
 
 		case REGISTER:
 			p->n_op = REG;
-			p->n_lval = 0;
+			slval(p, 0);
 			p->n_rval = q->soffset;
 			break;
 
 		case USTATIC:
 		case STATIC:
-//printf("pre-static\n"); fwalk(p, eprint, 0);
 			if (kflag == 0)
 				break;
 			if (blevel > 0 && !statinit)
 				p = picstatic(p);
-//printf("post-static\n"); fwalk(p, eprint, 0);
 			break;
 
 		case EXTERN:
@@ -295,14 +319,14 @@ myp2tree(NODE *p)
 	sp->sflags = 0;
 	sp->stype = p->n_type;
 	sp->squal = (CON >> TSHIFT);
-	sp->sname = sp->soname = NULL;
+	sp->sname = NULL;
 
 	locctr(DATA, sp);
 	defloc(sp);
 	ninval(0, tsize(sp->stype, sp->sdf, sp->sap), p);
 
 	p->n_op = NAME;
-	p->n_lval = 0;
+	slval(p, 0);
 	p->n_sp = sp;
 
 }
@@ -347,14 +371,14 @@ spalloc(NODE *t, NODE *p, OFFSZ off)
 
 	/* sub the size from sp */
 	sp = block(REG, NIL, NIL, UNSIGNED+PTR, 0, 0);
-	sp->n_lval = 0;
+	slval(sp, 0);
 	sp->n_rval = STKREG;
 	p = (buildtree(MINUSEQ, sp, p));
 	ecomp(p);
 
 	/* save the address of sp */
 	sp = block(REG, NIL, NIL, PTR+UNSIGNED, t->n_df, t->n_ap);
-	sp->n_lval = 0;
+	slval(sp, 0);
 	sp->n_rval = STKREG;
 	t->n_type = sp->n_type;
 	p = (buildtree(ASSIGN, t, sp)); /* Emit! */
@@ -376,7 +400,7 @@ ninval(CONSZ off, int fsz, NODE *p)
 	switch (p->n_type) {
 	case LDOUBLE:
 		u.i[2] = 0;
-		u.l = (long double)p->n_dcon;
+		u.l = (long double)((union flt *)p->n_dcon)->fp;
 #if defined(HOST_LITTLE_ENDIAN)
 		/* XXX probably broken on most hosts */
 		printf("\t.long\t0x%x,0x%x,0x%x\n", u.i[2], u.i[1], u.i[0]);
@@ -385,7 +409,7 @@ ninval(CONSZ off, int fsz, NODE *p)
 #endif
 		break;
 	case DOUBLE:
-		u.d = (double)p->n_dcon;
+		u.d = (double)((union flt *)p->n_dcon)->fp;
 #if defined(HOST_LITTLE_ENDIAN)
 		printf("\t.long\t0x%x,0x%x\n", u.i[1], u.i[0]);
 #else
@@ -393,7 +417,7 @@ ninval(CONSZ off, int fsz, NODE *p)
 #endif
 		break;
 	case FLOAT:
-		u.f = (float)p->n_dcon;
+		u.f = (float)((union flt *)p->n_dcon)->fp;
 		printf("\t.long\t0x%x\n", u.i[0]);
 		break;
 
@@ -450,8 +474,7 @@ defzero(struct symtab *sp)
 	int off, al;
 	char *name;
 
-	if ((name = sp->soname) == NULL)
-		name = exname(sp->sname);
+	name = getexname(sp);
 	off = tsize(sp->stype, sp->sdf, sp->sap);
 	SETOFF(off,SZCHAR);
 	off /= SZCHAR;
@@ -495,7 +518,7 @@ fixdef(struct symtab *sp)
 	/* not many as'es have this directive */
 	if ((ga = attr_find(sp->sap, GCC_ATYP_WEAKREF)) != NULL) {
 		char *wr = ga->sarg(0);
-		char *sn = sp->soname ? sp->soname : sp->sname;
+		char *sn = getsoname(sp);
 		if (wr == NULL) {
 			if ((ga = attr_find(sp->sap, GCC_ATYP_ALIAS))) {
 				wr = ga->sarg(0);
@@ -508,7 +531,7 @@ fixdef(struct symtab *sp)
 	} else
 	       if ((ga = attr_find(sp->sap, GCC_ATYP_ALIAS)) != NULL) {
 		char *an = ga->sarg(0);
-		char *sn = sp->soname ? sp->soname : sp->sname;
+		char *sn = getsoname(sp);
 		char *v;
 
 		v = attr_find(sp->sap, GCC_ATYP_WEAK) ? "weak" : "globl";
@@ -516,13 +539,14 @@ fixdef(struct symtab *sp)
 		printf("\t.set %s,%s\n", sn, an);
 	}
 	if (alias != NULL && (sp->sclass != PARAM)) {
-		printf("\t.globl %s\n", exname(sp->soname));
-		printf("%s = ", exname(sp->soname));
+		char *name = getexname(sp);
+		printf("\t.globl %s\n", name);
+		printf("%s = ", name);
 		printf("%s\n", exname(alias));
 		alias = NULL;
 	}
 	if ((constructor || destructor) && (sp->sclass != PARAM)) {
-		NODE *p = talloc();
+		NODE *p = p1alloc();
 
 		p->n_op = NAME;
 		p->n_sp =

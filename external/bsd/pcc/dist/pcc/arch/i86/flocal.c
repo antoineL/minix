@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: flocal.c,v 1.1 2014/09/16 10:47:35 ragge Exp 	*/	
+/*	$NetBSD: flocal.c,v 1.1.1.1 2016/02/09 20:28:37 plunky Exp $	*/
 /*
  * Copyright(C) Caldera International Inc. 2001-2002. All rights reserved.
  *

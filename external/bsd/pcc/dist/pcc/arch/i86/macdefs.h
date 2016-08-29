@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: macdefs.h,v 1.6 2015/11/24 17:35:11 ragge Exp 	*/	
+/*	$NetBSD: macdefs.h,v 1.1.1.1 2016/02/09 20:28:39 plunky Exp $	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -307,12 +308,6 @@ int COLORMAP(int c, int *r);
 #define SDLLINDIRECT	SLOCAL3
 
 /*
- * i86-specific node flags.
- */
-#define FSTDCALL	NLOCAL1
-#define FFPPOP		NLOCAL2
-
-/*
  * i86-specific interpass stuff.
  */
 
@@ -336,3 +331,6 @@ int xasmconstregs(char *);
 #define	MYSETXARG if (XASMVAL(cw) == 'q') {	\
 	c = 'r'; addalledges(&ablock[SI]); addalledges(&ablock[DI]); }
 
+/* target specific attributes */
+#define	ATTR_MI_TARGET	ATTR_I86_FPPOP
+#define NATIVE_FLOATING_POINT

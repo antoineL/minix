@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: cc.c,v 1.304 2015/12/29 09:27:06 ragge Exp 	*/	
+/*	$NetBSD: cc.c,v 1.1.1.7 2016/02/09 20:28:41 plunky Exp $	*/
 
 /*-
  * Copyright (c) 2011 Joerg Sonnenberger <joerg@NetBSD.org>.
@@ -100,6 +101,7 @@
 #include <unistd.h>
 #endif
 #include <assert.h>
+#include <time.h>
 
 #ifdef  _WIN32
 #include <windows.h>
@@ -126,8 +128,11 @@
 
 /* default program names in pcc */
 /* May be overridden if cross-compiler is generated */
+#ifndef	CXXPROGNAME		/* name as C++ front end */
+#define	CXXPROGNAME	"c++"
+#endif
 #ifndef CPPROGNAME
-#define	CPPROGNAME	"cpp"	/* cc used as cpp */
+#define	CPPROGNAME	"cpp"	/* name as CPP front end */
 #endif
 #ifndef PREPROCESSOR
 #define	PREPROCESSOR	"cpp"	/* "real" preprocessor name */
@@ -291,7 +296,7 @@ int	Xflag;
 int	nostartfiles, Bstatic, shared;
 int	nostdinc, nostdlib;
 int	pthreads;
-int	xgnu89, xgnu99;
+int	xgnu89, xgnu99, c89defs, c99defs, c11defs;
 int 	ascpp;
 #ifdef CHAR_UNSIGNED
 int	xuchar = 1;
@@ -301,6 +306,7 @@ int	xuchar = 0;
 int	cxxflag;
 int	cppflag;
 int	printprogname, printfilename;
+enum { SC11, STRAD, SC89, SGNU89, SC99, SGNU99 } cstd;
 
 #ifdef SOFTFLOAT
 int	softfloat = 1;
@@ -449,9 +455,9 @@ main(int argc, char *argv[])
 	else
 		t = argv[0];
 
-	if (match(t, "p++")) {
+	if (match(t, CXXPROGNAME)) {
 		cxxflag = 1;
-	} else if (match(t, "cpp") || match(t, CPPROGNAME)) {
+	} else if (match(t, CPPROGNAME)) {
 		Eflag = cppflag = 1;
 	}
 
@@ -536,6 +542,8 @@ main(int argc, char *argv[])
 				return 0;
 			} else if (strncmp(argp, "--sysroot=", 10) == 0) {
 				sysroot = argp + 10;
+			} else if (strncmp(argp, "--sysroot", 9) == 0) {
+				sysroot = nxtopt(argp);
 			} else if (strcmp(argp, "--param") == 0) {
 				/* NOTHING YET */;
 				(void)nxtopt(0); /* ignore arg */
@@ -723,6 +731,12 @@ main(int argc, char *argv[])
 				oerror(argp);
 			break;
 
+		case 'R':
+			if (argp[2] == 0)
+				argp = cat(argp, nxtopt(0));
+			strlist_append(&middle_linker_flags, argp);
+			break;
+
 		case 'r':
 			rflag = 1;
 			break;
@@ -747,9 +761,13 @@ main(int argc, char *argv[])
 			} else if (strncmp(argp, "-std", 4) == 0) {
 				if (strcmp(&argp[5], "gnu99") == 0 ||
 				    strcmp(&argp[5], "gnu9x") == 0)
-					xgnu99 = 1;
+					cstd = SGNU99;
+				if (strcmp(&argp[5], "c89") == 0)
+					cstd = SC89;
 				if (strcmp(&argp[5], "gnu89") == 0)
-					xgnu89 = 1;
+					cstd = SGNU89;
+				if (strcmp(&argp[5], "c99") == 0)
+					cstd = SC99;
 			} else
 				oerror(argp);
 			break;
@@ -761,6 +779,7 @@ main(int argc, char *argv[])
 
 		case 't':
 			tflag++;
+			cstd = STRAD;
 			break;
 
 		case 'o':
@@ -904,6 +923,19 @@ main(int argc, char *argv[])
 			ninput--;
 		}
 	}
+	if (tflag && Eflag == 0)
+		errorx(8,"-t only allowed fi -E given");
+
+	/* Correct C standard */
+	switch (cstd) {
+	case STRAD: break;
+	case SC89: c89defs = 1; break;
+	case SGNU89: xgnu89 = c89defs = 1; break;
+	case SC99: c89defs = c99defs = 1; break;
+	case SGNU99: c89defs = c99defs = xgnu99 = 1; break;
+	case SC11: c89defs = c11defs = 1; break;
+	}
+
 	if (ninput == 0 && !(printprogname || printfilename))
 		errorx(8, "no input files");
 	if (outfile && (cflag || Sflag || Eflag) && ninput > 1)
@@ -970,7 +1002,7 @@ main(int argc, char *argv[])
 		 * C preprocessor
 		 */
 		ascpp = match(suffix, "S");
-		if (ascpp || match(suffix, "c") || cxxsuf(suffix)) {
+		if (ascpp || cppflag || match(suffix, "c") || cxxsuf(suffix)) {
 			/* find out next output file */
 			if (Mflag || MDflag || MMDflag) {
 				char *Mofile = NULL;
@@ -1151,6 +1183,38 @@ find_file(const char *file, struct strlist *path, int mode)
 	return xstrdup(file);
 }
 
+#ifdef TWOPASS
+static int
+compile_input(char *input, char *output)
+{
+	struct strlist args;
+	char *tfile;
+	int retval;
+
+	strlist_append(&temp_outputs, tfile = gettmp());
+
+	strlist_init(&args);
+	strlist_append_list(&args, &compiler_flags);
+	strlist_append(&args, input);
+	strlist_append(&args, tfile);
+	strlist_prepend(&args,
+	    find_file(cxxflag ? "cxx0" : "cc0", &progdirs, X_OK));
+	retval = strlist_exec(&args);
+	strlist_free(&args);
+	if (retval)
+		return retval;
+
+	strlist_init(&args);
+	strlist_append_list(&args, &compiler_flags);
+	strlist_append(&args, tfile);
+	strlist_append(&args, output);
+	strlist_prepend(&args,
+	    find_file(cxxflag ? "cxx1" : "cc1", &progdirs, X_OK));
+	retval = strlist_exec(&args);
+	strlist_free(&args);
+	return retval;
+}
+#else
 static int
 compile_input(char *input, char *output)
 {
@@ -1167,6 +1231,7 @@ compile_input(char *input, char *output)
 	strlist_free(&args);
 	return retval;
 }
+#endif
 
 static int
 assemble_input(char *input, char *output)
@@ -1540,6 +1605,9 @@ struct flgcheck {
 	char *def;
 } cppflgcheck[] = {
 	{ &vflag, 1, "-v" },
+	{ &c99defs, 1, "-D__STDC_VERSION__=199901L" },
+	{ &c11defs, 1, "-D__STDC_VERSION__=201112L" },
+	{ &c89defs, 1, "-D__STDC__=1" },
 	{ &freestanding, 1, "-D__STDC_HOSTED__=0" },
 	{ &freestanding, 0, "-D__STDC_HOSTED__=1" },
 	{ &cxxflag, 1, "-D__cplusplus" },
@@ -1595,6 +1663,13 @@ static char *defflags[] = {
 	"-D__ORDER_LITTLE_ENDIAN__=1234",
 	"-D__ORDER_BIG_ENDIAN__=4321",
 	"-D__ORDER_PDP_ENDIAN__=3412",
+#ifndef NO_C11
+	"-D__STDC_UTF_16__=1",
+	"-D__STDC_UTF_32__=1",
+	"-D__STDC_NO_ATOMICS__=1",
+	"-D__STDC_NO_THREADS__=1",
+#endif
+
 /*
  * These should probably be changeable during runtime...
  */
@@ -1734,6 +1809,21 @@ setup_cpp_flags(void)
 	    "-D__GNUC_GNU_INLINE__" : "-D__GNUC_STDC_INLINE__");
 
 	cksetflags(cppflgcheck, &preprocessor_flags, 'p');
+
+	/* Create time and date defines */
+	if (tflag == 0) {
+		char buf[100]; /* larger than needed */
+		time_t t = time(NULL);
+		char *n = ctime(&t);
+	
+		n[19] = 0;
+		snprintf(buf, sizeof buf, "-D__TIME__=\"%s\"", n+11);
+		strlist_prepend(&preprocessor_flags, xstrdup(buf));
+
+		n[24] = n[11] = 0;
+		snprintf(buf, sizeof buf, "-D__DATE__=\"%s%s\"", n+4, n+20);
+		strlist_prepend(&preprocessor_flags, xstrdup(buf));
+	}
 
 	for (i = 0; fpflags[i]; i++)
 		strlist_prepend(&preprocessor_flags, fpflags[i]);

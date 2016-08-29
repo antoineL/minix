@@ -242,3 +242,11 @@ int COLORMAP(int c, int *r);
 
 #define HAVE_WEAKREF
 #define TARGET_FLT_EVAL_METHOD	2	/* all as long double */
+
+/*
+ * Extended assembler macros.
+ */
+int targarg(char *w, void *arg);
+#define XASM_TARGARG(w, ary) (w[1] == 'b' ? w++, 0 : targarg(w, ary))
+
+#define NATIVE_FLOATING_POINT

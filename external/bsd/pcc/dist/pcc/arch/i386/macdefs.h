@@ -1,4 +1,5 @@
-/*	Id	*/
+/*	Id: macdefs.h,v 1.93 2015/11/24 17:35:11 ragge Exp 	*/	
+/*	$NetBSD: macdefs.h,v 1.1.1.6 2016/02/09 20:28:16 plunky Exp $	*/
 /*
  * Copyright (c) 2003 Anders Magnusson (ragge@ludd.luth.se).
  * All rights reserved.
@@ -321,17 +322,16 @@ int COLORMAP(int c, int *r);
 #define SDLLINDIRECT	SLOCAL3
 
 /*
- * i386-specific node flags.
- */
-#define FSTDCALL	NLOCAL1
-#define FFPPOP		NLOCAL2
-
-/*
  * i386-specific interpass stuff.
  */
 
 #define TARGET_IPP_MEMBERS			\
 	int ipp_argstacksize;
+
+#define	target_members_print_prolog(ipp) printf("%d", ipp->ipp_argstacksize)
+#define	target_members_print_epilog(ipp) printf("%d", ipp->ipp_argstacksize)
+#define target_members_read_prolog(ipp) ipp->ipp_argstacksize = rdint(&p)
+#define target_members_read_epilog(ipp) ipp->ipp_argstacksize = rdint(&p)
 
 #define	HAVE_WEAKREF
 #define	TARGET_FLT_EVAL_METHOD	2	/* all as long double */
@@ -367,3 +367,7 @@ extern int msettings;
 #define	MI586	0x004
 #define	MI686	0x008
 #define	MCPUMSK	0x00f
+
+/* target specific attributes */
+#define	ATTR_MI_TARGET	ATTR_I386_FCMPLRET, ATTR_I386_FPPOP
+#define NATIVE_FLOATING_POINT

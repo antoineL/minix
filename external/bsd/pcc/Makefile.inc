@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile.inc,v 1.18 2014/07/24 20:20:48 plunky Exp $
+#	$NetBSD: Makefile.inc,v 1.19 2016/02/09 20:40:45 plunky Exp $
 
 PCC_DIR:=${.PARSEDIR}
 PCC_DIST=${PCC_DIR}/dist/pcc
@@ -6,9 +6,13 @@ PCC_LIBS=${PCC_DIR}/dist/pcc-libs
 
 # (these strings will be updated by the prepare-import.sh script)
 PCC_VERSION=1.2.0.DEVEL
-PCC_DATESTAMP=20141228
+PCC_DATESTAMP=20160208
 
+.if !defined(__MINIX)
 TARGOS = netbsd
+.else
+TARGOS = minix
+.endif
 
 .if ${MACHINE_ARCH} == "mipsel" || ${MACHINE_ARCH} == "mipseb"
 TARGMACH = mips
@@ -22,10 +26,11 @@ TARGMACH = ${MACHINE_ARCH}
 ERROR!= echo "ERROR: ${TARGMACH} not yet supported - write code!" >&2;echo
 .endif
 
-VERSSTR="pcc ${PCC_VERSION} ${PCC_DATESTAMP} for ${TARGOS}-${TARGMACH}"
+VERSSTR="pcc ${PCC_VERSION} ${PCC_DATESTAMP} for ${TARGMACH}--${TARGOS}"
 
 CPPFLAGS+=	-DGCC_COMPAT
 CPPFLAGS+=	-DPCC_DEBUG
+CPPFLAGS+=	-D_ISOC99_SOURCE
 CPPFLAGS+=	-DVERSSTR=${VERSSTR:Q}
 CPPFLAGS+=	-Dos_${TARGOS}
 CPPFLAGS+=	-Dmach_${TARGMACH}
@@ -46,5 +51,7 @@ CPPFLAGS+=	-DTARGET_BIG_ENDIAN
 ERROR!= echo "ERROR: Unknown TARGET_ENDIANNESS" >&2;echo
 .endif
 
+.if !defined(__MINIX)
 # top-level Makefile.inc
 .include "../../../Makefile.inc"
+.endif
