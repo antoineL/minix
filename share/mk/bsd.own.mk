@@ -451,10 +451,15 @@ TOOL_OBJC.clang=	${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-clang
 TOOL_OPT.clang=		${TOOLDIR}/bin/opt
 TOOL_LLC.clang=		${TOOLDIR}/bin/llc
 
-# PCC supports C and Fortran
+# PCC supports C; Fortran is broken; C++ is experimental, use HAVE_PXX=yes to activate
 TOOL_CC.pcc=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-pcc
 TOOL_CPP.pcc=		${TOOLDIR}/libexec/${MACHINE_GNU_PLATFORM}-cpp
+.if defined(HAVE_PXX)
 TOOL_CXX.pcc=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-p++
+.else
+# force breaking the build if invoked, since no tool will be built
+TOOL_CXX.pcc=		false
+.endif
 
 #
 # Make sure DESTDIR is set, so that builds with these tools always
@@ -598,10 +603,12 @@ TOOL_CXX.gcc=	c++
 TOOL_FC.gcc=	g77
 TOOL_OBJC.gcc=	gcc
 
-# PCC supports C and Fortran
+# PCC supports C; Fortran is broken; C++ is experimental, use HAVE_PXX=yes to activate
 TOOL_CC.pcc=		pcc
 TOOL_CPP.pcc=		/usr/libexec/pcpp
+.if defined(HAVE_PXX)
 TOOL_CXX.pcc=		p++
+.endif
 
 TOOL_AMIGAAOUT2BB=	amiga-aout2bb
 TOOL_AMIGAELF2BB=	amiga-elf2bb
